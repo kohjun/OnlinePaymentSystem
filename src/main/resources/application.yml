@@ -1,13 +1,13 @@
 spring:
   application:
-    name: payment-system
+    name: payment-service  # 마이크로서비스 이름으로 변경
 
   # 데이터베이스 설정
   datasource:
     url: jdbc:h2:mem:paymentdb
     driver-class-name: org.h2.Driver
-    username: sa
-    password:
+    username: root
+    password: 1111
 
   jpa:
     hibernate:
@@ -34,16 +34,42 @@ spring:
     bootstrap-servers: localhost:9092
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      # JSON 시리얼라이저 추가 (이벤트 객체 전송용)
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      # 안정성 강화 설정
+      acks: all
+      retries: 3
+      properties:
+        # 멱등성 활성화
+        enable.idempotence: true
+        # 재시도 간격
+        retry.backoff.ms: 1000
     consumer:
       group-id: payment-group
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      # JSON 역직렬화 신뢰 패키지 설정
+      properties:
+        spring.json.trusted.packages: com.example.payment.event,com.example.payment.dto
+      # 수동 커밋 설정
+      enable-auto-commit: false
 
 # 서버 포트 설정
 server:
   port: 8080
+
+# 액추에이터 엔드포인트 설정 (모니터링용)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
 
 # 로깅 설정
 logging:
@@ -51,3 +77,14 @@ logging:
     root: INFO
     com.example.payment: DEBUG
     org.hibernate.SQL: DEBUG
+    # Kafka 로깅 레벨 조정
+    org.apache.kafka: WARN
+
+# 결제 서비스 커스텀 설정
+payment:
+  processing:
+    retry-count: 3
+    timeout-seconds: 30
+  topics:
+    payment-requests: payment-requests
+    payment-events: payment-events

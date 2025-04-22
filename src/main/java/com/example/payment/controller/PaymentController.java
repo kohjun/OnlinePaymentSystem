@@ -1,48 +1,71 @@
 package com.example.payment.controller;
 
+import com.example.payment.dto.PaymentRequest;
+import com.example.payment.dto.PaymentResponse;
 import com.example.payment.service.CacheService;
-import org.springframework.http.ResponseEntity;
-import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-
+import com.example.payment.service.PaymentService;
 import com.example.payment.util.RateLimiter;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/payment")
 @RequiredArgsConstructor
+@Slf4j
 public class PaymentController {
 
-    private final KafkaTemplate<String, String> kafkaTemplate;
+    private final PaymentService paymentService;
     private final RateLimiter rateLimiter;
     private final CacheService cacheService;
 
     @PostMapping("/process")
-    public ResponseEntity<?> processPayment(@RequestBody String request) {
-        // 클라이언트 ID 추출 (실제로는 인증 정보에서 가져올 수 있음)
-        String clientId = "test-client";
+    public ResponseEntity<PaymentResponse> processPayment(@RequestBody PaymentRequest request) {
+        // 클라이언트 ID 추출
+        String clientId = request.getClientId();
 
         // 속도 제한 적용
         if (!rateLimiter.allowRequest(clientId)) {
-            return ResponseEntity.status(429).body("Too many requests");
+            return ResponseEntity.status(429).body(
+                    PaymentResponse.builder()
+                            .paymentId(request.getPaymentId())
+                            .status("REJECTED")
+                            .message("Too many requests")
+                            .build()
+            );
         }
 
-        // 캐시 확인 - 중복 결제 방지 로직 등에 활용 가능
-        String cacheKey = "payment:" + request.hashCode();
+        // 중복 결제 방지
+        String cacheKey = "payment:" + (request.getIdempotencyKey() != null ?
+                request.getIdempotencyKey() : request.getPaymentId());
         if (cacheService.hasKey(cacheKey)) {
-            return ResponseEntity.ok("Payment already processed");
+            return ResponseEntity.ok(
+                    PaymentResponse.builder()
+                            .paymentId(request.getPaymentId())
+                            .status("DUPLICATE")
+                            .message("Payment already processed")
+                            .build()
+            );
         }
 
-        // Kafka에 결제 요청 발행
-        kafkaTemplate.send("payment-requests", request);
+        // 결제 처리 시작
+        PaymentResponse response = paymentService.initiatePayment(request);
 
-        // 결제 요청 처리 중 상태를 캐시에 저장
-        cacheService.cacheData(cacheKey, "PROCESSING", 60);
+        return ResponseEntity.accepted().body(response);
+    }
 
-        return ResponseEntity.accepted().body("Payment request accepted");
+    @GetMapping("/{paymentId}")
+    public ResponseEntity<PaymentResponse> getPaymentStatus(@PathVariable String paymentId) {
+        PaymentResponse response = paymentService.getPaymentStatus(paymentId);
+
+        if (response == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        return ResponseEntity.ok(response);
     }
 }
