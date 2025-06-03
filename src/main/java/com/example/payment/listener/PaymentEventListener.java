@@ -27,27 +27,18 @@ public class PaymentEventListener {
      * 결제 이벤트 처리
      */
     @KafkaListener(topics = "payment-events", groupId = "order-group")
-    public void handlePaymentEvent(String eventJson) {
+    public void handlePaymentEvent(PaymentEvent event) {
         try {
-            PaymentEvent event = objectMapper.readValue(eventJson, PaymentEvent.class);
-            PaymentResponse payment = event.getPayload();
-            String orderId = payment.getOrderId();
+            log.info("Received payment event: {}", event.getEventType());
 
-            log.info("Received payment event: {} for order: {}", event.getEventType(), orderId);
-
-            switch (event.getEventType()) {
-                case PaymentEvent.PAYMENT_PROCESSED:
-                    orderService.completePayment(orderId);
-                    break;
-
-                case PaymentEvent.PAYMENT_FAILED:
-                    orderService.failPayment(orderId, payment.getMessage());
-                    break;
-
-                default:
-                    log.info("Ignoring payment event: {}", event.getEventType());
+            if (PaymentEvent.PAYMENT_PROCESSED.equals(event.getEventType())) {
+                orderService.completePayment(event.getPayload().getOrderId());
+            } else if (PaymentEvent.PAYMENT_FAILED.equals(event.getEventType())) {
+                orderService.failPayment(
+                        event.getPayload().getOrderId(),
+                        event.getPayload().getMessage()
+                );
             }
-
         } catch (Exception e) {
             log.error("Error processing payment event: {}", e.getMessage(), e);
         }

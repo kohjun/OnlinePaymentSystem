@@ -22,20 +22,33 @@ repositories {
 }
 
 dependencies {
-    // 스프링 부트 기본 의존성
+    // Spring Boot 기본 의존성
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    // JSON 처리
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+
+    // HTTP 클라이언트
     implementation 'org.apache.httpcomponents:httpclient:4.5.13'
 
-
-    // Redis 관련 의존성
+    // Redis 관련
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'io.lettuce:lettuce-core'
+    implementation 'org.apache.commons:commons-pool2'
 
-    // Kafka 관련 의존성
+    // Resilience4j (Spring Boot 3 대응)
+    implementation 'io.github.resilience4j:resilience4j-spring-boot3:2.1.0'
+    implementation 'io.github.resilience4j:resilience4j-circuitbreaker:2.1.0'
+    implementation 'io.github.resilience4j:resilience4j-timelimiter:2.1.0'
+    implementation 'io.github.resilience4j:resilience4j-ratelimiter:2.1.0'
+
+
+    // Kafka
     implementation 'org.springframework.kafka:spring-kafka'
 
-    // 데이터베이스
+    // H2 Database (개발용 인메모리 DB)
     runtimeOnly 'com.h2database:h2'
 
     // Lombok

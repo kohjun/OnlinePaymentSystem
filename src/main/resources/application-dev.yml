@@ -1,0 +1,80 @@
+# src/main/resources/application-dev.yml
+spring:
+  profiles: dev
+
+  application:
+    name: payment-service-dev
+
+  # Redis 설정 (개발 환경)
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+      timeout: 2000
+
+  # Kafka 설정 (개발 환경)
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+    consumer:
+      group-id: payment-group-dev
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: com.example.payment.event,com.example.payment.dto
+      enable-auto-commit: false
+
+# 서버 설정
+server:
+  port: 8080
+
+# 액추에이터 설정
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+# Resilience4j 설정 (개발 환경)
+resilience4j:
+  circuitbreaker:
+    instances:
+      redis:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s  # 개발 환경에서는 빠른 복구
+      kafka:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+
+# 로깅 설정
+logging:
+  level:
+    root: INFO
+    com.example.payment: DEBUG
+    org.springframework.data.redis: DEBUG
+    org.apache.kafka: WARN
+
+# 결제 서비스 설정
+payment:
+  processing:
+    retry-count: 3
+    timeout-seconds: 30
+  topics:
+    payment-requests: payment-requests
+    payment-events: payment-events
+  cache:
+    default-ttl: 300   # 개발 환경에서는 짧은 TTL (5분)
+    payment-ttl: 1800  # 결제 데이터 캐시 TTL (30분)

@@ -28,9 +28,6 @@ public class RateLimiter {
     private static final int DEFAULT_CAPACITY = 10; // 초당 최대 요청 수
     private static final int DEFAULT_REFILL_RATE = 2; // 초당 충전되는 토큰 수
 
-    // 다양한 서비스 계층 정의
-    private static final int PREMIUM_CAPACITY = 50;
-    private static final int PREMIUM_REFILL_RATE = 10;
 
     /**
      * 클라이언트 요청의 허용 여부 결정
@@ -39,8 +36,8 @@ public class RateLimiter {
      */
     public boolean allowRequest(String clientId) {
         // 클라이언트 등급에 따른 토큰 버킷 파라미터 선택
-        int capacity = isPremuimClient(clientId) ? PREMIUM_CAPACITY : DEFAULT_CAPACITY;
-        int refillRate = isPremuimClient(clientId) ? PREMIUM_REFILL_RATE : DEFAULT_REFILL_RATE;
+        int capacity =  DEFAULT_CAPACITY;
+        int refillRate =  DEFAULT_REFILL_RATE;
 
         // 로컬 캐시에서 버킷 확인
         TokenBucket bucket = localBuckets.computeIfAbsent(clientId,

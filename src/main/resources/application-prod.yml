@@ -1,0 +1,121 @@
+# src/main/resources/application-prod.yml
+spring:
+  profiles: prod
+
+  application:
+    name: payment-service
+
+  # Redis 클러스터 설정
+  data:
+    redis:
+      timeout: 5000
+      cluster:
+        nodes:
+          - redis-node1:6379
+          - redis-node2:6379
+          - redis-node3:6379
+          - redis-node4:6379
+          - redis-node5:6379
+          - redis-node6:6379
+        max-redirects: 3
+      password: ${REDIS_PASSWORD:5422}  # 환경 변수 또는 기본값 사용
+
+  # Kafka 설정
+  kafka:
+    bootstrap-servers: ${KAFKA_SERVERS:kafka-1:9092,kafka-2:9092,kafka-3:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+      properties:
+        enable.idempotence: true
+        retry.backoff.ms: 1000
+        max.in.flight.requests.per.connection: 1
+        batch.size: 16384
+        linger.ms: 10
+        compression.type: snappy
+    consumer:
+      group-id: ${KAFKA_GROUP_ID:payment-group}
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: com.example.payment.event,com.example.payment.dto
+        fetch.min.bytes: 1024
+        fetch.max.wait.ms: 500
+        max.poll.records: 500
+      enable-auto-commit: false
+
+# 서버 설정
+server:
+  port: ${SERVER_PORT:8080}
+  tomcat:
+    max-threads: 200
+    max-connections: 10000
+    accept-count: 100
+    connection-timeout: 5000
+
+# 액추에이터 설정 (모니터링용)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      percentiles:
+        http.server.requests: 0.5, 0.95, 0.99
+
+# Resilience4j 설정
+resilience4j:
+  circuitbreaker:
+    instances:
+      redis:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 30s
+        failureRateThreshold: 50
+        recordExceptions:
+          - org.springframework.data.redis.RedisConnectionFailureException
+          - java.util.concurrent.TimeoutException
+          - java.io.IOException
+      kafka:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        permittedNumberOfCallsInHalfOpenState: 3
+        waitDurationInOpenState: 30s
+        failureRateThreshold: 50
+
+# 로깅 설정
+logging:
+  level:
+    root: INFO
+    com.example.payment: INFO
+    org.springframework.data.redis: WARN
+    org.apache.kafka: WARN
+
+# 결제 서비스 설정
+payment:
+  processing:
+    retry-count: 3
+    timeout-seconds: 60
+  topics:
+    payment-requests: payment-requests
+    payment-events: payment-events
+  cache:
+    default-ttl: 3600  # 기본 캐시 TTL (초)
+    payment-ttl: 86400 # 결제 데이터 캐시 TTL (초)
