@@ -215,12 +215,7 @@ public class KafkaConfig {
 
         DefaultErrorHandler errorHandler = new DefaultErrorHandler(recoverer, backOff);
 
-        // Non-retryable exceptions
-        errorHandler.addNotRetryableExceptions(
-                IllegalArgumentException.class,
-                com.fasterxml.jackson.core.JsonParseException.class,
-                org.springframework.kafka.support.serializer.JsonDeserializer.JsonEOFException.class
-        );
+
 
         return errorHandler;
     }
