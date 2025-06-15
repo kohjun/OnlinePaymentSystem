@@ -2,50 +2,42 @@ spring:
   application:
     name: payment-service
 
-  # 데이터베이스 설정 - MySQL로 변경
+  # 데이터베이스 설정 - H2로 변경 (테스트 간편화)
   datasource:
-    url: jdbc:mysql://localhost:3306/payment_db?serverTimezone=UTC&characterEncoding=UTF-8&useSSL=false&allowPublicKeyRetrieval=true
-    username: root
-    password: rhwnsjn1357
-    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
     hikari:
       maximum-pool-size: 20
       minimum-idle: 5
-      idle-timeout: 300000
-      connection-timeout: 20000
-      validation-timeout: 5000
-      max-lifetime: 1800000
 
   # JPA 설정
   jpa:
     hibernate:
-      ddl-auto: update  # 운영환경에서는 validate 사용 권장
-    show-sql: false
+      ddl-auto: create-drop  # 테스트용
+    show-sql: true
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.MySQL8Dialect
+        dialect: org.hibernate.dialect.H2Dialect
         format_sql: true
-        use_sql_comments: true
-        jdbc:
-          batch_size: 20
-        order_inserts: true
-        order_updates: true
     open-in-view: false
 
-  # Redis 설정 - 클러스터 모드
+  # SQL 초기화 설정 (data.sql 실행용)
+  sql:
+    init:
+      mode: always  # data.sql을 항상 실행
+      encoding: UTF-8
+      separator: ;
+      continue-on-error: false  # 오류 시 중단
+
+  # Redis 설정 - 단일 모드로 변경
   data:
     redis:
+      host: localhost
+      port: 6379
       timeout: 5000
-      cluster:
-        nodes:
-          - redis-node1:6379
-          - redis-node2:6379
-          - redis-node3:6379
-          - redis-node4:6379
-          - redis-node5:6379
-          - redis-node6:6379
-        max-redirects: 3
-      password: 5422
+      # 클러스터 설정 제거하고 단일 모드 사용
       lettuce:
         pool:
           max-active: 8
@@ -61,13 +53,6 @@ spring:
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
       acks: all
       retries: 3
-      properties:
-        enable.idempotence: true
-        retry.backoff.ms: 1000
-        max.in.flight.requests.per.connection: 1
-        batch.size: 16384
-        linger.ms: 10
-        compression.type: snappy
     consumer:
       group-id: payment-group
       auto-offset-reset: earliest
@@ -75,80 +60,25 @@ spring:
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
         spring.json.trusted.packages: com.example.payment.event,com.example.payment.dto
-        fetch.min.bytes: 1024
-        fetch.max.wait.ms: 500
-        max.poll.records: 500
       enable-auto-commit: false
 
 # 서버 설정
 server:
   port: 8080
-  servlet:
-    context-path: /
-  tomcat:
-    threads:
-      max: 200
-      min-spare: 10
-    max-connections: 8192
-    accept-count: 100
-
-# 액추에이터 설정
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info,metrics,prometheus,beans,env
-  endpoint:
-    health:
-      show-details: always
-      probes:
-        enabled: true
-  metrics:
-    export:
-      prometheus:
-        enabled: true
 
 # 로깅 설정
 logging:
   level:
     root: INFO
     com.example.payment: DEBUG
-    org.hibernate.SQL: DEBUG
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
-    org.apache.kafka: WARN
-    org.springframework.kafka: INFO
-    org.springframework.transaction: DEBUG
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
-    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
-  file:
-    name: logs/payment-service.log
-    max-size: 100MB
-    max-history: 10
+    org.springframework.kafka: WARN
+    org.springframework.boot.autoconfigure.sql.init: DEBUG  # SQL 초기화 로그
 
 # 결제 서비스 커스텀 설정
 payment:
   processing:
     retry-count: 3
     timeout-seconds: 60
-    reservation-ttl-minutes: 15
   topics:
     payment-requests: payment-requests
     payment-events: payment-events
-    inventory-events: inventory-events
-    critical-alerts: critical-alerts
-  inventory:
-    cleanup-interval-minutes: 1
-    consistency-check-interval-minutes: 5
-    low-stock-threshold: 10
-
-# 스케줄링 설정
-spring.task:
-  scheduling:
-    pool:
-      size: 10
-  execution:
-    pool:
-      core-size: 10
-      max-size: 20
-      queue-capacity: 100

@@ -50,6 +50,7 @@ dependencies {
 
     // H2 Database (개발용 인메모리 DB)
     runtimeOnly 'com.h2database:h2'
+    testImplementation 'com.h2database:h2'
 
     // Lombok
     compileOnly 'org.projectlombok:lombok'

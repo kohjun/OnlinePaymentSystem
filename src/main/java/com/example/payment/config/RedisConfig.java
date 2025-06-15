@@ -9,8 +9,8 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.data.redis.connection.RedisClusterConfiguration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -18,21 +18,24 @@ import org.springframework.data.redis.serializer.Jackson2JsonRedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 import java.time.Duration;
-import java.util.List;
 
+/**
+ * Redis 단일 모드 설정
+ * - 클러스터 모드 대신 단일 Redis 인스턴스 사용
+ */
 @Configuration
 public class RedisConfig {
 
-    @Value("${spring.data.redis.cluster.nodes}")
-    private List<String> clusterNodes;
+    @Value("${spring.data.redis.host:localhost}")
+    private String redisHost;
 
-    @Value("${spring.data.redis.cluster.max-redirects:3}")
-    private Integer maxRedirects;
+    @Value("${spring.data.redis.port:6379}")
+    private int redisPort;
 
     @Value("${spring.data.redis.password:}")
     private String password;
 
-    @Value("${spring.data.redis.timeout:2000}")
+    @Value("${spring.data.redis.timeout:5000}")
     private long timeout;
 
     @Bean
@@ -51,20 +54,22 @@ public class RedisConfig {
 
     @Bean
     public RedisConnectionFactory redisConnectionFactory() {
-        RedisClusterConfiguration clusterConfiguration = new RedisClusterConfiguration(clusterNodes);
-        clusterConfiguration.setMaxRedirects(maxRedirects);
+        // 단일 Redis 설정
+        RedisStandaloneConfiguration redisConfig = new RedisStandaloneConfiguration();
+        redisConfig.setHostName(redisHost);
+        redisConfig.setPort(redisPort);
 
-        if (password != null && !password.isEmpty()) {
-            clusterConfiguration.setPassword(password);
+        if (password != null && !password.trim().isEmpty()) {
+            redisConfig.setPassword(password);
         }
 
+        // Lettuce 클라이언트 설정
         LettuceClientConfiguration clientConfig = LettuceClientConfiguration.builder()
                 .commandTimeout(Duration.ofMillis(timeout))
-                .readFrom(io.lettuce.core.ReadFrom.REPLICA_PREFERRED)  // Prefer reading from replicas
                 .clientOptions(createClientOptions())
                 .build();
 
-        return new LettuceConnectionFactory(clusterConfiguration, clientConfig);
+        return new LettuceConnectionFactory(redisConfig, clientConfig);
     }
 
     private io.lettuce.core.ClientOptions createClientOptions() {
@@ -74,9 +79,9 @@ public class RedisConfig {
                 .socketOptions(io.lettuce.core.SocketOptions.builder()
                         .connectTimeout(Duration.ofMillis(timeout))
                         .keepAlive(true)
-                        .tcpNoDelay(true)  // 네트워크 지연 시간(latency) 최적화
+                        .tcpNoDelay(true)
                         .build())
-                .publishOnScheduler(true)  // Async processing performance improvement
+                .publishOnScheduler(true)
                 .timeoutOptions(io.lettuce.core.TimeoutOptions.builder()
                         .fixedTimeout(Duration.ofMillis(timeout))
                         .build())
@@ -98,7 +103,7 @@ public class RedisConfig {
         template.setValueSerializer(jacksonSerializer);
         template.setHashValueSerializer(jacksonSerializer);
 
-        // Transaction support - limited in cluster mode
+        // 단일 모드에서는 트랜잭션 지원 가능
         template.setEnableTransactionSupport(false);
 
         template.afterPropertiesSet();
