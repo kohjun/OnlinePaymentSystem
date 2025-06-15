@@ -1,10 +1,9 @@
 package com.example.payment;
 
-import com.example.payment.dto.OrderItem;
-import com.example.payment.dto.OrderRequest;
-import com.example.payment.dto.OrderResponse;
-import com.example.payment.service.CacheService;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.example.payment.domain.model.order.OrderItem;
+import com.example.payment.presentation.dto.request.OrderRequest;
+import com.example.payment.presentation.dto.response.OrderResponse;
+import com.example.payment.infrastructure.persistance.redis.repository.CacheService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
