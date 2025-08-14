@@ -1,25 +1,26 @@
 /**
  * ========================================
- * 고성능 OLTP용 주문 서비스 (패턴 B 전용)
+ * 3. OrderService (주문 생성 및 관리 전담)
  * ========================================
- * 플로우: 재고 즉시 선점 → 결제 처리 → 주문 생성
  */
 package com.example.payment.application.service;
 
-import java.time.LocalDateTime;
-import java.util.UUID;
-
+import com.example.payment.domain.model.CompletedOrder;
+import com.example.payment.domain.model.ReservationState;
+import com.example.payment.domain.repository.ReservationRepository;
 import com.example.payment.infrastructure.persistance.redis.repository.CacheService;
+import com.example.payment.infrastructure.util.IdGenerator;
+import com.example.payment.presentation.dto.response.OrderResponse;
+import com.example.payment.application.dto.CreateOrderRequest;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.example.payment.presentation.dto.request.OrderRequest;
-import com.example.payment.presentation.dto.response.OrderResponse;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import java.time.LocalDateTime;
+import java.util.Optional;
 
 @Service
 @Slf4j
@@ -27,153 +28,37 @@ import lombok.extern.slf4j.Slf4j;
 public class OrderService {
 
     private final CacheService cacheService;
-    private final InventoryManagementService inventoryService;
+    private final ReservationRepository reservationRepository;
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper;
 
-    // 고성능 설정
-    private static final int RESERVATION_TTL = 300; // 5분 (한정 상품)
-    private static final String ORDER_EVENTS_TOPIC = "order-events";
-
     /**
-     * 1단계: 재고 즉시 선점 (패턴 B의 핵심)
-     * 고트래픽 상황에서 최고 성능을 위한 설계
-     */
-    @Transactional(timeout = 5) // 매우 빠른 트랜잭션
-    public OrderResponse reserveInventory(OrderRequest request) {
-        log.info("Attempting inventory reservation: productId={}, customerId={}, quantity={}",
-                request.getProductId(), request.getCustomerId(), request.getQuantity());
-
-        try {
-            // 1. 실시간 재고 확인
-            boolean isAvailable = inventoryService.checkRealTimeAvailability(
-                    request.getProductId(),
-                    request.getQuantity()
-            );
-
-            if (!isAvailable) {
-                log.warn("Product out of stock: productId={}", request.getProductId());
-                return OrderResponse.outOfStock(request.getProductId());
-            }
-
-            // 2. 즉시 재고 선점 (원자적 처리)
-            String reservationId = generateReservationId();
-            String paymentId = UUID.randomUUID().toString();
-            LocalDateTime expiresAt = LocalDateTime.now().plusSeconds(RESERVATION_TTL);
-
-            InventoryManagementService.InventoryReservationResult result =
-                    inventoryService.reserveInventoryImmediately(
-                            request.getProductId(),
-                            reservationId,
-                            request.getQuantity(),
-                            request.getCustomerId(),
-                            RESERVATION_TTL
-                    );
-
-            if (!result.isSuccess()) {
-                log.warn("Inventory reservation failed: error={}", result.getErrorMessage());
-                return OrderResponse.failed(request.getProductId(),
-                        "RESERVATION_FAILED", result.getErrorMessage());
-            }
-
-            // 3. 예약 상태 캐시 저장
-            ReservationState reservationState = ReservationState.builder()
-                    .reservationId(reservationId)
-                    .paymentId(paymentId)
-                    .productId(request.getProductId())
-                    .customerId(request.getCustomerId())
-                    .quantity(request.getQuantity())
-                    .amount(request.getAmount())
-                    .currency(request.getCurrency())
-                    .status("RESERVED")
-                    .createdAt(LocalDateTime.now())
-                    .expiresAt(expiresAt)
-                    .build();
-
-            String cacheKey = "reservation:" + reservationId;
-            cacheService.cacheData(cacheKey, reservationState, RESERVATION_TTL);
-
-            // 4. 성공 응답 생성
-            OrderResponse response = OrderResponse.reserved(
-                    reservationId,
-                    paymentId,
-                    request.getProductId(),
-                    request.getQuantity(),
-                    request.getAmount(),
-                    request.getCurrency(),
-                    expiresAt
-            );
-
-            log.info("Inventory reserved successfully: reservationId={}, expiresAt={}",
-                    reservationId, expiresAt);
-
-            return response;
-
-        } catch (Exception e) {
-            log.error("Error in inventory reservation: productId={}, error={}",
-                    request.getProductId(), e.getMessage(), e);
-            return OrderResponse.failed(request.getProductId(),
-                    "SYSTEM_ERROR", "시스템 오류로 상품을 확보할 수 없습니다");
-        }
-    }
-
-    /**
-     * 예약 상태 조회 (고성능 캐시 기반)
-     */
-    public ReservationStatusResponse getReservationStatus(String reservationId) {
-        try {
-            String cacheKey = "reservation:" + reservationId;
-            Object reservationData = cacheService.getCachedData(cacheKey);
-
-            if (reservationData == null) {
-                return null; // 404 처리
-            }
-
-            ReservationState reservation;
-            if (reservationData instanceof ReservationState) {
-                reservation = (ReservationState) reservationData;
-            } else {
-                reservation = objectMapper.convertValue(reservationData, ReservationState.class);
-            }
-
-            // 만료 확인
-            boolean isExpired = LocalDateTime.now().isAfter(reservation.getExpiresAt());
-            if (isExpired) {
-                // 만료된 예약 정리
-                cleanupExpiredReservation(reservationId, reservation);
-            }
-
-            return ReservationStatusResponse.builder()
-                    .reservationId(reservationId)
-                    .productId(reservation.getProductId())
-                    .quantity(reservation.getQuantity())
-                    .status(isExpired ? "EXPIRED" : reservation.getStatus())
-                    .expiresAt(reservation.getExpiresAt())
-                    .remainingSeconds(isExpired ? 0 :
-                            java.time.Duration.between(LocalDateTime.now(), reservation.getExpiresAt()).getSeconds())
-                    .build();
-
-        } catch (Exception e) {
-            log.error("Error checking reservation status: reservationId={}", reservationId, e);
-            return null;
-        }
-    }
-
-    /**
-     * 결제 완료 후 주문 생성 (패턴 B의 마지막 단계)
+     * 주문 생성 (결제 성공 후 호출됨)
+     * - PaymentProcessingService에서 결제 성공 시 호출
      */
     @Transactional(timeout = 10)
-    public String createConfirmedOrder(CreateOrderRequest request) {
+    public String createOrder(CreateOrderRequest request) {
+        log.info("Creating order: customerId={}, productId={}, reservationId={}",
+                request.getCustomerId(), request.getProductId(), request.getReservationId());
+
         try {
-            log.info("Creating confirmed order after payment: paymentId={}, reservationId={}",
-                    request.getPaymentId(), request.getReservationId());
+            // 1. 주문 ID 생성
+            String orderId = IdGenerator.generateOrderId();
 
-            // 주문 ID 생성 (결제 완료 후에 비로소!)
-            String orderId = "ORD-" + System.currentTimeMillis() + "-" +
-                    UUID.randomUUID().toString().substring(0, 8);
+            // 2. 예약 정보 업데이트 (주문 ID 연결)
+            Optional<com.example.payment.domain.model.inventory.Reservation> reservationOpt =
+                    reservationRepository.findById(request.getReservationId());
 
-            // 주문 정보를 캐시에 저장
-            CompletedOrder completedOrder = CompletedOrder.builder()
+            if (reservationOpt.isPresent()) {
+                com.example.payment.domain.model.inventory.Reservation reservation = reservationOpt.get();
+                reservation.setOrderId(orderId);
+                reservation.setPaymentId(request.getPaymentId());
+                reservation.setStatus(com.example.payment.domain.model.inventory.Reservation.ReservationStatus.CONFIRMED);
+                reservationRepository.save(reservation);
+            }
+
+            // 3. 주문 정보 생성 및 캐시 저장
+            CompletedOrder order = CompletedOrder.builder()
                     .orderId(orderId)
                     .customerId(request.getCustomerId())
                     .productId(request.getProductId())
@@ -186,53 +71,241 @@ public class OrderService {
                     .createdAt(LocalDateTime.now())
                     .build();
 
+            // 4. 주문 정보 캐시에 저장 (빠른 조회를 위해)
             String orderCacheKey = "order:" + orderId;
-            cacheService.cacheData(orderCacheKey, completedOrder, 86400); // 24시간
+            cacheService.cacheData(orderCacheKey, order, 86400); // 24시간
 
-            // 주문 생성 이벤트 발행 (트랜잭션 완료 후)
-            publishOrderCreatedEvent(completedOrder);
+            // 5. 고객별 주문 목록에도 추가 (선택적)
+            String customerOrdersKey = "customer-orders:" + request.getCustomerId();
+            // 구현 생략: 고객별 주문 목록 관리
 
-            log.info("Order created successfully: orderId={}", orderId);
+            log.info("Order created successfully: orderId={}, customerId={}", orderId, request.getCustomerId());
+
             return orderId;
 
         } catch (Exception e) {
-            log.error("Error creating confirmed order: paymentId={}, error={}",
-                    request.getPaymentId(), e.getMessage(), e);
-            throw new RuntimeException("주문 생성 실패: " + e.getMessage(), e);
+            log.error("Error creating order: customerId={}, reservationId={}",
+                    request.getCustomerId(), request.getReservationId(), e);
+            throw new RuntimeException("주문 생성 중 오류가 발생했습니다: " + e.getMessage(), e);
         }
     }
 
-    // ========== 헬퍼 메서드들 ==========
+    /**
+     * 주문 상태 조회
+     */
+    public OrderResponse getOrderStatus(String orderId) {
+        log.debug("Getting order status: orderId={}", orderId);
 
-    private void cleanupExpiredReservation(String reservationId, ReservationState reservation) {
         try {
-            // 재고 해제
-            inventoryService.cancelReservation(reservationId);
+            // 주문 캐시에서 조회
+            String cacheKey = "order:" + orderId;
+            Object cachedData = cacheService.getCachedData(cacheKey);
 
-            // 캐시 정리
-            String cacheKey = "reservation:" + reservationId;
-            cacheService.deleteCache(cacheKey);
+            if (cachedData != null) {
+                CompletedOrder order;
+                if (cachedData instanceof CompletedOrder) {
+                    order = (CompletedOrder) cachedData;
+                } else {
+                    order = objectMapper.convertValue(cachedData, CompletedOrder.class);
+                }
 
-            log.info("Expired reservation cleaned up: reservationId={}", reservationId);
+                return OrderResponse.builder()
+                        .orderId(order.getOrderId())
+                        .customerId(order.getCustomerId())
+                        .totalAmount(order.getAmount())
+                        .currency(order.getCurrency())
+                        .status(order.getStatus())
+                        .message("주문이 확정되었습니다.")
+                        .createdAt(order.getCreatedAt())
+                        .updatedAt(LocalDateTime.now())
+                        .build();
+            }
+
+            // 주문을 찾을 수 없음
+            log.warn("Order not found: orderId={}", orderId);
+            return null;
 
         } catch (Exception e) {
-            log.error("Error cleaning up expired reservation: reservationId={}", reservationId, e);
+            log.error("Error getting order status: orderId={}", orderId, e);
+            return OrderResponse.builder()
+                    .orderId(orderId)
+                    .status("ERROR")
+                    .message("주문 조회 중 오류가 발생했습니다.")
+                    .updatedAt(LocalDateTime.now())
+                    .build();
         }
     }
 
-    private void publishOrderCreatedEvent(CompletedOrder order) {
+    /**
+     * 주문 취소 (특정 조건에서만 가능)
+     */
+    @Transactional
+    public boolean cancelOrder(String orderId, String customerId, String reason) {
+        log.info("Attempting to cancel order: orderId={}, customerId={}", orderId, customerId);
+
         try {
-            String eventJson = objectMapper.writeValueAsString(order);
-            kafkaTemplate.send(ORDER_EVENTS_TOPIC, order.getOrderId(), eventJson);
-            log.debug("Order created event published: orderId={}", order.getOrderId());
+            // 1. 주문 정보 조회
+            String cacheKey = "order:" + orderId;
+            Object cachedData = cacheService.getCachedData(cacheKey);
+
+            if (cachedData == null) {
+                log.warn("Order not found for cancellation: orderId={}", orderId);
+                return false;
+            }
+
+            CompletedOrder order;
+            if (cachedData instanceof CompletedOrder) {
+                order = (CompletedOrder) cachedData;
+            } else {
+                order = objectMapper.convertValue(cachedData, CompletedOrder.class);
+            }
+
+            // 2. 취소 가능 여부 확인
+            if (!customerId.equals(order.getCustomerId())) {
+                log.warn("Unauthorized order cancellation attempt: orderId={}, customerId={}", orderId, customerId);
+                return false;
+            }
+
+            if (!"CONFIRMED".equals(order.getStatus())) {
+                log.warn("Cannot cancel order in status: orderId={}, status={}", orderId, order.getStatus());
+                return false;
+            }
+
+            // 3. 취소 처리 (비즈니스 규칙에 따라 제한적으로 허용)
+            // 예: 티켓의 경우 공연 24시간 전까지만 취소 가능 등
+
+            // 주문 상태 변경
+            order.setStatus("CANCELLED");
+            cacheService.cacheData(cacheKey, order, 86400);
+
+            // 4. 관련 예약도 취소 상태로 변경
+            if (order.getReservationId() != null) {
+                Optional<com.example.payment.domain.model.inventory.Reservation> reservationOpt =
+                        reservationRepository.findById(order.getReservationId());
+
+                if (reservationOpt.isPresent()) {
+                    com.example.payment.domain.model.inventory.Reservation reservation = reservationOpt.get();
+                    reservation.setStatus(com.example.payment.domain.model.inventory.Reservation.ReservationStatus.CANCELLED);
+                    reservationRepository.save(reservation);
+                }
+            }
+
+            // 5. 취소 이벤트 발행 (환불, 재고 복원 등을 위해)
+            publishOrderCancelledEvent(orderId, reason);
+
+            log.info("Order cancelled successfully: orderId={}", orderId);
+            return true;
 
         } catch (Exception e) {
-            log.error("Error publishing order created event: orderId={}", order.getOrderId(), e);
+            log.error("Error cancelling order: orderId={}, customerId={}", orderId, customerId, e);
+            return false;
         }
     }
 
-    private String generateReservationId() {
-        return "RSV-" + System.currentTimeMillis() + "-" +
-                UUID.randomUUID().toString().substring(0, 8);
+    /**
+     * 고객의 주문 목록 조회
+     */
+    public java.util.List<OrderResponse> getCustomerOrders(String customerId) {
+        log.debug("Getting customer orders: customerId={}", customerId);
+
+        try {
+            // TODO: 실제 구현에서는 페이징 처리 필요
+            String customerOrdersKey = "customer-orders:" + customerId;
+            Object cachedData = cacheService.getCachedData(customerOrdersKey);
+
+            if (cachedData != null) {
+                // 캐시된 주문 목록 반환
+                // 구현 생략
+            }
+
+            // DB에서 조회하는 로직도 필요
+            // 구현 생략
+
+            return java.util.Collections.emptyList();
+
+        } catch (Exception e) {
+            log.error("Error getting customer orders: customerId={}", customerId, e);
+            return java.util.Collections.emptyList();
+        }
+    }
+
+    /**
+     * 주문 취소 이벤트 발행
+     */
+    private void publishOrderCancelledEvent(String orderId, String reason) {
+        try {
+            String eventJson = objectMapper.writeValueAsString(java.util.Map.of(
+                    "eventType", "ORDER_CANCELLED",
+                    "orderId", orderId,
+                    "reason", reason,
+                    "timestamp", System.currentTimeMillis()
+            ));
+
+            kafkaTemplate.send("order-events", orderId, eventJson);
+            log.info("Order cancelled event published: orderId={}", orderId);
+
+        } catch (Exception e) {
+            log.error("Error publishing order cancelled event: orderId={}", orderId, e);
+        }
+    }
+
+    /**
+     * 주문 상태 업데이트 (배송, 완료 등)
+     */
+    @Transactional
+    public boolean updateOrderStatus(String orderId, String newStatus, String message) {
+        log.info("Updating order status: orderId={}, newStatus={}", orderId, newStatus);
+
+        try {
+            String cacheKey = "order:" + orderId;
+            Object cachedData = cacheService.getCachedData(cacheKey);
+
+            if (cachedData == null) {
+                log.warn("Order not found for status update: orderId={}", orderId);
+                return false;
+            }
+
+            CompletedOrder order;
+            if (cachedData instanceof CompletedOrder) {
+                order = (CompletedOrder) cachedData;
+            } else {
+                order = objectMapper.convertValue(cachedData, CompletedOrder.class);
+            }
+
+            // 상태 업데이트
+            order.setStatus(newStatus);
+            cacheService.cacheData(cacheKey, order, 86400);
+
+            // 상태 변경 이벤트 발행
+            publishOrderStatusChangedEvent(orderId, newStatus, message);
+
+            log.info("Order status updated: orderId={}, newStatus={}", orderId, newStatus);
+            return true;
+
+        } catch (Exception e) {
+            log.error("Error updating order status: orderId={}, newStatus={}", orderId, newStatus, e);
+            return false;
+        }
+    }
+
+    /**
+     * 주문 상태 변경 이벤트 발행
+     */
+    private void publishOrderStatusChangedEvent(String orderId, String newStatus, String message) {
+        try {
+            String eventJson = objectMapper.writeValueAsString(java.util.Map.of(
+                    "eventType", "ORDER_STATUS_CHANGED",
+                    "orderId", orderId,
+                    "newStatus", newStatus,
+                    "message", message != null ? message : "",
+                    "timestamp", System.currentTimeMillis()
+            ));
+
+            kafkaTemplate.send("order-events", orderId, eventJson);
+            log.debug("Order status changed event published: orderId={}, status={}", orderId, newStatus);
+
+        } catch (Exception e) {
+            log.error("Error publishing order status changed event: orderId={}", orderId, e);
+        }
     }
 }

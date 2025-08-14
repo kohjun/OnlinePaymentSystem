@@ -1,76 +1,87 @@
 package com.example.payment.presentation.dto.response;
 
+import com.example.payment.domain.model.order.OrderItem;
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import com.fasterxml.jackson.annotation.JsonFormat;
-import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Collections;
 
-/**
- * 재고 선점 응답 DTO
-  */
 @Data
 @Builder
-@AllArgsConstructor
 @NoArgsConstructor
-@JsonInclude(JsonInclude.Include.NON_NULL)
+@AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class OrderResponse {
-
-    // 재고 선점 성공 시
-    private String reservationId;           // 예약 ID (결제 시 필요)
-    private String paymentId;              // 결제 ID (미리 생성)
-    private String productId;
-    private Integer quantity;
-    private BigDecimal amount;
+    private String orderId;
+    private String customerId;
+    private List<OrderItem> items;
+    private BigDecimal totalAmount;
     private String currency;
-
-    // 상태 정보
-    private String status;                 // RESERVED, EXPIRED, FAILED
+    private String status;
     private String message;
 
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
-    private LocalDateTime expiresAt;       // 예약 만료 시간
+    private LocalDateTime createdAt;
 
-    // 에러 정보
-    private String errorCode;
-    private String errorMessage;
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    private LocalDateTime updatedAt;
 
-    // 고성능을 위한 팩토리 메서드들
-    public static OrderResponse reserved(String reservationId, String paymentId,
-                                         String productId, Integer quantity,
-                                         BigDecimal amount, String currency,
-                                         LocalDateTime expiresAt) {
+    /**
+     * 에러 응답 생성 헬퍼
+     */
+    public static OrderResponse error(String orderId, String message) {
         return OrderResponse.builder()
-                .reservationId(reservationId)
-                .paymentId(paymentId)
-                .productId(productId)
-                .quantity(quantity)
-                .amount(amount)
+                .orderId(orderId)
+                .customerId("UNKNOWN")
+                .items(Collections.emptyList())
+                .totalAmount(BigDecimal.ZERO)
+                .currency("KRW")
+                .status("ERROR")
+                .message(message)
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+    }
+
+    /**
+     * 성공 응답 생성 헬퍼
+     */
+    public static OrderResponse success(String orderId, String customerId,
+                                        BigDecimal totalAmount, String currency, String status) {
+        return OrderResponse.builder()
+                .orderId(orderId)
+                .customerId(customerId)
+                .items(Collections.emptyList()) // 필요시 추가
+                .totalAmount(totalAmount)
                 .currency(currency)
-                .status("RESERVED")
-                .message("상품이 확보되었습니다. 5분 내에 결제를 완료해주세요.")
-                .expiresAt(expiresAt)
+                .status(status)
+                .message("주문 처리가 완료되었습니다.")
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
                 .build();
     }
 
-    public static OrderResponse outOfStock(String productId) {
+    /**
+     * 찾을 수 없음 응답 생성 헬퍼
+     */
+    public static OrderResponse notFound(String orderId) {
         return OrderResponse.builder()
-                .productId(productId)
-                .status("OUT_OF_STOCK")
-                .errorCode("INSUFFICIENT_INVENTORY")
-                .errorMessage("상품이 품절되었습니다")
-                .build();
-    }
-
-    public static OrderResponse failed(String productId, String errorCode, String errorMessage) {
-        return OrderResponse.builder()
-                .productId(productId)
-                .status("FAILED")
-                .errorCode(errorCode)
-                .errorMessage(errorMessage)
+                .orderId(orderId)
+                .customerId("UNKNOWN")
+                .items(Collections.emptyList())
+                .totalAmount(BigDecimal.ZERO)
+                .currency("KRW")
+                .status("NOT_FOUND")
+                .message("주문을 찾을 수 없습니다.")
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
                 .build();
     }
 }
