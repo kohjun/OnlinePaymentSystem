@@ -2,17 +2,12 @@ package com.example.payment.presentation.controller;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
-import com.example.payment.presentation.dto.request.OrderRequest;
-import com.example.payment.presentation.dto.response.OrderResponse;
-import com.example.payment.application.service.OrderService;
-import com.example.payment.infrastructure.util.RateLimiter;
-
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 주문 처리 API 엔드포인트
+ * 재고 선점 컨트롤러
+ * 고트래픽용 최적화 설계
  */
 @RestController
 @RequestMapping("/api/orders")
@@ -24,39 +19,44 @@ public class OrderController {
     private final RateLimiter rateLimiter;
 
     /**
-     * 새 주문 생성 API
+     * 재고 즉시 선점 (패턴 B의 1단계)
+     * POST /api/orders/reserve
      */
-    @PostMapping
-    public ResponseEntity<OrderResponse> createOrder(@RequestBody OrderRequest request) {
-        // 클라이언트 ID 추출
-        String clientId = request.getClientId();
+    @PostMapping("/reserve")
+    public ResponseEntity<OrderResponse> reserveInventory(@RequestBody OrderRequest request) {
 
-        // 속도 제한 적용
-        if (!rateLimiter.allowRequest(clientId)) {
+        // 고트래픽용 속도 제한
+        String rateLimitKey = request.getCustomerId() + ":" + request.getProductId();
+        if (!rateLimiter.allowRequest(rateLimitKey)) {
             return ResponseEntity.status(429).body(
-                    OrderResponse.builder()
-                            .status("REJECTED")
-                            .message("Too many requests, please try again later")
-                            .build()
+                    OrderResponse.failed(request.getProductId(), "RATE_LIMIT_EXCEEDED",
+                            "너무 많은 요청입니다. 잠시 후 다시 시도해주세요.")
             );
         }
 
-        // 주문 생성 처리
-        OrderResponse response = orderService.createOrder(request);
-        return ResponseEntity.accepted().body(response);
+        // 재고 즉시 선점 시도
+        OrderResponse response = orderService.reserveInventoryImmediately(request);
+
+        if ("RESERVED".equals(response.getStatus())) {
+            return ResponseEntity.ok(response);
+        } else {
+            return ResponseEntity.badRequest().body(response);
+        }
     }
 
     /**
-     * 주문 상태 조회 API
+     * 예약 상태 조회 (캐시 기반 고속 조회)
+     * GET /api/orders/reservations/{reservationId}
      */
-    @GetMapping("/{orderId}")
-    public ResponseEntity<OrderResponse> getOrderStatus(@PathVariable String orderId) {
-        OrderResponse response = orderService.getOrderStatus(orderId);
+    @GetMapping("/reservations/{reservationId}")
+    public ResponseEntity<ReservationStatusResponse> getReservationStatus(@PathVariable String reservationId) {
 
-        if (response == null) {
+        ReservationStatusResponse response = orderService.getReservationStatus(reservationId);
+
+        if (response != null) {
+            return ResponseEntity.ok(response);
+        } else {
             return ResponseEntity.notFound().build();
         }
-
-        return ResponseEntity.ok(response);
     }
 }
