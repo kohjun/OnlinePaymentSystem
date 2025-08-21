@@ -8,7 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import com.example.payment.infrastructure.persistance.redis.repository.CacheService;
 import com.example.payment.application.service.InventoryManagementService;
-
+import com.example.payment.infrastructure.buffer.WriteBufferService;
 /**
  * 시스템 상태 확인 및 관리 컨트롤러
  */
@@ -18,9 +18,18 @@ import com.example.payment.application.service.InventoryManagementService;
 @Slf4j
 public class SystemController {
 
+
+
     private final CacheService cacheService;
     private final InventoryManagementService inventoryService;
-
+    private final WriteBufferService writeBufferService;
+    /**
+     * Write Buffer 상태 조회
+     */
+    @GetMapping("/buffer/status")
+    public WriteBufferService.BufferStatus getBufferStatus() {
+        return writeBufferService.getBufferStatus();
+    }
     /**
      * 전체 시스템 상태 확인
      */

@@ -10,6 +10,7 @@ import com.example.payment.domain.model.inventory.Reservation;
 import com.example.payment.domain.repository.ReservationRepository;
 import com.example.payment.domain.repository.InventoryRepository;
 import com.example.payment.infrastructure.util.ResourceReservationService;
+import com.example.payment.infrastructure.buffer.WriteBufferService;
 import com.example.payment.infrastructure.util.IdGenerator;
 import com.example.payment.infrastructure.persistance.redis.repository.CacheService;
 import com.example.payment.presentation.dto.response.ReservationStatusResponse;
@@ -30,16 +31,15 @@ public class ReservationService {
 
     private final ResourceReservationService redisReservationService;
     private final ReservationRepository reservationRepository;
-    private final InventoryRepository inventoryRepository;
+    private final WriteBufferService writeBufferService;
     private final CacheService cacheService;
     private final ObjectMapper objectMapper;
 
-    private static final int RESERVATION_TTL_SECONDS = 300; // 5분
+    private static final int RESERVATION_TTL_SECONDS = 300;
 
     /**
      * 재고 즉시 선점 (Redis 기반 고속 처리)
      */
-    @Transactional(timeout = 5)
     public ReservationStatusResponse reserveInventory(String productId, String customerId,
                                                       Integer quantity, String clientId) {
 
@@ -50,7 +50,7 @@ public class ReservationService {
             // 1. 예약 ID 생성
             String reservationId = IdGenerator.generateReservationId();
 
-            // 2. Redis에서 원자적 재고 선점
+            // 2. Redis에서 원자적 재고 선점 (즉시 처리)
             List<Object> result = redisReservationService.reserveResource(
                     "inventory:" + productId,
                     reservationId,
@@ -63,30 +63,20 @@ public class ReservationService {
 
             if (!success) {
                 log.warn("Inventory reservation failed: productId={}, reason={}", productId, message);
-                return ReservationStatusResponse.builder()
-                        .reservationId(null)
-                        .productId(productId)
-                        .quantity(quantity)
-                        .status("FAILED")
-                        .remainingSeconds(0L)
-                        .message("재고 선점 실패: " + message)
-                        .build();
+                return ReservationStatusResponse.failed(productId, quantity, "INSUFFICIENT_INVENTORY",
+                        "재고 선점 실패: " + message);
             }
 
-            // 3. MySQL에 예약 기록 저장 (백업 및 추후 정합성 검증용)
+            // 3. MySQL 쓰기를 버퍼에 비동기 큐잉 (논블로킹) ← 핵심 변경점
             LocalDateTime expiresAt = LocalDateTime.now().plusSeconds(RESERVATION_TTL_SECONDS);
 
-            Reservation dbReservation = Reservation.builder()
-                    .id(reservationId)
-                    .productId(productId)
-                    .quantity(quantity)
-                    .status(Reservation.ReservationStatus.PENDING)
-                    .expiresAt(expiresAt)
-                    .build();
+            ReservationWriteCommand writeCommand = new ReservationWriteCommand(
+                    reservationId, productId, customerId, quantity, "PENDING", expiresAt
+            );
 
-            reservationRepository.save(dbReservation);
+            writeBufferService.enqueue(writeCommand); // 비동기 처리
 
-            // 4. 도메인 모델 생성 및 캐시 저장
+            // 4. 도메인 모델 생성 및 캐시 저장 (기존과 동일)
             ReservationState reservationState = ReservationState.builder()
                     .reservationId(reservationId)
                     .productId(productId)
@@ -103,7 +93,7 @@ public class ReservationService {
             log.info("Inventory reservation successful: reservationId={}, expiresAt={}",
                     reservationId, expiresAt);
 
-            // 5. 성공 응답 반환
+            // 5. 즉시 성공 응답 반환 (MySQL 쓰기 완료를 기다리지 않음)
             return ReservationStatusResponse.builder()
                     .reservationId(reservationId)
                     .productId(productId)
@@ -118,14 +108,8 @@ public class ReservationService {
             log.error("Error during inventory reservation: productId={}, customerId={}",
                     productId, customerId, e);
 
-            return ReservationStatusResponse.builder()
-                    .reservationId(null)
-                    .productId(productId)
-                    .quantity(quantity)
-                    .status("ERROR")
-                    .remainingSeconds(0L)
-                    .message("시스템 오류가 발생했습니다: " + e.getMessage())
-                    .build();
+            return ReservationStatusResponse.failed(productId, quantity, "SYSTEM_ERROR",
+                    "시스템 오류가 발생했습니다: " + e.getMessage());
         }
     }
 

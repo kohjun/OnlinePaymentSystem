@@ -6,6 +6,8 @@
 package com.example.payment.application.service;
 
 import com.example.payment.domain.model.CompletedOrder;
+import com.example.payment.infrastructure.buffer.WriteBufferService;
+import com.example.payment.infrastructure.buffer.OrderWriteCommand;
 import com.example.payment.domain.model.ReservationState;
 import com.example.payment.domain.repository.ReservationRepository;
 import com.example.payment.infrastructure.persistance.redis.repository.CacheService;
@@ -27,6 +29,7 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class OrderService {
 
+    private final WriteBufferService writeBufferService;
     private final CacheService cacheService;
     private final ReservationRepository reservationRepository;
     private final KafkaTemplate<String, String> kafkaTemplate;
@@ -36,7 +39,6 @@ public class OrderService {
      * 주문 생성 (결제 성공 후 호출됨)
      * - PaymentProcessingService에서 결제 성공 시 호출
      */
-    @Transactional(timeout = 10)
     public String createOrder(CreateOrderRequest request) {
         log.info("Creating order: customerId={}, productId={}, reservationId={}",
                 request.getCustomerId(), request.getProductId(), request.getReservationId());
@@ -45,17 +47,14 @@ public class OrderService {
             // 1. 주문 ID 생성
             String orderId = IdGenerator.generateOrderId();
 
-            // 2. 예약 정보 업데이트 (주문 ID 연결)
-            Optional<com.example.payment.domain.model.inventory.Reservation> reservationOpt =
-                    reservationRepository.findById(request.getReservationId());
+            // 2. MySQL 쓰기를 버퍼에 비동기 큐잉
+            OrderWriteCommand writeCommand = new OrderWriteCommand(
+                    orderId, request.getCustomerId(), request.getProductId(),
+                    request.getQuantity(), request.getAmount(), request.getCurrency(),
+                    request.getPaymentId(), request.getReservationId()
+            );
 
-            if (reservationOpt.isPresent()) {
-                com.example.payment.domain.model.inventory.Reservation reservation = reservationOpt.get();
-                reservation.setOrderId(orderId);
-                reservation.setPaymentId(request.getPaymentId());
-                reservation.setStatus(com.example.payment.domain.model.inventory.Reservation.ReservationStatus.CONFIRMED);
-                reservationRepository.save(reservation);
-            }
+            writeBufferService.enqueue(writeCommand);
 
             // 3. 주문 정보 생성 및 캐시 저장
             CompletedOrder order = CompletedOrder.builder()
