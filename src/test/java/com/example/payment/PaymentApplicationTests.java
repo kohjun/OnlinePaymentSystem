@@ -1,6 +1,6 @@
 package com.example.payment;
 
-import com.example.payment.domain.model.order.OrderItem;
+import com.example.payment.domain.model.order.Order;
 import com.example.payment.presentation.dto.request.OrderRequest;
 import com.example.payment.presentation.dto.response.OrderResponse;
 import com.example.payment.infrastructure.persistance.redis.repository.CacheService;
@@ -139,7 +139,7 @@ class SimpleOrderFlowTest {
     }
 
     private OrderRequest createSampleOrder() {
-        OrderItem item1 = OrderItem.builder()
+        Order item1 = Order.builder()
                 .productId("PROD-1001")
                 .productName("테스트 상품")
                 .quantity(1)

@@ -1,6 +1,6 @@
 package com.example.payment.presentation.dto.response;
 
-import com.example.payment.domain.model.order.OrderItem;
+import com.example.payment.domain.model.order.Order;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.AllArgsConstructor;
@@ -21,7 +21,7 @@ import java.util.Collections;
 public class OrderResponse {
     private String orderId;
     private String customerId;
-    private List<OrderItem> items;
+    private List<Order> items;
     private BigDecimal totalAmount;
     private String currency;
     private String status;

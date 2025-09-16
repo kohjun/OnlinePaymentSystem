@@ -77,35 +77,6 @@ public class OrderController {
     }
 
     /**
-     * 주문 상태 업데이트 (관리자용 - 선택적)
-     * PUT /api/orders/{orderId}/status
-     */
-    @PutMapping("/{orderId}/status")
-    public ResponseEntity<String> updateOrderStatus(@PathVariable String orderId,
-                                                    @RequestParam String newStatus,
-                                                    @RequestParam(required = false) String message) {
-
-        log.info("Order status update requested: orderId={}, newStatus={}", orderId, newStatus);
-
-        try {
-            String updateMessage = message != null ? message : "상태가 업데이트되었습니다.";
-            boolean updated = orderService.updateOrderStatus(orderId, newStatus, updateMessage);
-
-            if (updated) {
-                log.info("Order status updated: orderId={}, newStatus={}", orderId, newStatus);
-                return ResponseEntity.ok("주문 상태가 업데이트되었습니다: " + newStatus);
-            } else {
-                log.warn("Failed to update order status: orderId={}", orderId);
-                return ResponseEntity.badRequest().body("주문 상태 업데이트에 실패했습니다.");
-            }
-
-        } catch (Exception e) {
-            log.error("Error updating order status: orderId={}", orderId, e);
-            return ResponseEntity.internalServerError().body("시스템 오류가 발생했습니다.");
-        }
-    }
-
-    /**
      * 고객의 주문 목록 조회
      * GET /api/orders/customer/{customerId}
      */
