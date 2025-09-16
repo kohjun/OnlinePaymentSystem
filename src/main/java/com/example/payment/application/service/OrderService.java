@@ -58,7 +58,16 @@ public class OrderService {
             cacheService.cacheData(cacheKey, order, 86400); //하루
 
             // Buffer: DB 쓰기는 비동기
-            OrderWriteCommand writeCommand = new OrderWriteCommand(order);
+            OrderWriteCommand writeCommand = new OrderWriteCommand(
+                    orderId,
+                    customerId,
+                    productId,
+                    quantity,
+                    amount,
+                    currency,
+                    null, // paymentId는 아직 없음
+                    reservationId
+            );
             writeBufferService.enqueue(writeCommand);
 
             log.info("Order created successfully: orderId={}", orderId);
@@ -85,7 +94,7 @@ public class OrderService {
                 Order order = (Order) cachedData;
 
                 // 상태 변경
-                order.setStatus("CANCELLED");
+                order.setStatus(OrderStatus.valueOf("CANCELLED"));
                 order.setUpdatedAt(LocalDateTime.now());
 
                 // 캐시 업데이트
