@@ -1,4 +1,4 @@
-package com.example.payment.infrastructure.persistance.redis.repository;
+package com.example.payment.infrastructure.persistence.redis.repository;
 
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;

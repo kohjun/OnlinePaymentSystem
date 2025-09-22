@@ -11,6 +11,10 @@ spring:
     hikari:
       maximum-pool-size: 20
       minimum-idle: 5
+  # WAL 관련 설정 (간단 버전)
+  wal:
+    enabled: true
+    retention-days: 30  # 로그 보존 기간
 
   # JPA 설정
   jpa:
@@ -31,6 +35,17 @@ spring:
       encoding: UTF-8
       separator: ;
       continue-on-error: false  # 오류 시 중단
+  # 스레드 풀 설정
+  spring:
+    task:
+      execution:
+        pool:
+          core-size: 4
+          max-size: 8
+          queue-capacity: 100
+      scheduling:
+        pool:
+          size: 2
 
   # Redis 설정 - 단일 모드로 변경
   data:
@@ -74,6 +89,7 @@ logging:
     com.example.payment: DEBUG
     org.springframework.kafka: WARN
     org.springframework.boot.autoconfigure.sql.init: DEBUG  # SQL 초기화 로그
+    com.example.payment.infrastructure.persistence.wal: DEBUG
 
 # 결제 서비스 커스텀 설정
 payment:

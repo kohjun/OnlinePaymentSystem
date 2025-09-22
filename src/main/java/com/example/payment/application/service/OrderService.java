@@ -9,10 +9,8 @@ import com.example.payment.domain.exception.OrderException;
 import com.example.payment.domain.model.common.Money;
 import com.example.payment.domain.model.order.Order;
 import com.example.payment.domain.model.order.OrderStatus;
-import com.example.payment.infrastructure.buffer.WriteBufferService;
-import com.example.payment.infrastructure.buffer.OrderWriteCommand;
 
-import com.example.payment.infrastructure.persistance.redis.repository.CacheService;
+import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
 import com.example.payment.infrastructure.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

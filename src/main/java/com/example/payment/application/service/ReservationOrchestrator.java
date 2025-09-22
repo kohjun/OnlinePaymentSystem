@@ -1,14 +1,11 @@
 package com.example.payment.application.service;
 
 import com.example.payment.application.service.InventoryManagementService;
-import com.example.payment.application.service.OrderService;
-import com.example.payment.application.service.PaymentProcessingService;
-import com.example.payment.application.service.ReservationService;
 import com.example.payment.domain.model.inventory.InventoryConfirmation;
 import com.example.payment.domain.model.order.Order;
 import com.example.payment.domain.model.payment.Payment;
 import com.example.payment.domain.model.reservation.InventoryReservation;
-import com.example.payment.infrastructure.persistance.redis.repository.CacheService;
+import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
 import com.example.payment.infrastructure.util.IdGenerator;
 import com.example.payment.presentation.dto.request.CompleteReservationRequest;
 import com.example.payment.presentation.dto.response.CompleteReservationResponse;

@@ -3,7 +3,7 @@ package com.example.payment;
 import com.example.payment.domain.model.order.Order;
 import com.example.payment.presentation.dto.request.OrderRequest;
 import com.example.payment.presentation.dto.response.OrderResponse;
-import com.example.payment.infrastructure.persistance.redis.repository.CacheService;
+import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;

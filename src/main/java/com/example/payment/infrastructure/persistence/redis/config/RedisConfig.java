@@ -1,4 +1,4 @@
-package com.example.payment.infrastructure.persistance.redis.config;
+package com.example.payment.infrastructure.persistence.redis.config;
 
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.PropertyAccessor;

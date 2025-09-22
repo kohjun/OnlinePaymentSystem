@@ -13,7 +13,7 @@ import com.example.payment.infrastructure.util.ResourceReservationService;
 import com.example.payment.infrastructure.buffer.WriteBufferService;
 import com.example.payment.infrastructure.buffer.ReservationWriteCommand;  // 누락된 import 추가
 import com.example.payment.infrastructure.util.IdGenerator;
-import com.example.payment.infrastructure.persistance.redis.repository.CacheService;
+import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
