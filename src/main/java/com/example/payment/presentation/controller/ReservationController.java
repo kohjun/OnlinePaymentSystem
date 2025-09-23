@@ -199,7 +199,7 @@ public class ReservationController {
      * GET /api/reservations/customer/{customerId}/active
      */
     @GetMapping("/customer/{customerId}/active")
-    public ResponseEntity<java.util.List<ReservationStatusResponse>> getActiveReservations(
+    public ResponseEntity<java.util.List<ReservationResponse>> getActiveReservations(
             @PathVariable String customerId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
@@ -208,7 +208,7 @@ public class ReservationController {
                 customerId, page, size);
 
         try {
-            java.util.List<ReservationStatusResponse> reservations =
+            java.util.List<ReservationResponse> reservations =
                     reservationOrchestrator.getActiveReservationsByCustomer(customerId, page, size);
 
             return ResponseEntity.ok(reservations);

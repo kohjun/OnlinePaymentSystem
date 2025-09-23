@@ -28,7 +28,7 @@ public class PaymentController {
      */
     @PostMapping("/process")
     public ResponseEntity<PaymentResponse> processReservationPayment(
-            @Valid @RequestBody PaymentProcessRequest request) {  // 변경된 Request 타입
+            @Valid @RequestBody PaymentProcessRequest request) {
 
         log.info("Payment processing request: reservationId={}, customerId={}, amount={}",
                 request.getReservationId(), request.getCustomerId(), request.getAmount());
@@ -49,12 +49,8 @@ public class PaymentController {
             );
         }
 
-        // PaymentProcessRequest를 기존 PaymentRequest로 변환 (어댑터 패턴)
-        com.example.payment.presentation.dto.request.PaymentRequest legacyRequest =
-                convertToLegacyPaymentRequest(request);
-
-        // 예약 기반 결제 처리
-        PaymentResponse response = paymentProcessingService.processReservationPayment(legacyRequest);
+        // 예약 기반 결제 처리 - PaymentProcessRequest 직접 사용
+        PaymentResponse response = paymentProcessingService.processReservationPayment(request);
 
         // 응답 처리
         if ("COMPLETED".equals(response.getStatus())) {
@@ -70,21 +66,6 @@ public class PaymentController {
                     request.getReservationId(), response.getMessage());
             return ResponseEntity.internalServerError().body(response);
         }
-    }
-
-    // PaymentProcessRequest → PaymentRequest 변환 헬퍼
-    private com.example.payment.presentation.dto.request.PaymentRequest convertToLegacyPaymentRequest(
-            PaymentProcessRequest newRequest) {
-
-        return com.example.payment.presentation.dto.request.PaymentRequest.builder()
-                .paymentId(newRequest.getPaymentId())
-                .reservationId(newRequest.getReservationId())
-                .customerId(newRequest.getCustomerId())
-                .amount(newRequest.getAmount())
-                .currency(newRequest.getCurrency())
-                .paymentMethod(newRequest.getPaymentMethod())
-                .build();
-
     }
 
     /**
@@ -123,12 +104,41 @@ public class PaymentController {
      */
     @PostMapping("/{paymentId}/retry")
     public ResponseEntity<PaymentResponse> retryPayment(@PathVariable String paymentId,
-                                                        @RequestBody PaymentRequest request) {
+                                                        @Valid @RequestBody PaymentProcessRequest request) {
 
         log.info("Payment retry requested: paymentId={}, reservationId={}",
                 paymentId, request.getReservationId());
 
         // 기본적으로 새로운 결제 처리와 동일
         return processReservationPayment(request);
+    }
+
+    /**
+     * 결제 환불
+     * POST /api/payments/{paymentId}/refund
+     */
+    @PostMapping("/{paymentId}/refund")
+    public ResponseEntity<String> refundPayment(@PathVariable String paymentId,
+                                                @RequestParam String customerId,
+                                                @RequestParam(required = false) String reason) {
+
+        log.info("Payment refund requested: paymentId={}, customerId={}, reason={}",
+                paymentId, customerId, reason);
+
+        try {
+            boolean refunded = paymentProcessingService.refundPayment(paymentId);
+
+            if (refunded) {
+                log.info("Payment refunded successfully: paymentId={}", paymentId);
+                return ResponseEntity.ok("결제가 환불되었습니다.");
+            } else {
+                log.warn("Failed to refund payment: paymentId={}", paymentId);
+                return ResponseEntity.badRequest().body("결제 환불에 실패했습니다.");
+            }
+
+        } catch (Exception e) {
+            log.error("Error refunding payment: paymentId={}", paymentId, e);
+            return ResponseEntity.internalServerError().body("시스템 오류가 발생했습니다.");
+        }
     }
 }
