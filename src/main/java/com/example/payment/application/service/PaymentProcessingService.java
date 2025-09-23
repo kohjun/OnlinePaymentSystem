@@ -17,7 +17,7 @@ import com.example.payment.domain.service.PaymentGatewayService;
 import com.example.payment.infrastructure.gateway.PaymentGatewayFactory;
 import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
 import com.example.payment.infrastructure.util.IdGenerator;
-import com.example.payment.presentation.dto.request.PaymentRequest;
+import com.example.payment.presentation.dto.request.PaymentProcessRequest;
 import com.example.payment.presentation.dto.response.PaymentResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,7 +40,7 @@ public class PaymentProcessingService {
     /**
      * 예약 기반 결제 처리 (메인 API)
      */
-    public PaymentResponse processReservationPayment(PaymentRequest request) {
+    public PaymentResponse processReservationPayment(PaymentProcessRequest request) {
         log.info("Processing reservation payment: paymentId={}, reservationId={}, amount={}",
                 request.getPaymentId(), request.getReservationId(), request.getAmount());
 

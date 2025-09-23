@@ -17,7 +17,7 @@ import lombok.extern.slf4j.Slf4j;
  * 결제 이벤트 리스너 (한정 상품 예약 시스템용)
  * - 결제 완료/실패에 따른 후처리
  */
-@Component
+@Component  
 @Slf4j
 @RequiredArgsConstructor
 public class PaymentEventListener {

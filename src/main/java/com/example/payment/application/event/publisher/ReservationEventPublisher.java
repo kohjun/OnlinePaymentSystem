@@ -1,9 +1,9 @@
 package com.example.payment.application.event.publisher;
 
+import com.example.payment.presentation.dto.response.ReservationResponse;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
-import com.example.payment.presentation.dto.response.ReservationStatusResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,7 +26,7 @@ public class ReservationEventPublisher {
     /**
      * 예약 생성 이벤트
      */
-    public void publishReservationCreated(ReservationStatusResponse reservation) {
+    public void publishReservationCreated(ReservationResponse reservation) {
         publishEvent("RESERVATION_CREATED", reservation);
     }
 
@@ -82,7 +82,7 @@ public class ReservationEventPublisher {
     /**
      * 공통 이벤트 발행 메서드
      */
-    private void publishEvent(String eventType, ReservationStatusResponse reservation) {
+    private void publishEvent(String eventType, ReservationResponse reservation) {
         try {
             Map<String, Object> eventData = Map.of(
                     "eventType", eventType,

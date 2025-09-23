@@ -8,14 +8,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import com.example.payment.application.service.PaymentProcessingService;
-import com.example.payment.presentation.dto.request.PaymentRequest;
+import com.example.payment.presentation.dto.request.PaymentProcessRequest;
 import com.example.payment.presentation.dto.response.PaymentResponse;
 import com.example.payment.infrastructure.util.RateLimiter;
 
-/**
- * 예약 기반 결제 처리 컨트롤러
- * - 선점된 재고에 대한 결제 처리 (한정 상품 예약의 2단계)
- */
 @RestController
 @RequestMapping("/api/payments")
 @RequiredArgsConstructor
@@ -31,12 +27,13 @@ public class PaymentController {
      * POST /api/payments/process
      */
     @PostMapping("/process")
-    public ResponseEntity<PaymentResponse> processReservationPayment(@Valid @RequestBody PaymentRequest request) {
+    public ResponseEntity<PaymentResponse> processReservationPayment(
+            @Valid @RequestBody PaymentProcessRequest request) {  // 변경된 Request 타입
 
         log.info("Payment processing request: reservationId={}, customerId={}, amount={}",
                 request.getReservationId(), request.getCustomerId(), request.getAmount());
 
-        // 1. 속도 제한 확인
+        // 속도 제한 확인
         if (!rateLimiter.allowRequest(request.getCustomerId())) {
             log.warn("Rate limit exceeded for payment: customerId={}", request.getCustomerId());
 
@@ -52,25 +49,42 @@ public class PaymentController {
             );
         }
 
-        // 2. 예약 기반 결제 처리
-        PaymentResponse response = paymentProcessingService.processReservationPayment(request);
+        // PaymentProcessRequest를 기존 PaymentRequest로 변환 (어댑터 패턴)
+        com.example.payment.presentation.dto.request.PaymentRequest legacyRequest =
+                convertToLegacyPaymentRequest(request);
 
-        // 3. 응답 처리
+        // 예약 기반 결제 처리
+        PaymentResponse response = paymentProcessingService.processReservationPayment(legacyRequest);
+
+        // 응답 처리
         if ("COMPLETED".equals(response.getStatus())) {
             log.info("Payment completed successfully: orderId={}, paymentId={}, reservationId={}",
                     response.getOrderId(), response.getPaymentId(), response.getReservationId());
             return ResponseEntity.ok(response);
-
         } else if ("FAILED".equals(response.getStatus())) {
             log.warn("Payment failed: reservationId={}, reason={}",
                     request.getReservationId(), response.getMessage());
             return ResponseEntity.badRequest().body(response);
-
         } else {
             log.error("Payment error: reservationId={}, reason={}",
                     request.getReservationId(), response.getMessage());
             return ResponseEntity.internalServerError().body(response);
         }
+    }
+
+    // PaymentProcessRequest → PaymentRequest 변환 헬퍼
+    private com.example.payment.presentation.dto.request.PaymentRequest convertToLegacyPaymentRequest(
+            PaymentProcessRequest newRequest) {
+
+        return com.example.payment.presentation.dto.request.PaymentRequest.builder()
+                .paymentId(newRequest.getPaymentId())
+                .reservationId(newRequest.getReservationId())
+                .customerId(newRequest.getCustomerId())
+                .amount(newRequest.getAmount())
+                .currency(newRequest.getCurrency())
+                .paymentMethod(newRequest.getPaymentMethod())
+                .build();
+
     }
 
     /**

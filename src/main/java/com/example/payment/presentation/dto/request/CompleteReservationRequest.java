@@ -1,56 +1,56 @@
+/**
+ * 통합 예약+결제 요청 (Phase 1+2)
+ */
 package com.example.payment.presentation.dto.request;
 
+import com.example.payment.presentation.dto.common.BaseReservationDto;
+import com.example.payment.presentation.dto.common.BasePaymentDto;
 import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Positive;
-import jakarta.validation.constraints.DecimalMin;
-import java.math.BigDecimal;
+import lombok.experimental.SuperBuilder;
 
-/**
- * 통합 예약 요청 DTO
- * - 재고 선점부터 결제 확정까지 모든 정보 포함
- */
 @Data
-@Builder
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
-public class CompleteReservationRequest {
+@EqualsAndHashCode(callSuper = true)
+public class CompleteReservationRequest extends BaseReservationDto {
 
-    @NotBlank(message = "고객 ID는 필수입니다")
-    private String customerId;
-
-    @NotBlank(message = "상품 ID는 필수입니다")
-    private String productId;
-
-    @NotNull(message = "수량은 필수입니다")
-    @Positive(message = "수량은 1 이상이어야 합니다")
-    private Integer quantity;
-
-    @NotNull(message = "금액은 필수입니다")
-    @DecimalMin(value = "0.01", message = "금액은 0보다 커야 합니다")
-    private BigDecimal amount;
-
-    @NotBlank(message = "통화는 필수입니다")
-    private String currency;
-
-    @NotBlank(message = "결제 수단은 필수입니다")
-    private String paymentMethod;
-
-    private String clientId; // 클라이언트 구분용 (web, mobile-app 등)
-    private String idempotencyKey; // 멱등성 키
-    private String userAgent; // 사용자 환경 정보
-    private String ipAddress; // 보안용
-
-    // 추가 결제 정보 (선택적)
-    private String cardNumber; // 마스킹된 카드번호 (끝 4자리만)
-    private String cardHolderName;
+    // 결제 정보 포함 (조합 패턴)
+    private PaymentInfo paymentInfo;
 
     // 배송 정보 (선택적)
-    private String shippingAddress;
-    private String shippingMethod;
-    private String specialInstructions;
+    private ShippingInfo shippingInfo;
+
+    // 멱등성 및 추적
+    private String idempotencyKey; // 멱등성 키
+    private String correlationId;  // 추적용
+
+    @Data
+    @SuperBuilder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PaymentInfo extends BasePaymentDto {
+        // 추가 결제 전용 필드들
+        private String merchantId;
+        private String orderName; // PG사 전달용 주문명
+
+        // 콜백 URL들
+        private String successUrl;
+        private String failUrl;
+        private String cancelUrl;
+    }
+
+    @Data
+    @SuperBuilder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ShippingInfo {
+        private String address;
+        private String method; // STANDARD, EXPRESS 등
+        private String specialInstructions;
+        private String contactPhone;
+    }
 }

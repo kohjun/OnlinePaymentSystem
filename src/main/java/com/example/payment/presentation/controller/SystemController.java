@@ -85,25 +85,6 @@ public class SystemController {
         }
     }
 
-    /**
-     * 특정 상품의 재고 상태 조회 (관리자용)
-     */
-    @GetMapping("/inventory/{productId}")
-    public ResponseEntity<java.util.Map<String, Object>> getInventoryStatus(@PathVariable String productId) {
-        try {
-            java.util.Map<String, Object> inventoryStatus = inventoryService.getInventoryStatus(productId);
-            inventoryStatus.put("timestamp", System.currentTimeMillis());
-            return ResponseEntity.ok(inventoryStatus);
-        } catch (Exception e) {
-            log.error("Error getting inventory status for product: {}", productId, e);
-            return ResponseEntity.internalServerError()
-                    .body(java.util.Map.of(
-                            "error", "Failed to get inventory status: " + e.getMessage(),
-                            "productId", productId,
-                            "timestamp", System.currentTimeMillis()
-                    ));
-        }
-    }
 
     /**
      * 캐시 통계 조회 (관리자용)

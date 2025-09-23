@@ -8,6 +8,7 @@ import com.example.payment.infrastructure.persistence.wal.impl.DefaultWalBackupS
 import com.example.payment.infrastructure.persistence.wal.impl.DefaultWalMetricsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.SchedulingConfigurer;
@@ -35,8 +36,10 @@ public class WalConfiguration implements SchedulingConfigurer {
      */
     @Bean
     @ConditionalOnProperty(name = "wal.metrics.enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnMissingBean(WalMetricsService.class)
     public WalMetricsService walMetricsService() {
-        return new DefaultWalMetricsService(walProperties.getMetrics());
+        // MeterRegistry가 없는 경우를 대비한 기본 구현체
+        return new DefaultWalMetricsService(walProperties.getMetrics(), null);
     }
 
     /**
@@ -45,15 +48,6 @@ public class WalConfiguration implements SchedulingConfigurer {
     @Bean
     public WalBackupService walBackupService() {
         return new DefaultWalBackupService();
-    }
-
-    /**
-     * WAL 모니터링 서비스
-     */
-    @Bean
-    @ConditionalOnProperty(name = "wal.alerts.enabled", havingValue = "true", matchIfMissing = true)
-    public WalMonitoringService walMonitoringService() {
-        return new DefaultWalMonitoringService(walProperties.getAlerts());
     }
 
     /**

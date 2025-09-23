@@ -8,18 +8,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import com.example.payment.application.service.ReservationOrchestrator;
-import com.example.payment.application.service.ReservationService;
-import com.example.payment.presentation.dto.request.ReservationRequest;
+import com.example.payment.presentation.dto.request.ReservationOnlyRequest;
 import com.example.payment.presentation.dto.request.CompleteReservationRequest;
-import com.example.payment.presentation.dto.response.ReservationStatusResponse;
+import com.example.payment.presentation.dto.response.ReservationResponse;
 import com.example.payment.presentation.dto.response.CompleteReservationResponse;
 import com.example.payment.infrastructure.util.RateLimiter;
 
-/**
- * 예약 관리 컨트롤러 (오케스트레이터 패턴 적용)
- * - 통합 예약 플로우 (선점→주문→결제→확정)
- * - 기존 단계별 API 호환성 유지
- */
+
 @RestController
 @RequestMapping("/api/reservations")
 @RequiredArgsConstructor
@@ -27,8 +22,7 @@ import com.example.payment.infrastructure.util.RateLimiter;
 @Validated
 public class ReservationController {
 
-    private final ReservationOrchestrator reservationOrchestrator; // 오케스트레이터 (메인)
-    private final ReservationService reservationService;           // 개별 조회용 (호환성)
+    private final ReservationOrchestrator reservationOrchestrator;
     private final RateLimiter rateLimiter;
 
     // ========================================
@@ -41,12 +35,13 @@ public class ReservationController {
      */
     @PostMapping("/complete")
     public ResponseEntity<CompleteReservationResponse> createCompleteReservation(
-            @Valid @RequestBody CompleteReservationRequest request) {
+            @Valid @RequestBody CompleteReservationRequest request) {  // 수정된 DTO 사용
 
         log.info("Complete reservation request: customerId={}, productId={}, quantity={}, amount={}",
-                request.getCustomerId(), request.getProductId(), request.getQuantity(), request.getAmount());
+                request.getCustomerId(), request.getProductId(), request.getQuantity(),
+                request.getPaymentInfo().getAmount());
 
-        // 1. 속도 제한 확인
+        // 속도 제한 확인
         String rateLimitKey = request.getCustomerId() + ":" + request.getProductId();
         if (!rateLimiter.allowRequest(rateLimitKey)) {
             log.warn("Rate limit exceeded for complete reservation: customerId={}, productId={}",
@@ -57,13 +52,15 @@ public class ReservationController {
             );
         }
 
-        // 2. 오케스트레이터에 전체 플로우 위임
+        // 오케스트레이터에 전체 플로우 위임
         CompleteReservationResponse result = reservationOrchestrator.processCompleteReservation(request);
 
-        // 3. 응답 처리
+        // 응답 처리
         if ("SUCCESS".equals(result.getStatus())) {
             log.info("Complete reservation succeeded: reservationId={}, orderId={}, paymentId={}",
-                    result.getReservationId(), result.getOrderId(), result.getPaymentId());
+                    result.getReservation().getReservationId(),
+                    result.getOrder().getOrderId(),
+                    result.getPayment().getPaymentId());
             return ResponseEntity.ok(result);
         } else {
             log.warn("Complete reservation failed: customerId={}, productId={}, reason={}",
@@ -81,39 +78,34 @@ public class ReservationController {
      * POST /api/reservations
      */
     @PostMapping
-    public ResponseEntity<ReservationStatusResponse> reserveInventory(@Valid @RequestBody ReservationRequest request) {
+    public ResponseEntity<ReservationResponse> reserveInventory(  // 변경된 Response 타입
+                                                                  @Valid @RequestBody ReservationOnlyRequest request) {  // 변경된 Request 타입
 
         log.info("Inventory reservation request: productId={}, customerId={}, quantity={}",
                 request.getProductId(), request.getCustomerId(), request.getQuantity());
 
-        // 1. 속도 제한 확인
+        // 속도 제한 확인
         String rateLimitKey = request.getCustomerId() + ":" + request.getProductId();
         if (!rateLimiter.allowRequest(rateLimitKey)) {
             log.warn("Rate limit exceeded for inventory reservation: customerId={}, productId={}",
                     request.getCustomerId(), request.getProductId());
 
             return ResponseEntity.status(429).body(
-                    ReservationStatusResponse.builder()
-                            .productId(request.getProductId())
-                            .quantity(request.getQuantity())
-                            .status("RATE_LIMITED")
-                            .errorCode("RATE_LIMIT_EXCEEDED")
-                            .message("너무 많은 요청입니다. 잠시 후 다시 시도해주세요.")
-                            .remainingSeconds(0L)
-                            .build()
+                    ReservationResponse.failed(request.getProductId(), request.getQuantity(),
+                            "RATE_LIMIT_EXCEEDED", "너무 많은 요청입니다. 잠시 후 다시 시도해주세요.")
             );
         }
 
-        // 2. 오케스트레이터를 통해 개별 예약 상태 조회 (일관성 유지)
-        ReservationStatusResponse response = reservationOrchestrator.createInventoryReservationOnly(
+        // 오케스트레이터를 통해 개별 예약 처리
+        ReservationResponse response = reservationOrchestrator.createInventoryReservationOnly(
                 request.getProductId(),
                 request.getCustomerId(),
                 request.getQuantity(),
                 request.getClientId()
         );
 
-        // 3. 응답 처리
-        if ("RESERVED".equals(response.getStatus())) {
+        // 응답 처리
+        if ("SUCCESS".equals(response.getStatus())) {
             log.info("Inventory reservation successful: reservationId={}, customerId={}",
                     response.getReservationId(), request.getCustomerId());
             return ResponseEntity.ok(response);
@@ -124,21 +116,17 @@ public class ReservationController {
         }
     }
 
-    // ========================================
-    // 조회 및 관리 API들
-    // ========================================
-
     /**
      * 예약 상태 조회
      * GET /api/reservations/{reservationId}
      */
     @GetMapping("/{reservationId}")
-    public ResponseEntity<ReservationStatusResponse> getReservationStatus(@PathVariable String reservationId) {
+    public ResponseEntity<ReservationResponse> getReservationStatus(@PathVariable String reservationId) {  // 변경된 Response 타입
 
         log.debug("Getting reservation status: reservationId={}", reservationId);
 
         // 오케스트레이터를 통해 통합된 상태 조회
-        ReservationStatusResponse response = reservationOrchestrator.getReservationStatus(reservationId);
+        ReservationResponse response = reservationOrchestrator.getReservationStatus(reservationId);
 
         if (response != null) {
             return ResponseEntity.ok(response);
