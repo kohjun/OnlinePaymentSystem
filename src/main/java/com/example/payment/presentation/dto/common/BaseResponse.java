@@ -27,8 +27,4 @@ public abstract class BaseResponse {
 
     protected String correlationId; // 추적용
 
-    // 기본값 설정
-    public BaseResponse() {
-        this.timestamp = LocalDateTime.now();
-    }
 }

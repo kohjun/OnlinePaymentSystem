@@ -275,8 +275,7 @@ public class PaymentProcessingService {
                     .transactionId(payment.getTransactionId())
                     .approvalNumber(payment.getApprovalNumber())
                     .message(getStatusMessage(payment.getStatus()))
-                    .createdAt(payment.getCreatedAt())
-                    .updatedAt(payment.getUpdatedAt())
+                    .processedAt(payment.getCreatedAt())
                     .build();
 
         } catch (Exception e) {
@@ -384,7 +383,7 @@ public class PaymentProcessingService {
     /**
      * 결제 재시도 (실패한 결제에 대해)
      */
-    public PaymentResponse retryPayment(String originalPaymentId, PaymentRequest newRequest) {
+    public PaymentResponse retryPayment(String originalPaymentId, PaymentProcessRequest newRequest) {
         log.info("Retrying payment: originalPaymentId={}, newPaymentId={}",
                 originalPaymentId, newRequest.getPaymentId());
 
