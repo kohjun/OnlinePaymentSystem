@@ -64,10 +64,10 @@ public class KafkaConfig {
     public NewTopic paymentEventsTopic() {
         return TopicBuilder.name(paymentEventsTopic)
                 .partitions(6)
-                .replicas(3)
+                .replicas(1)  // ✅ 1로 변경
                 .configs(Map.of(
-                        "retention.ms", "86400000", // 24시간 보존
-                        "min.insync.replicas", "2"  // 최소 2개의 복제본이 쓰기를 확인
+                        "retention.ms", "86400000",
+                        "min.insync.replicas", "1"  // ✅ 1로 변경
                 ))
                 .build();
     }

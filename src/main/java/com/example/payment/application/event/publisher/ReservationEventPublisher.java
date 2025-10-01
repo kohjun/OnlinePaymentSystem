@@ -1,5 +1,6 @@
 package com.example.payment.application.event.publisher;
 
+import com.example.payment.domain.model.reservation.InventoryReservation;
 import com.example.payment.presentation.dto.response.ReservationResponse;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
@@ -26,8 +27,37 @@ public class ReservationEventPublisher {
     /**
      * 예약 생성 이벤트
      */
-    public void publishReservationCreated(ReservationResponse reservation) {
+    public void publishReservationCreated(InventoryReservation reservation) {
         publishEvent("RESERVATION_CREATED", reservation);
+    }
+
+    /**
+     * 예약 확정 이벤트 ← 추가
+     */
+    public void publishReservationConfirmed(String reservationId, String orderId, String paymentId) {
+        try {
+            Map<String, Object> eventData = Map.of(
+                    "eventType", "RESERVATION_CONFIRMED",
+                    "reservationId", reservationId,
+                    "orderId", orderId,
+                    "paymentId", paymentId,
+                    "timestamp", System.currentTimeMillis()
+            );
+
+            String eventJson = objectMapper.writeValueAsString(eventData);
+
+            kafkaTemplate.send(TOPIC, reservationId, eventJson)
+                    .whenComplete((result, ex) -> {
+                        if (ex == null) {
+                            log.debug("Reservation confirmed event published: {}", reservationId);
+                        } else {
+                            log.error("Failed to publish reservation confirmed event: {}", ex.getMessage());
+                        }
+                    });
+
+        } catch (Exception e) {
+            log.error("Error publishing reservation confirmed event: reservationId={}", reservationId, e);
+        }
     }
 
     /**

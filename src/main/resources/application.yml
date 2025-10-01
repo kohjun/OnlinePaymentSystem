@@ -31,7 +31,7 @@ spring:
   # SQL 초기화 설정 (data.sql 실행용)
   sql:
     init:
-      mode: always  # data.sql을 항상 실행
+      mode: never  # data.sql을 항상 실행
       encoding: UTF-8
       separator: ;
       continue-on-error: false  # 오류 시 중단

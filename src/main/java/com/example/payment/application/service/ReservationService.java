@@ -27,51 +27,35 @@ import java.util.List;
 public class ReservationService {
 
     private final ResourceReservationService redisReservationService;
-    private final WalLogRepository walLogRepository; // WriteBufferService 대신 WAL 사용
+    private final WalLogRepository walLogRepository;
     private final CacheService cacheService;
 
     /**
-     * 재고 선점 - WAL 2단계 방식
+     * 재고 선점 + 이벤트 발행
      */
-    public InventoryReservation reserveInventory(String productId, String customerId,
-                                                 Integer quantity, String clientId) {
-
-        log.info("Reserving inventory with WAL: productId={}, customerId={}, quantity={}",
-                productId, customerId, quantity);
+    public InventoryReservation reserveInventory(
+            String productId, String customerId, Integer quantity, String clientId) {
 
         String transactionId = IdGenerator.generateTransactionId();
         String reservationId = IdGenerator.generateReservationId();
 
         try {
-            // ========================================
-            // Phase 1: WAL 기록 + Redis 재고 선점
-            // ========================================
-
-            // 1-1. WAL 시작 로그 기록
-            WalLogEntry startLog = createReservationStartLog(transactionId, reservationId, productId, customerId, quantity);
+            // WAL 로그
+            WalLogEntry startLog = createReservationStartLog(transactionId, reservationId,
+                    productId, customerId, quantity);
             walLogRepository.writeLog(startLog);
 
-            // 1-2. Redis 원자적 재고 선점
-            LocalDateTime expiresAt = LocalDateTime.now().plusMinutes(5);
+            // Redis 선점
             List<Object> result = redisReservationService.reserveResource(
-                    "inventory:" + productId,
-                    reservationId,
-                    quantity,
-                    300 // 5분
-            );
+                    "inventory:" + productId, reservationId, quantity, 300);
 
             boolean success = (Boolean) result.get(0);
-
             if (!success) {
-                String message = (String) result.get(1);
-                log.warn("Redis inventory reservation failed: productId={}, reason={}", productId, message);
-
-                // WAL 실패 로그 기록
-                walLogRepository.updateLogStatus(startLog.getLogId(), "FAILED", "Redis 재고 선점 실패: " + message);
+                walLogRepository.updateLogStatus(startLog.getLogId(), "FAILED", "재고 부족");
                 return null;
             }
 
-            // 1-3. 도메인 객체 생성
+            // 도메인 객체 생성
             InventoryReservation reservation = InventoryReservation.builder()
                     .reservationId(reservationId)
                     .productId(productId)
@@ -79,35 +63,22 @@ public class ReservationService {
                     .quantity(quantity)
                     .status(ReservationStatus.RESERVED)
                     .createdAt(LocalDateTime.now())
-                    .expiresAt(expiresAt)
+                    .expiresAt(LocalDateTime.now().plusMinutes(5))
                     .build();
 
-            // 1-4. Write-Through: 즉시 캐시 저장
-            String cacheKey = "reservation:" + reservationId;
-            cacheService.cacheData(cacheKey, reservation, 300);
+            // 캐시 저장
+            cacheService.cacheData("reservation:" + reservationId, reservation, 300);
 
-            // 1-5. WAL 완료 로그 기록 (Phase 1 성공)
-            WalLogEntry completeLog = createReservationCompleteLog(transactionId, reservationId, reservation);
-            walLogRepository.writeLog(completeLog);
-            walLogRepository.updateLogStatus(startLog.getLogId(), "COMMITTED", "Phase 1 완료: Redis 재고 선점 성공");
-
-            log.info("Inventory reserved successfully with WAL: reservationId={}, transactionId={}",
-                    reservationId, transactionId);
+            // WAL 완료
+            walLogRepository.writeLog(createReservationCompleteLog(transactionId,
+                    reservationId, reservation));
+            walLogRepository.updateLogStatus(startLog.getLogId(), "COMMITTED", "예약 완료");
 
             return reservation;
 
         } catch (Exception e) {
-            log.error("Error reserving inventory with WAL: productId={}, customerId={}, transactionId={}",
-                    productId, customerId, transactionId, e);
-
-            // WAL 에러 로그 기록
-            try {
-                walLogRepository.writeLog(createReservationErrorLog(transactionId, reservationId, e.getMessage()));
-            } catch (Exception walError) {
-                log.error("Failed to write WAL error log", walError);
-            }
-
-            throw new ReservationException("재고 선점 중 오류 발생", e);
+            log.error("Error reserving inventory", e);
+            throw new ReservationException("재고 선점 실패", e);
         }
     }
 
