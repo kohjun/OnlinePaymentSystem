@@ -1,7 +1,6 @@
 package com.example.payment.application.event.publisher;
 
 import com.example.payment.domain.model.reservation.InventoryReservation;
-import com.example.payment.presentation.dto.response.ReservationResponse;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
@@ -112,7 +111,7 @@ public class ReservationEventPublisher {
     /**
      * 공통 이벤트 발행 메서드
      */
-    private void publishEvent(String eventType, ReservationResponse reservation) {
+    private void publishEvent(String eventType, InventoryReservation reservation) {
         try {
             Map<String, Object> eventData = Map.of(
                     "eventType", eventType,

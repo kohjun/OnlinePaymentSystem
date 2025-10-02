@@ -31,7 +31,7 @@ public class ReservationService {
     private final CacheService cacheService;
 
     /**
-     * 재고 선점 + 이벤트 발행
+     * 재고 선점
      */
     public InventoryReservation reserveInventory(
             String productId, String customerId, Integer quantity, String clientId) {
