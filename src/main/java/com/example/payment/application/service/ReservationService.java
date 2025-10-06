@@ -1,18 +1,13 @@
-/**
- * ========================================
- * 1. ReservationService (재고 선점 전담) - WAL 버전
- * ========================================
- */
 package com.example.payment.application.service;
 
-import com.example.payment.domain.entity.WalLogEntry;
 import com.example.payment.domain.exception.ReservationException;
 import com.example.payment.domain.model.reservation.InventoryReservation;
 import com.example.payment.domain.model.reservation.ReservationStatus;
-import com.example.payment.infrastructure.util.ResourceReservationService;
-import com.example.payment.infrastructure.persistence.wal.WalLogRepository;
-import com.example.payment.infrastructure.util.IdGenerator;
+import com.example.payment.infrastructure.lock.DistributedLockService;
 import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
+import com.example.payment.infrastructure.persistence.wal.WalService;
+import com.example.payment.infrastructure.util.IdGenerator;
+import com.example.payment.infrastructure.util.ResourceReservationService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,271 +16,156 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * 재고 예약 서비스 - 단일 책임 원칙 준수
+ *
+ * 🎯 단일 책임: 재고 선점(Reservation)만 담당
+ *
+ * 담당 범위:
+ * - 재고 예약 (선점)
+ * - 예약 취소
+ * - 예약 조회
+ *
+ * 담당하지 않음:
+ * - 재고 확정 → InventoryManagementService
+ * - WAL 로그 → WalService (횡단 관심사)
+ * - 캐싱 → CacheService (인프라)
+ * - 분산 락 → DistributedLockService (인프라)
+ * - 주문 생성 → OrderService
+ */
 @Service
 @Slf4j
 @RequiredArgsConstructor
 public class ReservationService {
 
-    private final ResourceReservationService redisReservationService;
-    private final WalLogRepository walLogRepository;
+    // 인프라 서비스들 (횡단 관심사)
+    private final DistributedLockService lockService;
+    private final WalService walService;
     private final CacheService cacheService;
+    private final ResourceReservationService redisReservationService;
+
+    // 설정
+    private static final int DEFAULT_RESERVATION_TTL_SECONDS = 300; // 5분
 
     /**
-     * 재고 선점
+     * 재고 선점 (Phase 1)
+     *
+     * 프로세스:
+     * 1. 분산 락 획득 (동시성 제어)
+     * 2. WAL 시작 로그
+     * 3. Redis에서 재고 선점
+     * 4. 도메인 객체 생성
+     * 5. 캐시 저장
+     * 6. WAL 완료 로그
+     *
+     * @param productId 상품 ID
+     * @param customerId 고객 ID
+     * @param quantity 수량
+     * @param clientId 클라이언트 ID
+     * @return 예약 도메인 객체 (실패 시 null)
      */
     public InventoryReservation reserveInventory(
             String productId, String customerId, Integer quantity, String clientId) {
 
-        String transactionId = IdGenerator.generateTransactionId();
+        log.info("Starting inventory reservation: productId={}, customerId={}, quantity={}",
+                productId, customerId, quantity);
+
         String reservationId = IdGenerator.generateReservationId();
+        String lockKey = "inventory:" + productId;
 
-        try {
-            // WAL 로그
-            WalLogEntry startLog = createReservationStartLog(transactionId, reservationId,
-                    productId, customerId, quantity);
-            walLogRepository.writeLog(startLog);
-
-            // Redis 선점
-            List<Object> result = redisReservationService.reserveResource(
-                    "inventory:" + productId, reservationId, quantity, 300);
-
-            boolean success = (Boolean) result.get(0);
-            if (!success) {
-                walLogRepository.updateLogStatus(startLog.getLogId(), "FAILED", "재고 부족");
-                return null;
-            }
-
-            // 도메인 객체 생성
-            InventoryReservation reservation = InventoryReservation.builder()
-                    .reservationId(reservationId)
-                    .productId(productId)
-                    .customerId(customerId)
-                    .quantity(quantity)
-                    .status(ReservationStatus.RESERVED)
-                    .createdAt(LocalDateTime.now())
-                    .expiresAt(LocalDateTime.now().plusMinutes(5))
-                    .build();
-
-            // 캐시 저장
-            cacheService.cacheData("reservation:" + reservationId, reservation, 300);
-
-            // WAL 완료
-            walLogRepository.writeLog(createReservationCompleteLog(transactionId,
-                    reservationId, reservation));
-            walLogRepository.updateLogStatus(startLog.getLogId(), "COMMITTED", "예약 완료");
-
-            return reservation;
-
-        } catch (Exception e) {
-            log.error("Error reserving inventory", e);
-            throw new ReservationException("재고 선점 실패", e);
-        }
-    }
-
-    /**
-     * 예약 확정 - Phase 2 (결제 완료 후 호출)
-     */
-    public boolean confirmReservationWithWal(String reservationId, String customerId, String orderId, String paymentId) {
-
-        log.info("Confirming reservation with WAL: reservationId={}, orderId={}, paymentId={}",
-                reservationId, orderId, paymentId);
-
-        String transactionId = IdGenerator.generateTransactionId();
-
-        try {
-            // ========================================
-            // Phase 2: WAL 기록 + DB 확정 처리
-            // ========================================
-
-            // 2-1. WAL Phase 2 시작 로그
-            WalLogEntry phase2StartLog = createConfirmationStartLog(transactionId, reservationId, orderId, paymentId);
-            walLogRepository.writeLog(phase2StartLog);
-
-            // 2-2. Redis에서 예약 확정
-            boolean redisConfirmed = redisReservationService.confirmReservation(reservationId);
-
-            if (!redisConfirmed) {
-                walLogRepository.updateLogStatus(phase2StartLog.getLogId(), "FAILED", "Redis 예약 확정 실패");
-                return false;
-            }
-
-            // 2-3. 캐시 업데이트 (확정 상태로 변경)
-            String cacheKey = "reservation:" + reservationId;
-            InventoryReservation reservation = (InventoryReservation) cacheService.getCachedData(cacheKey);
-            if (reservation != null) {
-                reservation.setStatus(ReservationStatus.CONFIRMED);
-                cacheService.cacheData(cacheKey, reservation, 86400); // 24시간으로 연장
-            }
-
-            // 2-4. WAL Phase 2 완료 로그
-            WalLogEntry phase2CompleteLog = createConfirmationCompleteLog(transactionId, reservationId, orderId, paymentId);
-            walLogRepository.writeLog(phase2CompleteLog);
-            walLogRepository.updateLogStatus(phase2StartLog.getLogId(), "COMMITTED", "Phase 2 완료: 예약 확정 성공");
-
-            log.info("Reservation confirmed successfully with WAL: reservationId={}, transactionId={}",
-                    reservationId, transactionId);
-
-            return true;
-
-        } catch (Exception e) {
-            log.error("Error confirming reservation with WAL: reservationId={}, transactionId={}",
-                    reservationId, transactionId, e);
-
-            // WAL 에러 로그 기록
+        // 분산 락으로 동시성 제어
+        return lockService.executeWithLock(lockKey, () -> {
             try {
-                walLogRepository.writeLog(createConfirmationErrorLog(transactionId, reservationId, e.getMessage()));
-            } catch (Exception walError) {
-                log.error("Failed to write WAL error log", walError);
-            }
+                // 1. WAL 시작 로그 기록
+                String walLogId = walService.logOperationStart(
+                        "INVENTORY_RESERVE_START",
+                        "reservations",
+                        buildReservationJson(reservationId, productId, customerId, quantity, "RESERVED")
+                );
 
-            return false;
-        }
+                // 2. Redis에서 재고 선점 (Lua 스크립트)
+                List<Object> redisResult = redisReservationService.reserveResource(
+                        lockKey,
+                        reservationId,
+                        quantity,
+                        DEFAULT_RESERVATION_TTL_SECONDS
+                );
+
+                boolean success = (Boolean) redisResult.get(0);
+                String message = (String) redisResult.get(1);
+
+                if (!success) {
+                    log.warn("Inventory reservation failed: productId={}, reason={}",
+                            productId, message);
+
+                    // WAL 실패 로그
+                    walService.updateLogStatus(walLogId, "FAILED", "재고 부족: " + message);
+
+                    return null;
+                }
+
+                // 3. 도메인 객체 생성
+                InventoryReservation reservation = InventoryReservation.builder()
+                        .reservationId(reservationId)
+                        .productId(productId)
+                        .customerId(customerId)
+                        .quantity(quantity)
+                        .status(ReservationStatus.RESERVED)
+                        .createdAt(LocalDateTime.now())
+                        .expiresAt(LocalDateTime.now().plusMinutes(5))
+                        .build();
+
+                // 4. 캐시에 저장
+                String cacheKey = "reservation:" + reservationId;
+                cacheService.cacheData(cacheKey, reservation, DEFAULT_RESERVATION_TTL_SECONDS);
+
+                // 5. WAL 완료 로그
+                walService.logOperationComplete(
+                        "INVENTORY_RESERVE_COMPLETE",
+                        "reservations",
+                        null,
+                        buildReservationJson(reservationId, productId, customerId, quantity, "RESERVED")
+                );
+                walService.updateLogStatus(walLogId, "COMMITTED", "예약 완료");
+
+                log.info("Inventory reservation succeeded: reservationId={}, productId={}",
+                        reservationId, productId);
+
+                return reservation;
+
+            } catch (Exception e) {
+                log.error("Error during inventory reservation: productId={}, customerId={}",
+                        productId, customerId, e);
+
+                // WAL 실패 로그
+                walService.logOperationFailure(
+                        "INVENTORY_RESERVE_ERROR",
+                        "reservations",
+                        e.getMessage()
+                );
+
+                throw new ReservationException("재고 선점 실패", e);
+            }
+        });
     }
 
     /**
      * 예약 취소
+     *
+     * @param reservationId 예약 ID
+     * @param customerId 고객 ID (권한 확인용)
+     * @return 취소 성공 여부
      */
     public boolean cancelReservation(String reservationId, String customerId) {
         try {
-            log.info("Cancelling reservation: reservationId={}, customerId={}", reservationId, customerId);
+            log.info("Cancelling reservation: reservationId={}, customerId={}",
+                    reservationId, customerId);
 
-            // Redis에서 예약 취소
-            boolean cancelled = redisReservationService.cancelReservation(reservationId);
-
-            if (cancelled) {
-                // 캐시 정리
-                String cacheKey = "reservation:" + reservationId;
-                cacheService.deleteCache(cacheKey);
-
-                log.info("Reservation cancelled: reservationId={}", reservationId);
-                return true;
+            // 1. 예약 조회 (권한 확인)
+            InventoryReservation reservation = getReservation(reservationId);
+            if (reservation == null) {
+                log.warn("Reservation not found: reservationId={}", reservationId);
+                return false;
             }
 
-            return false;
-
-        } catch (Exception e) {
-            log.error("Error cancelling reservation: reservationId={}", reservationId, e);
-            return false;
-        }
-    }
-
-    /**
-     * 예약 조회
-     */
-    public InventoryReservation getReservation(String reservationId) {
-        try {
-            String cacheKey = "reservation:" + reservationId;
-            Object cachedData = cacheService.getCachedData(cacheKey);
-
-            if (cachedData != null) {
-                return (InventoryReservation) cachedData;
-            }
-
-            return null;
-
-        } catch (Exception e) {
-            log.error("Error getting reservation: reservationId={}", reservationId, e);
-            return null;
-        }
-    }
-
-    // ========================================
-    // WAL 로그 생성 헬퍼 메서드들
-    // ========================================
-
-    private WalLogEntry createReservationStartLog(String transactionId, String reservationId,
-                                                  String productId, String customerId, Integer quantity) {
-        return WalLogEntry.builder()
-                .logId(IdGenerator.generateEventId())
-                .transactionId(transactionId)
-                .operation("INVENTORY_RESERVE_START")
-                .tableName("reservations")
-                .beforeData(null)
-                .afterData(String.format(
-                        "{\"reservationId\":\"%s\",\"productId\":\"%s\",\"customerId\":\"%s\",\"quantity\":%d,\"status\":\"RESERVED\"}",
-                        reservationId, productId, customerId, quantity))
-                .status("PENDING")
-                .message("재고 예약 시작")
-                .createdAt(LocalDateTime.now())
-                .build();
-    }
-
-    private WalLogEntry createReservationCompleteLog(String transactionId, String reservationId,
-                                                     InventoryReservation reservation) {
-        return WalLogEntry.builder()
-                .logId(IdGenerator.generateEventId())
-                .transactionId(transactionId)
-                .operation("INVENTORY_RESERVE_COMPLETE")
-                .tableName("reservations")
-                .beforeData(null)
-                .afterData(String.format(
-                        "{\"reservationId\":\"%s\",\"status\":\"RESERVED\",\"expiresAt\":\"%s\"}",
-                        reservationId, reservation.getExpiresAt()))
-                .status("COMMITTED")
-                .message("재고 예약 완료")
-                .createdAt(LocalDateTime.now())
-                .build();
-    }
-
-    private WalLogEntry createReservationErrorLog(String transactionId, String reservationId, String errorMessage) {
-        return WalLogEntry.builder()
-                .logId(IdGenerator.generateEventId())
-                .transactionId(transactionId)
-                .operation("INVENTORY_RESERVE_ERROR")
-                .tableName("reservations")
-                .beforeData(null)
-                .afterData(String.format("{\"reservationId\":\"%s\",\"error\":\"%s\"}", reservationId, errorMessage))
-                .status("FAILED")
-                .message("재고 예약 실패: " + errorMessage)
-                .createdAt(LocalDateTime.now())
-                .build();
-    }
-
-    private WalLogEntry createConfirmationStartLog(String transactionId, String reservationId,
-                                                   String orderId, String paymentId) {
-        return WalLogEntry.builder()
-                .logId(IdGenerator.generateEventId())
-                .transactionId(transactionId)
-                .operation("INVENTORY_CONFIRM_START")
-                .tableName("reservations")
-                .beforeData(String.format("{\"reservationId\":\"%s\",\"status\":\"RESERVED\"}", reservationId))
-                .afterData(String.format(
-                        "{\"reservationId\":\"%s\",\"orderId\":\"%s\",\"paymentId\":\"%s\",\"status\":\"CONFIRMED\"}",
-                        reservationId, orderId, paymentId))
-                .status("PENDING")
-                .message("예약 확정 시작")
-                .createdAt(LocalDateTime.now())
-                .build();
-    }
-
-    private WalLogEntry createConfirmationCompleteLog(String transactionId, String reservationId,
-                                                      String orderId, String paymentId) {
-        return WalLogEntry.builder()
-                .logId(IdGenerator.generateEventId())
-                .transactionId(transactionId)
-                .operation("INVENTORY_CONFIRM_COMPLETE")
-                .tableName("reservations")
-                .beforeData(String.format("{\"reservationId\":\"%s\",\"status\":\"RESERVED\"}", reservationId))
-                .afterData(String.format(
-                        "{\"reservationId\":\"%s\",\"orderId\":\"%s\",\"paymentId\":\"%s\",\"status\":\"CONFIRMED\"}",
-                        reservationId, orderId, paymentId))
-                .status("COMMITTED")
-                .message("예약 확정 완료")
-                .createdAt(LocalDateTime.now())
-                .build();
-    }
-
-    private WalLogEntry createConfirmationErrorLog(String transactionId, String reservationId, String errorMessage) {
-        return WalLogEntry.builder()
-                .logId(IdGenerator.generateEventId())
-                .transactionId(transactionId)
-                .operation("INVENTORY_CONFIRM_ERROR")
-                .tableName("reservations")
-                .beforeData(null)
-                .afterData(String.format("{\"reservationId\":\"%s\",\"error\":\"%s\"}", reservationId, errorMessage))
-                .status("FAILED")
-                .message("예약 확정 실패: " + errorMessage)
-                .createdAt(LocalDateTime.now())
-                .build();
-    }
-}
+            if (!
