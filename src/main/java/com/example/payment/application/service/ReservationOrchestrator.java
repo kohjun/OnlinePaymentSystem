@@ -321,9 +321,17 @@ public class ReservationOrchestrator {
             Object cachedData = cacheService.getCachedData(cacheKey);
 
             if (cachedData != null) {
-                return (CompleteReservationResponse) cachedData;
+
+                if (cachedData instanceof CompleteReservationResponse) {
+                    return (CompleteReservationResponse) cachedData;
+                } else {
+                    log.warn("Cached data is not CompleteReservationResponse type: reservationId={}, actualType={}",
+                            reservationId, cachedData.getClass().getName());
+                    cacheService.deleteCache(cacheKey);
+                }
             }
 
+            // 캐시에 없으면 부분 정보만 조회
             InventoryReservation reservation = reservationService.getReservation(reservationId);
             if (reservation == null) {
                 return null;

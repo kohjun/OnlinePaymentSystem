@@ -291,7 +291,16 @@ public class OrderService {
 
             if (cachedData != null) {
                 log.debug("Order found in cache: orderId={}", orderId);
-                return (Order) cachedData;
+
+
+                if (cachedData instanceof Order) {
+                    return (Order) cachedData;
+                } else {
+                    log.warn("Cached data is not Order type: orderId={}, actualType={}",
+                            orderId, cachedData.getClass().getName());
+                    cacheService.deleteCache(cacheKey);
+                    return null;
+                }
             }
 
             log.debug("Order not found: orderId={}", orderId);

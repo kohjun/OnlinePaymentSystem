@@ -168,4 +168,119 @@ public class ReservationService {
                 return false;
             }
 
-            if (!
+            // 2. 권한 확인
+            if (!customerId.equals(reservation.getCustomerId()) && !"SYSTEM".equals(customerId)) {
+                log.warn("Customer ID mismatch: reservationId={}, expected={}, actual={}",
+                        reservationId, reservation.getCustomerId(), customerId);
+                return false;
+            }
+
+            // 3. 취소 가능 여부 확인
+            if (!reservation.canBeCancelled()) {
+                log.warn("Reservation cannot be cancelled: reservationId={}, status={}",
+                        reservationId, reservation.getStatus());
+                return false;
+            }
+
+            // 4. WAL 로그
+            String walLogId = walService.logOperationStart(
+                    "RESERVATION_CANCEL_START",
+                    "reservations",
+                    buildReservationJson(reservationId, reservation.getProductId(),
+                            customerId, reservation.getQuantity(), "CANCELLED")
+            );
+
+            // 5. Redis에서 예약 취소
+            boolean cancelled = redisReservationService.cancelReservation(reservationId);
+
+            if (cancelled) {
+                // 6. 도메인 상태 업데이트
+                reservation.setStatus(ReservationStatus.CANCELLED);
+
+                // 7. 캐시 업데이트
+                String cacheKey = "reservation:" + reservationId;
+                cacheService.cacheData(cacheKey, reservation, DEFAULT_RESERVATION_TTL_SECONDS);
+
+                // 8. WAL 완료
+                walService.logOperationComplete(
+                        "RESERVATION_CANCEL_COMPLETE",
+                        "reservations",
+                        buildReservationJson(reservationId, reservation.getProductId(),
+                                customerId, reservation.getQuantity(), "RESERVED"),
+                        buildReservationJson(reservationId, reservation.getProductId(),
+                                customerId, reservation.getQuantity(), "CANCELLED")
+                );
+                walService.updateLogStatus(walLogId, "COMMITTED", "예약 취소 완료");
+
+                log.info("Reservation cancelled: reservationId={}", reservationId);
+                return true;
+
+            } else {
+                walService.updateLogStatus(walLogId, "FAILED", "Redis 취소 실패");
+                log.warn("Failed to cancel reservation in Redis: reservationId={}", reservationId);
+                return false;
+            }
+
+        } catch (Exception e) {
+            log.error("Error cancelling reservation: reservationId={}", reservationId, e);
+
+            walService.logOperationFailure(
+                    "RESERVATION_CANCEL_ERROR",
+                    "reservations",
+                    e.getMessage()
+            );
+
+            return false;
+        }
+    }
+
+    /**
+     * 예약 조회
+     *
+     * @param reservationId 예약 ID
+     * @return 예약 도메인 객체 (없으면 null)
+     */
+    public InventoryReservation getReservation(String reservationId) {
+        try {
+            String cacheKey = "reservation:" + reservationId;
+            Object cachedData = cacheService.getCachedData(cacheKey);
+
+            if (cachedData != null) {
+                log.debug("Reservation found in cache: reservationId={}", reservationId);
+
+
+                if (cachedData instanceof InventoryReservation) {
+                    return (InventoryReservation) cachedData;
+                } else {
+                    log.warn("Cached data is not InventoryReservation type: reservationId={}, actualType={}",
+                            reservationId, cachedData.getClass().getName());
+                    // 캐시 데이터가 잘못된 경우 삭제
+                    cacheService.deleteCache(cacheKey);
+                    return null;
+                }
+            }
+
+            log.debug("Reservation not found: reservationId={}", reservationId);
+            return null;
+
+        } catch (Exception e) {
+            log.error("Error getting reservation: reservationId={}", reservationId, e);
+            return null;
+        }
+    }
+
+    // ========================================
+    // 내부 헬퍼 메서드
+    // ========================================
+
+    /**
+     * 예약 JSON 생성 (WAL 로그용)
+     */
+    private String buildReservationJson(String reservationId, String productId,
+                                        String customerId, Integer quantity, String status) {
+        return String.format(
+                "{\"reservationId\":\"%s\",\"productId\":\"%s\",\"customerId\":\"%s\",\"quantity\":%d,\"status\":\"%s\",\"timestamp\":\"%s\"}",
+                reservationId, productId, customerId, quantity, status, LocalDateTime.now()
+        );
+    }
+}

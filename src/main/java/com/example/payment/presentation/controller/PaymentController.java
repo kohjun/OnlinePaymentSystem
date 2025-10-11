@@ -12,6 +12,15 @@ import com.example.payment.presentation.dto.request.PaymentProcessRequest;
 import com.example.payment.presentation.dto.response.PaymentResponse;
 import com.example.payment.infrastructure.util.RateLimiter;
 
+/**
+ * 결제 컨트롤러
+
+ * 제공하는 기능:
+ * - 단독 결제 처리 (POST /process) - 이미 예약된 상품에 대한 결제만
+ * - 결제 상태 조회 (GET /{paymentId})
+ * - 결제 환불 (POST /{paymentId}/refund)
+ * - 결제 재시도 (POST /{paymentId}/retry)
+ */
 @RestController
 @RequestMapping("/api/payments")
 @RequiredArgsConstructor
@@ -25,6 +34,8 @@ public class PaymentController {
     /**
      * 예약된 상품 결제 처리 (한정 상품 예약의 2단계)
      * POST /api/payments/process
+     *
+     * ⚠️ 레거시 API: 새로운 시스템에서는 /api/reservations/complete 사용 권장
      */
     @PostMapping("/process")
     public ResponseEntity<PaymentResponse> processReservationPayment(
@@ -92,10 +103,28 @@ public class PaymentController {
      * GET /api/payments/reservation/{reservationId}
      */
     @GetMapping("/reservation/{reservationId}")
-    public ResponseEntity<String> getPaymentByReservation(@PathVariable String reservationId) {
-        // TODO: 예약 ID로 결제 정보 조회 기능 구현
+    public ResponseEntity<PaymentResponse> getPaymentByReservation(@PathVariable String reservationId) {
         log.debug("Getting payment by reservation: reservationId={}", reservationId);
-        return ResponseEntity.ok("구현 예정: 예약 " + reservationId + "에 대한 결제 정보");
+
+        try {
+            // 캐시에서 예약 정보 조회하여 paymentId 찾기
+            // TODO: 실제 구현에서는 DB 조회 필요
+
+            log.info("Payment lookup by reservation not fully implemented yet");
+
+            return ResponseEntity.ok(
+                    PaymentResponse.builder()
+                            .reservationId(reservationId)
+                            .status("INFO")
+                            .message("예약 ID로 결제 조회 기능은 구현 예정입니다. " +
+                                    "현재는 paymentId를 직접 사용해주세요.")
+                            .build()
+            );
+
+        } catch (Exception e) {
+            log.error("Error getting payment by reservation: reservationId={}", reservationId, e);
+            return ResponseEntity.internalServerError().build();
+        }
     }
 
     /**
@@ -109,7 +138,21 @@ public class PaymentController {
         log.info("Payment retry requested: paymentId={}, reservationId={}",
                 paymentId, request.getReservationId());
 
-        // 기본적으로 새로운 결제 처리와 동일
+        // 기존 결제 상태 확인
+        PaymentResponse existingPayment = paymentProcessingService.getPaymentStatus(paymentId);
+
+        if (existingPayment != null && "COMPLETED".equals(existingPayment.getStatus())) {
+            log.warn("Payment already completed, cannot retry: paymentId={}", paymentId);
+            return ResponseEntity.badRequest().body(
+                    PaymentResponse.builder()
+                            .paymentId(paymentId)
+                            .status("ERROR")
+                            .message("이미 완료된 결제는 재시도할 수 없습니다.")
+                            .build()
+            );
+        }
+
+        // 새로운 결제 처리 (재시도)
         return processReservationPayment(request);
     }
 
@@ -133,12 +176,42 @@ public class PaymentController {
                 return ResponseEntity.ok("결제가 환불되었습니다.");
             } else {
                 log.warn("Failed to refund payment: paymentId={}", paymentId);
-                return ResponseEntity.badRequest().body("결제 환불에 실패했습니다.");
+                return ResponseEntity.badRequest().body("결제 환불에 실패했습니다. 이미 환불되었거나 환불 불가능한 상태입니다.");
             }
 
         } catch (Exception e) {
             log.error("Error refunding payment: paymentId={}", paymentId, e);
             return ResponseEntity.internalServerError().body("시스템 오류가 발생했습니다.");
+        }
+    }
+
+    /**
+     * 결제 시스템 헬스체크
+     * GET /api/payments/health
+     */
+    @GetMapping("/health")
+    public ResponseEntity<java.util.Map<String, Object>> healthCheck() {
+        try {
+            boolean healthy = paymentProcessingService.isPaymentGatewayHealthy();
+
+            java.util.Map<String, Object> health = java.util.Map.of(
+                    "status", healthy ? "UP" : "DOWN",
+                    "service", "PaymentProcessingService",
+                    "gateway_healthy", healthy,
+                    "timestamp", System.currentTimeMillis()
+            );
+
+            return ResponseEntity.ok(health);
+
+        } catch (Exception e) {
+            log.error("Payment health check failed", e);
+            return ResponseEntity.internalServerError().body(
+                    java.util.Map.of(
+                            "status", "DOWN",
+                            "error", e.getMessage(),
+                            "timestamp", System.currentTimeMillis()
+                    )
+            );
         }
     }
 }
