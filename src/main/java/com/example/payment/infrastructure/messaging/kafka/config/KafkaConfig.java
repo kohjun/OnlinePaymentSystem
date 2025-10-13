@@ -63,7 +63,7 @@ public class KafkaConfig {
     @Bean
     public NewTopic paymentEventsTopic() {
         return TopicBuilder.name(paymentEventsTopic)
-                .partitions(6)
+                .partitions(3)
                 .replicas(1)  // ✅ 1로 변경
                 .configs(Map.of(
                         "retention.ms", "86400000",

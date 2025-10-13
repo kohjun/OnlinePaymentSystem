@@ -76,6 +76,7 @@ spring:
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
         spring.json.trusted.packages: com.example.payment.event,com.example.payment.dto
+        replication.factor: 1
       enable-auto-commit: false
 
 # 서버 설정

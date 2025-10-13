@@ -1,27 +1,33 @@
 package com.example.payment.config;
 
+import com.example.payment.domain.model.inventory.Inventory;
+import com.example.payment.domain.model.inventory.Product;
+import com.example.payment.domain.repository.InventoryRepository;
+import com.example.payment.domain.repository.ProductRepository;
 import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * 테스트용 초기 데이터 설정
- * - 한정 상품 재고 Redis에 미리 등록
- */
-@Component
 @Slf4j
+@Component
 @RequiredArgsConstructor
 public class TestDataInitializer implements CommandLineRunner {
 
+    private final ProductRepository productRepository;
+    private final InventoryRepository inventoryRepository;
     private final CacheService cacheService;
 
     @Override
-    public void run(String... args) throws Exception {
+    @Transactional
+    public void run(String... args) {
         log.info("========================================");
         log.info("테스트 데이터 초기화 시작");
         log.info("========================================");
@@ -33,54 +39,69 @@ public class TestDataInitializer implements CommandLineRunner {
         log.info("========================================");
     }
 
-    /**
-     * 한정 상품 재고 초기화 (Redis)
-     */
     private void initializeLimitedProductInventory() {
-        // 테스트 상품 1: 초특가 스마트폰 (재고 3개만)
-        Map<String, Object> limitedPhone = new HashMap<>();
-        limitedPhone.put("product_id", "PROD-001");
-        limitedPhone.put("product_name", "초특가 스마트폰");
-        limitedPhone.put("quantity", 3);        // 총 재고 3개
-        limitedPhone.put("reserved", 0);        // 예약된 수량
-        limitedPhone.put("price", "799.99");
+        // 한정 수량 상품 1
+        createLimitedProduct("PROD-001", "초특가 스마트폰",
+                "오늘만 특가! 선착순 3대 한정", new BigDecimal("999000"), 3);
 
-        cacheService.cacheMapData("inventory:PROD-001", limitedPhone, 86400);
-        log.info("✅ 한정 상품 등록: PROD-001 (초특가 스마트폰) - 재고 3개");
-
-        // 테스트 상품 2: 프리미엄 이어버드 (재고 5개)
-        Map<String, Object> limitedEarbuds = new HashMap<>();
-        limitedEarbuds.put("product_id", "PROD-002");
-        limitedEarbuds.put("product_name", "프리미엄 이어버드");
-        limitedEarbuds.put("quantity", 5);      // 총 재고 5개
-        limitedEarbuds.put("reserved", 0);      // 예약된 수량
-        limitedEarbuds.put("price", "129.99");
-
-        cacheService.cacheMapData("inventory:PROD-002", limitedEarbuds, 86400);
-        log.info("✅ 한정 상품 등록: PROD-002 (프리미엄 이어버드) - 재고 5개");
-
-        // 현재 재고 상태 출력
-        logCurrentInventoryStatus("PROD-001");
-        logCurrentInventoryStatus("PROD-002");
+        // 한정 수량 상품 2
+        createLimitedProduct("PROD-002", "프리미엄 이어버드",
+                "초특가 한정판! 5개 한정", new BigDecimal("199000"), 5);
     }
 
-    /**
-     * 현재 재고 상태 로깅
-     */
+    private void createLimitedProduct(String productId, String name,
+                                      String description, BigDecimal price,
+                                      int quantity) {
+        // 상품 등록
+        Product product = Product.builder()
+                .id(productId)
+                .name(name)
+                .description(description)
+                .price(price)
+                .category("LIMITED_EDITION")
+                .build();
+        productRepository.save(product);
+
+        // 재고 등록
+        Inventory inventory = Inventory.builder()
+                .productId(productId)
+                .totalQuantity(quantity)
+                .availableQuantity(quantity)
+                .reservedQuantity(0)
+                .build();
+        inventoryRepository.save(inventory);
+
+        // Redis 캐시 (Hash 타입으로 저장)
+        Map<String, Object> inventoryData = new HashMap<>();
+        inventoryData.put("productId", productId);
+        inventoryData.put("totalQuantity", quantity);
+        inventoryData.put("availableQuantity", quantity);
+        inventoryData.put("reservedQuantity", 0);
+
+        cacheService.cacheMapData(
+                "inventory:" + productId,
+                inventoryData,
+                Duration.ofHours(1)
+        );
+
+        log.info("✅ 한정 상품 등록: {} ({}) - 재고 {}개",
+                productId, name, quantity);
+
+        logCurrentInventoryStatus(productId);
+    }
+
     private void logCurrentInventoryStatus(String productId) {
-        String key = "inventory:" + productId;
-        Object data = cacheService.getCachedData(key);
+        Map<String, Object> cachedInventory =
+                cacheService.getCachedData("inventory:" + productId);
 
-        if (data != null) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> inventory = (Map<String, Object>) data;
-
-            int total = Integer.parseInt(inventory.get("quantity").toString());
-            int reserved = Integer.parseInt(inventory.get("reserved").toString());
-            int available = total - reserved;
-
+        if (cachedInventory != null && !cachedInventory.isEmpty()) {
             log.info("📦 [{}] 총재고={}, 예약중={}, 구매가능={}",
-                    productId, total, reserved, available);
+                    productId,
+                    cachedInventory.get("totalQuantity"),
+                    cachedInventory.get("reservedQuantity"),
+                    cachedInventory.get("availableQuantity"));
+        } else {
+            log.warn("⚠️ [{}] 캐시에서 재고 정보를 찾을 수 없음", productId);
         }
     }
 }
