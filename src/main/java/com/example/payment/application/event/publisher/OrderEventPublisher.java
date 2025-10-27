@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 주문 이벤트 퍼블리셔
@@ -59,7 +60,7 @@ public class OrderEventPublisher {
             Map<String, Object> eventData = new java.util.HashMap<>(additionalData);
             eventData.put("eventType", eventType);
             eventData.put("orderId", orderId);
-            eventData.put("timestamp", System.currentTimeMillis());
+            eventData.put("timestamp", Optional.of(System.currentTimeMillis()));
 
             String eventJson = objectMapper.writeValueAsString(eventData);
 

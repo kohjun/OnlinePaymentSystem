@@ -281,7 +281,7 @@ public class ReservationOrchestrator {
                     reservation.getProductId(),
                     reservation.getQuantity(),
                     reservation.getExpiresAt(),
-                    reservation.getRemainingSeconds()
+                    Long.valueOf(reservation.getRemainingSeconds())
             );
 
         } catch (Exception e) {
@@ -308,7 +308,7 @@ public class ReservationOrchestrator {
                 reservation.getProductId(),
                 reservation.getQuantity(),
                 reservation.getExpiresAt(),
-                reservation.getRemainingSeconds()
+                Long.valueOf(reservation.getRemainingSeconds())
         );
     }
 

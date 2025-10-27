@@ -17,21 +17,15 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 재고 예약 서비스 - 단일 책임 원칙 준수
+ * 재고 예약 서비스
  *
- * 🎯 단일 책임: 재고 선점(Reservation)만 담당
+ * 재고 선점(Reservation)만 담당
  *
  * 담당 범위:
  * - 재고 예약 (선점)
  * - 예약 취소
  * - 예약 조회
  *
- * 담당하지 않음:
- * - 재고 확정 → InventoryManagementService
- * - WAL 로그 → WalService (횡단 관심사)
- * - 캐싱 → CacheService (인프라)
- * - 분산 락 → DistributedLockService (인프라)
- * - 주문 생성 → OrderService
  */
 @Service
 @Slf4j
@@ -54,7 +48,7 @@ public class ReservationService {
      * 1. 분산 락 획득 (동시성 제어)
      * 2. WAL 시작 로그
      * 3. Redis에서 재고 선점
-     * 4. 도메인 객체 생성
+     * 4. 도메인 객체 생성c
      * 5. 캐시 저장
      * 6. WAL 완료 로그
      *
