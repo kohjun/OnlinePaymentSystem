@@ -6,8 +6,10 @@ import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.annotation.EnableKafka;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.*;
@@ -33,6 +35,8 @@ import java.util.Map;
  * - Optimized producer/consumer settings
  */
 @Configuration
+@EnableKafka
+@ConditionalOnProperty(name = "spring.kafka.enabled", havingValue = "true", matchIfMissing = true)  // ✅ 추가
 public class KafkaConfig {
 
     @Value("${spring.kafka.bootstrap-servers}")
@@ -47,15 +51,16 @@ public class KafkaConfig {
     @Value("${payment.topics.dead-letter:payment-dead-letter}")
     private String deadLetterTopic;
 
-    // 토픽 정의
+
+    // 토픽 정의 - 단일 브로커 환경용
     @Bean
     public NewTopic paymentRequestsTopic() {
         return TopicBuilder.name(paymentRequestsTopic)
                 .partitions(6)
-                .replicas(3)
+                .replicas(1)
                 .configs(Map.of(
                         "retention.ms", "86400000", // 24시간 보존
-                        "min.insync.replicas", "2"  // 최소 2개의 복제본이 쓰기를 확인
+                        "min.insync.replicas", "1"
                 ))
                 .build();
     }
@@ -64,10 +69,10 @@ public class KafkaConfig {
     public NewTopic paymentEventsTopic() {
         return TopicBuilder.name(paymentEventsTopic)
                 .partitions(3)
-                .replicas(1)  // ✅ 1로 변경
+                .replicas(1)
                 .configs(Map.of(
                         "retention.ms", "86400000",
-                        "min.insync.replicas", "1"  // ✅ 1로 변경
+                        "min.insync.replicas", "1"
                 ))
                 .build();
     }
@@ -76,10 +81,10 @@ public class KafkaConfig {
     public NewTopic deadLetterTopic() {
         return TopicBuilder.name(deadLetterTopic)
                 .partitions(3)
-                .replicas(3)
+                .replicas(1)
                 .configs(Map.of(
                         "retention.ms", "604800000", // 7 days retention for dead letters
-                        "min.insync.replicas", "2"
+                        "min.insync.replicas", "1"
                 ))
                 .build();
     }

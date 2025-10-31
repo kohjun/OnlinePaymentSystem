@@ -2,7 +2,6 @@ spring:
   application:
     name: payment-service
 
-  # 데이터베이스 설정 - H2로 변경 (테스트 간편화)
   datasource:
     url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
     username: sa
@@ -11,49 +10,45 @@ spring:
     hikari:
       maximum-pool-size: 20
       minimum-idle: 5
-  # WAL 관련 설정 (간단 버전)
+
   wal:
     enabled: true
-    retention-days: 30  # 로그 보존 기간
+    retention-days: 30
 
-  # JPA 설정
   jpa:
     hibernate:
-      ddl-auto: create-drop  # 테스트용
+      ddl-auto: create-drop
     show-sql: true
     properties:
       hibernate:
         dialect: org.hibernate.dialect.H2Dialect
         format_sql: true
     open-in-view: false
-    defer-datasource-initialization: true
+    defer-datasource-initialization: true  # ✅ 중요: JPA 스키마 생성 후 test-data.sql 실행
 
-  # SQL 초기화 설정 (data.sql 실행용)
   sql:
     init:
-      mode: never  # data.sql을 항상 실행
+      mode: never
       encoding: UTF-8
       separator: ;
-      continue-on-error: false  # 오류 시 중단
-  # 스레드 풀 설정
-  spring:
-    task:
-      execution:
-        pool:
-          core-size: 4
-          max-size: 8
-          queue-capacity: 100
-      scheduling:
-        pool:
-          size: 2
+      continue-on-error: false
+      data-locations: classpath:test-data.sql  # ✅ 명시적 지정
 
-  # Redis 설정 - 단일 모드로 변경
+  task:
+    execution:
+      pool:
+        core-size: 4
+        max-size: 8
+        queue-capacity: 100
+    scheduling:
+      pool:
+        size: 2
+
   data:
     redis:
       host: localhost
       port: 6379
       timeout: 5000
-      # 클러스터 설정 제거하고 단일 모드 사용
       lettuce:
         pool:
           max-active: 8
@@ -61,7 +56,6 @@ spring:
           min-idle: 0
           max-wait: -1ms
 
-  # Kafka 설정
   kafka:
     bootstrap-servers: localhost:9092
     producer:
@@ -76,23 +70,18 @@ spring:
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
         spring.json.trusted.packages: com.example.payment.event,com.example.payment.dto
-        replication.factor: 1
       enable-auto-commit: false
 
-# 서버 설정
 server:
   port: 8080
 
-# 로깅 설정
 logging:
   level:
     root: INFO
     com.example.payment: DEBUG
     org.springframework.kafka: WARN
-    org.springframework.boot.autoconfigure.sql.init: DEBUG  # SQL 초기화 로그
-    com.example.payment.infrastructure.persistence.wal: DEBUG
+    org.springframework.boot.autoconfigure.sql.init: DEBUG
 
-# 결제 서비스 커스텀 설정
 payment:
   processing:
     retry-count: 3
