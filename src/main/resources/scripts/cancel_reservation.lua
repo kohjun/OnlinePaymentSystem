@@ -27,7 +27,7 @@ if status == "CANCELLED" then
 end
 
 if status == "CONFIRMED" then
-    return false -- 이미 확정되어 취소 불가
+    return false -- 이미 확정됨 (취소 불가)
 end
 
 if status ~= "RESERVED" then
@@ -37,10 +37,14 @@ end
 -- 상태 업데이트
 redis.call('HSET', KEYS[1], 'status', 'CANCELLED')
 
--- 예약된 수량 반환
+-- ✅ 재고 복원: available 증가, reserved 감소
 if resourceKey then
+    redis.call('HINCRBY', resourceKey, 'available', quantity)
     redis.call('HINCRBY', resourceKey, 'reserved', -quantity)
 end
+
+-- 예약 키 삭제 (또는 TTL 설정)
+redis.call('EXPIRE', KEYS[1], 300)  -- 5분 후 삭제
 
 -- 성공
 return true

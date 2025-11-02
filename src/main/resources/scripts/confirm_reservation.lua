@@ -37,7 +37,6 @@ end
 -- 상태 업데이트
 redis.call('HSET', KEYS[1], 'status', 'CONFIRMED')
 
--- 예약된 수량 감소 (확정되었으므로 실제 사용됨)
 if resourceKey then
     redis.call('HINCRBY', resourceKey, 'reserved', -quantity)
 end
