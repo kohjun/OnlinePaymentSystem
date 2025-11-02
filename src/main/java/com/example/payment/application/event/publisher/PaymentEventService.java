@@ -1,5 +1,6 @@
 package com.example.payment.application.event.publisher;
 
+import com.example.payment.domain.model.payment.Payment;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
@@ -23,7 +24,7 @@ public class PaymentEventService {
         publishPaymentEvent(PaymentEvent.PAYMENT_CREATED, payment);
     }
 
-    public void publishPaymentProcessed(PaymentResponse payment) {
+    public void publishPaymentProcessed(Payment payment) {
         publishPaymentEvent(PaymentEvent.PAYMENT_PROCESSED, payment);
 
         if (payment.getOrderId() != null && payment.getReservationId() != null) {

@@ -3,11 +3,13 @@ package com.example.payment.application.service;
 import com.example.payment.application.event.publisher.OrderEventPublisher;
 import com.example.payment.application.event.publisher.PaymentEventService;
 import com.example.payment.application.event.publisher.ReservationEventPublisher;
+import com.example.payment.application.service.OrderService.OrderCreationResult;
 import com.example.payment.domain.model.inventory.InventoryConfirmation;
 import com.example.payment.domain.model.order.Order;
 import com.example.payment.domain.model.payment.Payment;
 import com.example.payment.domain.model.reservation.InventoryReservation;
 import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
+import com.example.payment.infrastructure.persistence.wal.WalService;
 import com.example.payment.infrastructure.util.IdGenerator;
 import com.example.payment.presentation.dto.request.CompleteReservationRequest;
 import com.example.payment.presentation.dto.response.CompleteReservationResponse;
@@ -18,26 +20,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * 예약 오케스트레이터 - DDD + SOLID 원칙 준수 최종 버전
- *
- * 🎯 단일 책임: OLTP 트랜잭션 조율(Orchestration)만 담당
- *
- * 역할:
- * - 4개 도메인 서비스 조율 (Reservation, Order, Payment, Inventory)
- * - 2-Phase WAL 프로토콜 관리
- * - 보상 트랜잭션 (Saga Pattern)
- * - 비즈니스 이벤트 발행
- *
- * 하지 않는 일:
- * - 도메인 로직 X → 각 서비스에 위임
- * - WAL 로그 X → WalService
- * - 분산 락 X → DistributedLockService
- * - 캐싱 X → CacheService
- * - PG 연동 X → PaymentProcessingService
+ * ✅ 실제 프로젝트 구조에 맞춘 최종 수정본
+ * - CompleteReservationRequest.paymentInfo 사용
+ * - Payment.getAmount().getAmount() 사용 (Money 객체)
+ * - Payment.isCompleted() 사용
  */
 @Service
 @Slf4j
@@ -45,52 +36,46 @@ import java.util.Map;
 @Transactional
 public class ReservationOrchestrator {
 
-    // ========================================
-    // 도메인 서비스들 (각각 단일 책임)
-    // ========================================
-    private final ReservationService reservationService;           // 재고 선점
-    private final OrderService orderService;                       // 주문 관리
-    private final PaymentProcessingService paymentProcessingService; // 결제 처리
-    private final InventoryManagementService inventoryManagementService; // 재고 확정
+    // 도메인 서비스들
+    private final ReservationService reservationService;
+    private final OrderService orderService;
+    private final PaymentProcessingService paymentProcessingService;
+    private final InventoryManagementService inventoryManagementService;
 
-    // ========================================
-    // 인프라스트럭처 서비스들
-    // ========================================
+    // 인프라 서비스들
     private final CacheService cacheService;
+    private final WalService walService;
 
-    // ========================================
     // 이벤트 퍼블리셔들
-    // ========================================
     private final ReservationEventPublisher reservationEventPublisher;
     private final OrderEventPublisher orderEventPublisher;
     private final PaymentEventService paymentEventService;
 
     /**
-     * 통합 예약 플로우 - 2-Phase WAL + Saga Pattern
-     *
-     * Phase 1: 재고 선점 + 주문 생성 (즉시 처리, 분산 락 보장)
-     * PG 연동: 외부 결제 처리
-     * Phase 2: 재고 확정 + 주문 업데이트 (결제 완료 후)
-     *
-     * @param request 통합 예약 요청
-     * @return 통합 예약 응답
+     * ✅ 통합 예약 플로우 - 실제 프로젝트 구조 반영
      */
     public CompleteReservationResponse processCompleteReservation(CompleteReservationRequest request) {
 
-        log.info("🚀 Starting complete reservation flow: customerId={}, productId={}, quantity={}",
-                request.getCustomerId(), request.getProductId(), request.getQuantity());
-
-        String correlationId = request.getCorrelationId() != null ?
+        // 트랜잭션 ID 생성 (전체 플로우 공유)
+        String transactionId = request.getCorrelationId() != null ?
                 request.getCorrelationId() : IdGenerator.generateCorrelationId();
 
-        try {
-            // ========================================
-            // Phase 1: 재고 선점 + 주문 생성
-            // ========================================
+        log.info("🚀 Starting complete reservation flow: txId={}, customerId={}, productId={}, quantity={}",
+                transactionId, request.getCustomerId(), request.getProductId(), request.getQuantity());
 
-            // 1-1. 재고 선점 (분산 락 내부에서 WAL 처리)
-            log.debug("[Phase 1] Step 1: Reserve inventory");
+        // WAL 로그 ID 추적용 맵
+        Map<String, String> walLogIds = new HashMap<>();
+
+        try {
+            // ===================================
+            // Phase 1: 재고 선점 + 주문 생성 + 결제 요청
+            // ===================================
+
+            // 1-1. 재고 선점
+            log.debug("[Phase 1] Step 1: Reserve inventory (txId={})", transactionId);
+
             InventoryReservation reservation = reservationService.reserveInventory(
+                    transactionId,
                     request.getProductId(),
                     request.getCustomerId(),
                     request.getQuantity(),
@@ -98,175 +83,189 @@ public class ReservationOrchestrator {
             );
 
             if (reservation == null) {
-                log.warn("❌ Reservation failed: insufficient inventory");
+                log.warn("❌ [Phase 1] Reservation failed: txId={}, insufficient inventory", transactionId);
+
                 reservationEventPublisher.publishReservationCancelled(
                         "TEMP-" + IdGenerator.generateReservationId(),
                         "재고 부족"
                 );
+
                 return CompleteReservationResponse.failed("재고 선점 실패: 재고가 부족합니다");
             }
 
-            log.info("✅ Reservation succeeded: reservationId={}", reservation.getReservationId());
+            log.info("✅ [Phase 1] Reservation succeeded: txId={}, reservationId={}",
+                    transactionId, reservation.getReservationId());
+
             reservationEventPublisher.publishReservationCreated(reservation);
 
-            // 1-2. 주문 생성 (WAL 내부 처리)
-            log.debug("[Phase 1] Step 2: Create order");
-            Order order;
-            try {
-                order = orderService.createOrder(
-                        request.getCustomerId(),
-                        request.getProductId(),
-                        request.getQuantity(),
-                        request.getPaymentInfo().getAmount(),
-                        request.getPaymentInfo().getCurrency(),
-                        reservation.getReservationId()
-                );
+            // 1-2. 주문 생성 (Phase 1 WAL 로그 ID 반환)
+            log.debug("[Phase 1] Step 2: Create order (txId={})", transactionId);
 
-                log.info("✅ Order created: orderId={}", order.getOrderId());
-                orderEventPublisher.publishOrderCreated(
-                        order.getOrderId(),
-                        order.getCustomerId(),
-                        reservation.getReservationId()
-                );
-
-            } catch (Exception e) {
-                log.error("❌ Order creation failed, compensating reservation", e);
-                // 보상: 재고 예약 취소
-                compensateReservation(reservation.getReservationId(), request.getCustomerId());
-                return CompleteReservationResponse.failed("주문 생성 실패: " + e.getMessage());
-            }
-
-            // ========================================
-            // 외부 결제 처리 (PG 연동)
-            // ========================================
-            log.debug("[PG] Processing payment");
-            Payment payment;
-            try {
-                String paymentId = IdGenerator.generatePaymentId();
-
-                payment = paymentProcessingService.processPayment(
-                        paymentId,
-                        order.getOrderId(),
-                        reservation.getReservationId(),
-                        request.getCustomerId(),
-                        request.getPaymentInfo().getAmount(),
-                        request.getPaymentInfo().getCurrency(),
-                        request.getPaymentInfo().getPaymentMethod()
-                );
-
-                if (!payment.isCompleted()) {
-                    log.warn("❌ Payment failed: status={}", payment.getStatus());
-                    // 보상: 주문 취소 + 재고 예약 취소
-                    compensateOrder(order.getOrderId(), request.getCustomerId());
-                    compensateReservation(reservation.getReservationId(), request.getCustomerId());
-                    return CompleteReservationResponse.failed("결제 실패: " + payment.getStatus());
-                }
-
-                log.info("✅ Payment completed: paymentId={}, transactionId={}",
-                        payment.getPaymentId(), payment.getTransactionId());
-
-            } catch (Exception e) {
-                log.error("❌ Payment processing error, compensating", e);
-                compensateOrder(order.getOrderId(), request.getCustomerId());
-                compensateReservation(reservation.getReservationId(), request.getCustomerId());
-                return CompleteReservationResponse.failed("결제 처리 실패: " + e.getMessage());
-            }
-
-            // ========================================
-            // Phase 2: 확정 처리 (결제 성공 후)
-            // ========================================
-
-            try {
-                // 2-1. 재고 확정 (WAL Phase 2)
-                log.debug("[Phase 2] Step 1: Confirm inventory");
-                InventoryConfirmation confirmation = inventoryManagementService.confirmReservation(
-                        reservation.getReservationId(),
-                        order.getOrderId(),
-                        payment.getPaymentId()
-                );
-
-                if (!confirmation.isConfirmed()) {
-                    log.error("❌ Inventory confirmation failed: {}", confirmation.getReason());
-                    // 심각한 상황: 결제는 완료되었지만 재고 확정 실패
-                    // 보상: 결제 환불 + 주문 취소 + 재고 예약 취소
-                    compensatePayment(payment.getPaymentId());
-                    compensateOrder(order.getOrderId(), request.getCustomerId());
-                    compensateReservation(reservation.getReservationId(), request.getCustomerId());
-                    return CompleteReservationResponse.failed("재고 확정 실패");
-                }
-
-                log.info("✅ Inventory confirmed: reservationId={}", reservation.getReservationId());
-                reservationEventPublisher.publishReservationConfirmed(
-                        reservation.getReservationId(),
-                        order.getOrderId(),
-                        payment.getPaymentId()
-                );
-
-                // 2-2. 주문 결제 완료 처리 (WAL Phase 2)
-                log.debug("[Phase 2] Step 2: Update order to PAID");
-                boolean orderUpdated = orderService.markOrderAsPaid(
-                        order.getOrderId(),
-                        payment.getPaymentId()
-                );
-
-                if (!orderUpdated) {
-                    log.error("❌ Order payment update failed: orderId={}", order.getOrderId());
-                    // 이미 재고는 확정되었으므로 경고만 발행
-                } else {
-                    log.info("✅ Order marked as PAID: orderId={}", order.getOrderId());
-                    orderEventPublisher.publishOrderStatusChanged(
-                            order.getOrderId(),
-                            "CREATED",
-                            "PAID"
-                    );
-                }
-
-            } catch (Exception e) {
-                log.error("❌ Phase 2 failed", e);
-                return CompleteReservationResponse.failed("확정 처리 실패: " + e.getMessage());
-            }
-
-            // ========================================
-            // 성공 처리
-            // ========================================
-
-            publishSuccessEvents(reservation, order, payment, correlationId);
-            cacheCompleteResult(reservation, order, payment);
-
-            log.info("🎉 Complete reservation succeeded: reservationId={}, orderId={}, paymentId={}",
-                    reservation.getReservationId(), order.getOrderId(), payment.getPaymentId());
-
-            return CompleteReservationResponse.success(
-                    reservation.getReservationId(),
-                    order.getOrderId(),
-                    payment.getPaymentId(),
-                    payment.getTransactionId(),
+            // ✅ request.getPaymentInfo() 사용
+            OrderCreationResult orderResult = orderService.createOrder(
+                    transactionId,
+                    request.getCustomerId(),
                     request.getProductId(),
                     request.getQuantity(),
-                    request.getPaymentInfo().getAmount(),
-                    request.getPaymentInfo().getCurrency()
+                    request.getPaymentInfo().getAmount(),      // ✅ paymentInfo에서 가져옴
+                    request.getPaymentInfo().getCurrency(),    // ✅ paymentInfo에서 가져옴
+                    reservation.getReservationId()
             );
 
+            Order order = orderResult.getOrder();
+            String orderPhase1LogId = orderResult.getPhase1WalLogId();
+
+            walLogIds.put("ORDER_PHASE1", orderPhase1LogId);
+
+            log.info("✅ [Phase 1] Order created: txId={}, orderId={}, phase1LogId={}",
+                    transactionId, order.getOrderId(), orderPhase1LogId);
+
+            orderEventPublisher.publishOrderCreated(order);
+
+            // 1-3. 결제 처리 (외부 PG 연동)
+            log.debug("[PG Integration] Processing payment (txId={})", transactionId);
+
+            String paymentId = IdGenerator.generatePaymentId();
+
+            // ✅ request.getPaymentInfo() 사용
+            Payment payment = paymentProcessingService.processPayment(
+                    paymentId,
+                    order.getOrderId(),
+                    reservation.getReservationId(),
+                    request.getCustomerId(),
+                    request.getPaymentInfo().getAmount(),        // ✅ paymentInfo에서 가져옴
+                    request.getPaymentInfo().getCurrency(),      // ✅ paymentInfo에서 가져옴
+                    request.getPaymentInfo().getPaymentMethod()  // ✅ paymentInfo에서 가져옴
+            );
+
+            // ✅ Payment.isCompleted() 사용
+            if (payment == null || !payment.isCompleted()) {
+                log.warn("❌ [PG Integration] Payment failed: txId={}, orderId={}, status={}",
+                        transactionId, order.getOrderId(),
+                        payment != null ? payment.getStatus() : "null");
+
+                // 보상 트랜잭션 (Saga Pattern)
+                compensateReservation(transactionId, reservation.getReservationId(), request.getCustomerId());
+                compensateOrder(transactionId, order.getOrderId(), request.getCustomerId());
+
+                return CompleteReservationResponse.failed("결제 실패: " +
+                        (payment != null ? payment.getFailureReason() : "알 수 없음"));
+            }
+
+            log.info("✅ [PG Integration] Payment succeeded: txId={}, paymentId={}",
+                    transactionId, payment.getPaymentId());
+
+            paymentEventService.publishPaymentProcessed(payment);
+
+            // ===================================
+            // Phase 2: 재고 확정 + 주문 업데이트
+            // ===================================
+
+            // 2-1. 재고 확정 (Phase 1 로그와 연결)
+            log.debug("[Phase 2] Step 1: Confirm inventory reservation (txId={})", transactionId);
+
+            // 재고 선점 시의 Phase 1 WAL 로그 ID (ReservationService 개선 시 반환받도록 수정 필요)
+            String reservationPhase1LogId = null;  // TODO: ReservationService 개선 후 받아오기
+
+            InventoryConfirmation confirmation = inventoryManagementService.confirmReservation(
+                    transactionId,
+                    reservationPhase1LogId,
+                    reservation.getReservationId(),
+                    order.getOrderId(),
+                    payment.getPaymentId()
+            );
+
+            if (!confirmation.isSuccess()) {
+                log.warn("❌ [Phase 2] Inventory confirmation failed: txId={}, reservationId={}",
+                        transactionId, reservation.getReservationId());
+
+                // 보상 트랜잭션
+                compensatePayment(transactionId, payment.getPaymentId());
+                compensateOrder(transactionId, order.getOrderId(), request.getCustomerId());
+                compensateReservation(transactionId, reservation.getReservationId(), request.getCustomerId());
+
+                return CompleteReservationResponse.failed("재고 확정 실패: " + confirmation.getMessage());
+            }
+
+            log.info("✅ [Phase 2] Inventory confirmed: txId={}, reservationId={}",
+                    transactionId, reservation.getReservationId());
+
+            // 2-2. 주문 결제 완료 처리 (Phase 1 로그와 연결)
+            log.debug("[Phase 2] Step 2: Mark order as paid (txId={})", transactionId);
+
+            boolean orderUpdated = orderService.markOrderAsPaid(
+                    transactionId,
+                    orderPhase1LogId,
+                    order.getOrderId(),
+                    payment.getPaymentId()
+            );
+
+            if (!orderUpdated) {
+                log.warn("❌ [Phase 2] Order payment update failed: txId={}, orderId={}",
+                        transactionId, order.getOrderId());
+
+                // 보상 트랜잭션 (이 시점에서는 심각한 상황)
+                compensatePayment(transactionId, payment.getPaymentId());
+                inventoryManagementService.rollbackReservation(
+                        transactionId,
+                        reservation.getReservationId(),
+                        order.getOrderId(),
+                        "주문 업데이트 실패"
+                );
+
+                return CompleteReservationResponse.failed("주문 업데이트 실패");
+            }
+
+            log.info("✅ [Phase 2] Order marked as paid: txId={}, orderId={}",
+                    transactionId, order.getOrderId());
+
+            // ===================================
+            // 성공 응답 생성 및 이벤트 발행
+            // ===================================
+            publishSuccessEvents(transactionId, reservation, order, payment);
+
+            CompleteReservationResponse response = buildSuccessResponse(
+                    reservation, order, payment, transactionId
+            );
+
+            // 응답 캐싱 (트랜잭션 ID 포함)
+            cacheCompleteReservation(transactionId, reservation.getReservationId(), response);
+
+            log.info("🎉 Complete reservation flow finished successfully: txId={}, reservationId={}, orderId={}, paymentId={}",
+                    transactionId, reservation.getReservationId(), order.getOrderId(), payment.getPaymentId());
+
+            return response;
+
         } catch (Exception e) {
-            log.error("💥 Complete reservation failed: customerId={}, productId={}",
-                    request.getCustomerId(), request.getProductId(), e);
+            log.error("❌ System error in complete reservation flow: txId={}, customerId={}, productId={}",
+                    transactionId, request.getCustomerId(), request.getProductId(), e);
 
             return CompleteReservationResponse.failed("시스템 오류: " + e.getMessage());
         }
     }
 
-    // ========================================
-    // 단순 예약 API (Phase 1만)
-    // ========================================
-
     /**
-     * 재고 선점만 처리
+     * ✅ 재고 선점만 (Phase 1만)
      */
-    public ReservationResponse createInventoryReservationOnly(String productId, String customerId,
-                                                              Integer quantity, String clientId) {
+    public ReservationResponse createInventoryReservationOnly(
+            String productId,
+            String customerId,
+            Integer quantity,
+            String clientId) {
+
+        // 트랜잭션 ID 생성
+        String transactionId = IdGenerator.generateCorrelationId();
+
         try {
+            log.info("🔵 Creating inventory reservation only: txId={}, productId={}, customerId={}",
+                    transactionId, productId, customerId);
+
             InventoryReservation reservation = reservationService.reserveInventory(
-                    productId, customerId, quantity, clientId
+                    transactionId,
+                    productId,
+                    customerId,
+                    quantity,
+                    clientId
             );
 
             if (reservation == null) {
@@ -285,8 +284,8 @@ public class ReservationOrchestrator {
             );
 
         } catch (Exception e) {
-            log.error("Error creating inventory reservation: productId={}, customerId={}",
-                    productId, customerId, e);
+            log.error("❌ Error creating inventory reservation: txId={}, productId={}, customerId={}",
+                    transactionId, productId, customerId, e);
 
             return ReservationResponse.failed(productId, quantity,
                     "SYSTEM_ERROR", "시스템 오류: " + e.getMessage());
@@ -294,15 +293,13 @@ public class ReservationOrchestrator {
     }
 
     /**
-     * 예약 상태 조회
+     * ✅ 예약 상태 조회
      */
     public ReservationResponse getReservationStatus(String reservationId) {
         InventoryReservation reservation = reservationService.getReservation(reservationId);
-
         if (reservation == null) {
             return null;
         }
-
         return ReservationResponse.success(
                 reservation.getReservationId(),
                 reservation.getProductId(),
@@ -313,22 +310,15 @@ public class ReservationOrchestrator {
     }
 
     /**
-     * 통합 예약 상태 조회
+     * ✅ 통합 예약 상태 조회
      */
     public CompleteReservationResponse getCompleteReservationStatus(String reservationId) {
         try {
             String cacheKey = "complete_reservation:" + reservationId;
             Object cachedData = cacheService.getCachedData(cacheKey);
 
-            if (cachedData != null) {
-
-                if (cachedData instanceof CompleteReservationResponse) {
-                    return (CompleteReservationResponse) cachedData;
-                } else {
-                    log.warn("Cached data is not CompleteReservationResponse type: reservationId={}, actualType={}",
-                            reservationId, cachedData.getClass().getName());
-                    cacheService.deleteCache(cacheKey);
-                }
+            if (cachedData != null && cachedData instanceof CompleteReservationResponse) {
+                return (CompleteReservationResponse) cachedData;
             }
 
             // 캐시에 없으면 부분 정보만 조회
@@ -355,14 +345,16 @@ public class ReservationOrchestrator {
     }
 
     /**
-     * 통합 예약 취소
+     * ✅ 통합 예약 취소
      */
     public boolean cancelCompleteReservation(String reservationId, String customerId, String reason) {
-        try {
-            log.info("Cancelling complete reservation: reservationId={}, customerId={}, reason={}",
-                    reservationId, customerId, reason);
+        String transactionId = IdGenerator.generateCorrelationId();
 
-            boolean cancelled = reservationService.cancelReservation(reservationId, customerId);
+        try {
+            log.info("🟠 Cancelling complete reservation: txId={}, reservationId={}, customerId={}, reason={}",
+                    transactionId, reservationId, customerId, reason);
+
+            boolean cancelled = reservationService.cancelReservation(transactionId, reservationId, customerId);
 
             if (cancelled) {
                 reservationEventPublisher.publishReservationCancelled(reservationId, reason);
@@ -370,21 +362,154 @@ public class ReservationOrchestrator {
                 String cacheKey = "complete_reservation:" + reservationId;
                 cacheService.deleteCache(cacheKey);
 
-                log.info("Complete reservation cancelled: reservationId={}", reservationId);
+                log.info("✅ Complete reservation cancelled: txId={}, reservationId={}",
+                        transactionId, reservationId);
                 return true;
             }
 
             return false;
 
         } catch (Exception e) {
-            log.error("Error cancelling complete reservation: reservationId={}", reservationId, e);
+            log.error("❌ Error cancelling complete reservation: reservationId={}", reservationId, e);
             return false;
         }
     }
 
-    // ========================================
-    // 조회 API들
-    // ========================================
+    // ===================================
+    // 보상 트랜잭션들 (Saga Pattern)
+    // ===================================
+
+    private void compensateReservation(String transactionId, String reservationId, String customerId) {
+        try {
+            log.info("🔄 [Compensation] Compensating reservation: txId={}, reservationId={}",
+                    transactionId, reservationId);
+
+            reservationService.cancelReservation(transactionId, reservationId, customerId);
+            reservationEventPublisher.publishReservationCancelled(reservationId, "시스템 보상 트랜잭션");
+
+            log.info("✅ [Compensation] Reservation compensated: txId={}, reservationId={}",
+                    transactionId, reservationId);
+        } catch (Exception e) {
+            log.error("❌ [Compensation] Failed to compensate reservation: txId={}, reservationId={}",
+                    transactionId, reservationId, e);
+        }
+    }
+
+    private void compensateOrder(String transactionId, String orderId, String customerId) {
+        try {
+            log.info("🔄 [Compensation] Compensating order: txId={}, orderId={}",
+                    transactionId, orderId);
+
+            orderService.cancelOrder(transactionId, orderId, customerId, "시스템 보상");
+            orderEventPublisher.publishOrderCancelled(orderId, "시스템 보상 트랜잭션");
+
+            log.info("✅ [Compensation] Order compensated: txId={}, orderId={}",
+                    transactionId, orderId);
+        } catch (Exception e) {
+            log.error("❌ [Compensation] Failed to compensate order: txId={}, orderId={}",
+                    transactionId, orderId, e);
+        }
+    }
+
+    private void compensatePayment(String transactionId, String paymentId) {
+        try {
+            log.info("🔄 [Compensation] Compensating payment: txId={}, paymentId={}",
+                    transactionId, paymentId);
+
+            paymentProcessingService.refundPayment(paymentId);
+
+            log.info("✅ [Compensation] Payment compensated: txId={}, paymentId={}",
+                    transactionId, paymentId);
+        } catch (Exception e) {
+            log.error("❌ [Compensation] Failed to compensate payment: txId={}, paymentId={}",
+                    transactionId, paymentId, e);
+        }
+    }
+
+    // ===================================
+    // Helper Methods
+    // ===================================
+
+    private void publishSuccessEvents(String transactionId, InventoryReservation reservation,
+                                      Order order, Payment payment) {
+        try {
+            log.debug("Publishing success events: txId={}", transactionId);
+
+            reservationEventPublisher.publishReservationConfirmed(
+                    reservation.getReservationId(),
+                    order.getOrderId(),
+                    payment.getPaymentId()
+            );
+
+            orderEventPublisher.publishOrderStatusChanged(
+                    order.getOrderId(),
+                    "CREATED",
+                    "PAID"
+            );
+
+            log.debug("✅ All success events published: txId={}", transactionId);
+
+        } catch (Exception e) {
+            log.error("❌ Error publishing success events: txId={}", transactionId, e);
+        }
+    }
+
+    private CompleteReservationResponse buildSuccessResponse(
+            InventoryReservation reservation,
+            Order order,
+            Payment payment,
+            String transactionId) {
+
+        return CompleteReservationResponse.builder()
+                .status("SUCCESS")
+                .message("예약이 완료되었습니다")
+                // 예약 정보
+                .reservation(CompleteReservationResponse.ReservationInfo.builder()
+                        .reservationId(reservation.getReservationId())
+                        .productId(reservation.getProductId())
+                        .quantity(reservation.getQuantity())
+                        .expiresAt(reservation.getExpiresAt())
+                        .build())
+                // 주문 정보
+                .order(CompleteReservationResponse.OrderInfo.builder()
+                        .orderId(order.getOrderId())
+                        .customerId(order.getCustomerId())
+                        .status(order.getStatus().name())
+                        .createdAt(order.getCreatedAt())
+                        .build())
+                // 결제 정보 - ✅ Payment.getAmount().getAmount() 사용 (Money 객체)
+                .payment(CompleteReservationResponse.PaymentInfo.builder()
+                        .paymentId(payment.getPaymentId())
+                        .transactionId(payment.getTransactionId())
+                        .approvalNumber(payment.getApprovalNumber())
+                        .amount(payment.getAmount().getAmount())      // ✅ Money.getAmount()
+                        .currency(payment.getAmount().getCurrency())  // ✅ Money.getCurrency()
+                        .status(payment.getStatus().name())
+                        .processedAt(payment.getProcessedAt())
+                        .build())
+                .build();
+    }
+
+    private void cacheCompleteReservation(String transactionId, String reservationId,
+                                          CompleteReservationResponse response) {
+        try {
+            String cacheKey = "complete_reservation:" + reservationId;
+            cacheService.cacheData(cacheKey, response, 3600); // 1시간
+
+            // 트랜잭션 ID로도 캐싱 (조회 편의성)
+            String txCacheKey = "tx_complete_reservation:" + transactionId;
+            cacheService.cacheData(txCacheKey, reservationId, 3600);
+
+            log.debug("✅ Complete reservation cached: txId={}, reservationId={}",
+                    transactionId, reservationId);
+        } catch (Exception e) {
+            log.warn("Failed to cache complete reservation: txId={}", transactionId, e);
+        }
+    }
+
+    // ===================================
+    // 조회 메서드들 (기존 유지)
+    // ===================================
 
     public List<ReservationResponse> getActiveReservationsByCustomer(String customerId, int page, int size) {
         log.debug("Getting active reservations for customer: customerId={}", customerId);
@@ -404,104 +529,5 @@ public class ReservationOrchestrator {
     public Map<String, Object> getSystemReservationStatus() {
         log.debug("Getting system reservation status");
         return Map.of("status", "OK", "message", "시스템 상태 조회 기능 구현 예정");
-    }
-
-    // ========================================
-    // 보상 트랜잭션들 (Saga Pattern)
-    // ========================================
-
-    private void compensateReservation(String reservationId, String customerId) {
-        try {
-            reservationService.cancelReservation(reservationId, customerId);
-            reservationEventPublisher.publishReservationCancelled(reservationId, "시스템 보상 트랜잭션");
-            log.info("✅ Reservation compensated: reservationId={}", reservationId);
-        } catch (Exception e) {
-            log.error("❌ Failed to compensate reservation: reservationId={}", reservationId, e);
-        }
-    }
-
-    private void compensateOrder(String orderId, String customerId) {
-        try {
-            orderService.cancelOrder(orderId, customerId, "시스템 보상");
-            orderEventPublisher.publishOrderCancelled(orderId, "시스템 보상 트랜잭션");
-            log.info("✅ Order compensated: orderId={}", orderId);
-        } catch (Exception e) {
-            log.error("❌ Failed to compensate order: orderId={}", orderId, e);
-        }
-    }
-
-    private void compensatePayment(String paymentId) {
-        try {
-            paymentProcessingService.refundPayment(paymentId);
-            log.info("✅ Payment compensated: paymentId={}", paymentId);
-        } catch (Exception e) {
-            log.error("❌ Failed to compensate payment: paymentId={}", paymentId, e);
-        }
-    }
-
-    // ========================================
-    // 이벤트 발행 및 캐싱
-    // ========================================
-
-    private void publishSuccessEvents(InventoryReservation reservation, Order order,
-                                      Payment payment, String correlationId) {
-        try {
-            log.debug("Publishing success events: correlationId={}", correlationId);
-
-            reservationEventPublisher.publishReservationConfirmed(
-                    reservation.getReservationId(),
-                    order.getOrderId(),
-                    payment.getPaymentId()
-            );
-
-            orderEventPublisher.publishOrderStatusChanged(
-                    order.getOrderId(),
-                    "CREATED",
-                    "PAID"
-            );
-
-            log.debug("All success events published");
-
-        } catch (Exception e) {
-            log.error("Error publishing success events: correlationId={}", correlationId, e);
-        }
-    }
-
-    private void cacheCompleteResult(InventoryReservation reservation, Order order, Payment payment) {
-        try {
-            CompleteReservationResponse result = CompleteReservationResponse.builder()
-                    .reservation(CompleteReservationResponse.ReservationInfo.builder()
-                            .reservationId(reservation.getReservationId())
-                            .productId(reservation.getProductId())
-                            .quantity(reservation.getQuantity())
-                            .expiresAt(reservation.getExpiresAt())
-                            .build())
-                    .order(CompleteReservationResponse.OrderInfo.builder()
-                            .orderId(order.getOrderId())
-                            .customerId(order.getCustomerId())
-                            .status(order.getStatus().name())
-                            .createdAt(order.getCreatedAt())
-                            .build())
-                    .payment(CompleteReservationResponse.PaymentInfo.builder()
-                            .paymentId(payment.getPaymentId())
-                            .transactionId(payment.getTransactionId())
-                            .approvalNumber(payment.getApprovalNumber())
-                            .amount(payment.getAmount().getAmount())
-                            .currency(payment.getAmount().getCurrency())
-                            .status(payment.getStatus().name())
-                            .processedAt(payment.getProcessedAt())
-                            .build())
-                    .status("SUCCESS")
-                    .message("통합 예약이 완료되었습니다")
-                    .build();
-
-            String cacheKey = "complete_reservation:" + reservation.getReservationId();
-            cacheService.cacheData(cacheKey, result, 86400);
-
-            log.debug("Complete result cached: reservationId={}", reservation.getReservationId());
-
-        } catch (Exception e) {
-            log.error("Error caching complete result", e);
-        }
     }
 }

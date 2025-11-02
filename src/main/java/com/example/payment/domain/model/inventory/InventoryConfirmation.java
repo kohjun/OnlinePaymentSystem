@@ -1,6 +1,5 @@
 package com.example.payment.domain.model.inventory;
 
-import com.example.payment.domain.model.common.BaseEntity;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -12,39 +11,62 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class InventoryConfirmation extends BaseEntity {
+public class InventoryConfirmation {
+
     private String reservationId;
     private String orderId;
     private String paymentId;
-    private String productId;
-    private Integer quantity;
-    private boolean confirmed;
-    private String reason;
+    private boolean success;
+    private String message;
     private LocalDateTime confirmedAt;
 
-    public static InventoryConfirmation success(String reservationId, String orderId, String paymentId,
-                                                String productId, Integer quantity) {
+    /**
+     * ✅ 필수 메서드
+     */
+    public boolean isSuccess() {
+        return success;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+
+    /**
+     * 성공 응답 생성
+     */
+    public static InventoryConfirmation success(
+            String reservationId,
+            String orderId,
+            String paymentId,
+            String message,
+            LocalDateTime confirmedAt) {
+
         return InventoryConfirmation.builder()
                 .reservationId(reservationId)
                 .orderId(orderId)
                 .paymentId(paymentId)
-                .productId(productId)
-                .quantity(quantity)
-                .confirmed(true)
-                .reason("정상 확정")
-                .confirmedAt(LocalDateTime.now())
+                .success(true)
+                .message(message)
+                .confirmedAt(confirmedAt)
                 .build();
     }
 
-    public static InventoryConfirmation failure(String reservationId, String orderId, String paymentId,
-                                                String reason) {
+    /**
+     * 실패 응답 생성
+     */
+    public static InventoryConfirmation failure(
+            String reservationId,
+            String orderId,
+            String paymentId,
+            String message) {
+
         return InventoryConfirmation.builder()
                 .reservationId(reservationId)
                 .orderId(orderId)
                 .paymentId(paymentId)
-                .confirmed(false)
-                .reason(reason)
-                .confirmedAt(LocalDateTime.now())
+                .success(false)
+                .message(message)
+                .confirmedAt(null)
                 .build();
     }
 }
