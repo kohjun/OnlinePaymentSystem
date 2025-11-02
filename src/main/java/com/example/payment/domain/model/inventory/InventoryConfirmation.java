@@ -20,9 +20,6 @@ public class InventoryConfirmation {
     private String message;
     private LocalDateTime confirmedAt;
 
-    /**
-     * ✅ 필수 메서드
-     */
     public boolean isSuccess() {
         return success;
     }

@@ -1,5 +1,6 @@
 package com.example.payment.application.event.handler;
 
+import com.example.payment.infrastructure.util.IdGenerator;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
@@ -75,26 +76,28 @@ public class PaymentEventListener {
             log.info("Processing payment success: orderId={}, paymentId={}",
                     payment.getOrderId(), payment.getPaymentId());
 
-            // 1. 주문 상태를 결제 완료로 업데이트
-            if (payment.getOrderId() != null) {
-                boolean updated = orderService.updateOrderStatus(
-                        payment.getOrderId(),
-                        "PAID",
-                        "결제가 완료되었습니다."
-                );
+            // ❌ 잘못된 코드 (3개 파라미터):
+            // boolean updated = orderService.updateOrderStatus(
+            //         payment.getOrderId(),
+            //         "PAID",
+            //         "결제가 완료되었습니다."
+            // );
 
-                if (updated) {
-                    log.info("Order status updated to PAID: orderId={}", payment.getOrderId());
-                } else {
-                    log.warn("Failed to update order status: orderId={}", payment.getOrderId());
-                }
+            // ✅ 올바른 코드 (4개 파라미터):
+            String transactionId = IdGenerator.generateCorrelationId();  // transactionId 생성
+
+            boolean updated = orderService.updateOrderStatus(
+                    transactionId,                          // ✅ 1. transactionId 추가
+                    payment.getOrderId(),                   // 2. orderId
+                    "PAID",                                 // 3. newStatus
+                    "결제가 완료되었습니다."                   // 4. reason
+            );
+
+            if (updated) {
+                log.info("Order status updated to PAID: orderId={}", payment.getOrderId());
+            } else {
+                log.warn("Failed to update order status: orderId={}", payment.getOrderId());
             }
-
-            // 2. 추가 비즈니스 로직 (필요한 경우)
-            // - 티켓 발권 시스템 연동
-            // - 좌석 배정
-            // - 고객 알림 등
-
         } catch (Exception e) {
             log.error("Error in payment success handling: orderId={}, paymentId={}",
                     payment.getOrderId(), payment.getPaymentId(), e);
@@ -109,12 +112,20 @@ public class PaymentEventListener {
             log.info("Processing payment failure: reservationId={}, paymentId={}",
                     payment.getReservationId(), payment.getPaymentId());
 
-            // 1. 예약 취소 (재고 복원)
             if (payment.getReservationId() != null) {
-                // 시스템 차원의 예약 취소 (고객 ID는 임시로 SYSTEM 사용)
+                // ❌ 잘못된 코드 (2개 파라미터):
+                // boolean cancelled = reservationService.cancelReservation(
+                //         payment.getReservationId(),
+                //         "SYSTEM"
+                // );
+
+                // ✅ 올바른 코드 (3개 파라미터):
+                String transactionId = IdGenerator.generateCorrelationId();  // transactionId 생성
+
                 boolean cancelled = reservationService.cancelReservation(
-                        payment.getReservationId(),
-                        "SYSTEM" // 실제로는 payment에서 customerId를 가져와야 함
+                        transactionId,                      // ✅ 1. transactionId 추가
+                        payment.getReservationId(),         // 2. reservationId
+                        "SYSTEM"                            // 3. customerId
                 );
 
                 if (cancelled) {
@@ -123,19 +134,15 @@ public class PaymentEventListener {
                 } else {
                     log.error("Failed to cancel reservation: reservationId={}",
                             payment.getReservationId());
-                    // 심각한 상황 - 알림 필요
                     alertCriticalIssue("RESERVATION_CANCEL_FAILED", payment);
                 }
             }
-
-            // 2. 실패 알림 발송 (고객에게)
-            // notificationService.sendPaymentFailureNotification(payment);
-
         } catch (Exception e) {
             log.error("Error in payment failure handling: reservationId={}, paymentId={}",
                     payment.getReservationId(), payment.getPaymentId(), e);
         }
     }
+
 
     /**
      * 심각한 문제 알림

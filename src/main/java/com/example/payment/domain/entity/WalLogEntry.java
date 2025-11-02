@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.time.Duration;
 
 @Entity
 @Table(name = "wal_logs", indexes = {
@@ -24,6 +25,7 @@ public class WalLogEntry {
     @Id
     private String logId;
 
+    // ✅ @GeneratedValue 제거 - Repository에서 수동 생성
     @Column(unique = true, nullable = false)
     private Long lsn; // Log Sequence Number
 
@@ -68,6 +70,28 @@ public class WalLogEntry {
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
+    }
+
+    /**
+     * ✅ 처리 시간 계산 (밀리초)
+     */
+    public long getProcessingDurationMs() {
+        if (createdAt == null) {
+            return 0;
+        }
+
+        LocalDateTime endTime = completedAt != null ? completedAt : LocalDateTime.now();
+        return Duration.between(createdAt, endTime).toMillis();
+    }
+
+    /**
+     * ✅ 대기 시간 계산 (밀리초)
+     */
+    public long getWaitingDurationMs() {
+        if (createdAt == null || writtenAt == null) {
+            return 0;
+        }
+        return Duration.between(createdAt, writtenAt).toMillis();
     }
 
     /**
@@ -120,8 +144,7 @@ public class WalLogEntry {
      */
     public boolean isCompleted() {
         return WalLogStatus.COMMITTED.name().equals(status) ||
-                WalLogStatus.FAILED.name().equals(status) ||
-                WalLogStatus.RECOVERED.name().equals(status);
+                WalLogStatus.FAILED.name().equals(status);
     }
 
     /**
@@ -132,30 +155,16 @@ public class WalLogEntry {
     }
 
     /**
-     * 로그 처리 중 여부 확인
+     * 로그 진행 중 여부 확인
+     */
+    public boolean isInProgress() {
+        return WalLogStatus.IN_PROGRESS.name().equals(status);
+    }
+
+    /**
+     * 로그 대기 중 여부 확인
      */
     public boolean isPending() {
-        return WalLogStatus.PENDING.name().equals(status) ||
-                WalLogStatus.IN_PROGRESS.name().equals(status);
-    }
-
-    /**
-     * 로그 소요 시간 계산 (밀리초)
-     */
-    public long getProcessingDurationMs() {
-        if (createdAt == null || completedAt == null) {
-            return 0;
-        }
-        return java.time.Duration.between(createdAt, completedAt).toMillis();
-    }
-
-    /**
-     * 안전한 문자열 표현 (민감 정보 마스킹)
-     */
-    public String toSafeString() {
-        return String.format(
-                "WalLogEntry{logId='%s', lsn=%d, transactionId='%s', operation='%s', status='%s', createdAt=%s}",
-                logId, lsn, transactionId, operation, status, createdAt
-        );
+        return WalLogStatus.PENDING.name().equals(status);
     }
 }

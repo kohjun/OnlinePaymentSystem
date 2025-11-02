@@ -25,10 +25,11 @@ public class PaymentEventService {
     }
 
     public void publishPaymentProcessed(Payment payment) {
-        publishPaymentEvent(PaymentEvent.PAYMENT_PROCESSED, payment);
+        PaymentResponse paymentResponse = convertToPaymentResponse(payment);
+        publishPaymentEvent(PaymentEvent.PAYMENT_PROCESSED, paymentResponse);
 
-        if (payment.getOrderId() != null && payment.getReservationId() != null) {
-            publishOrderCompletedEvent(payment);
+        if (payment.isCompleted() && payment.getOrderId() != null) {
+            publishOrderCompletedEvent(paymentResponse);  // ✅ 변환된 객체 사용
         }
     }
 
@@ -59,6 +60,20 @@ public class PaymentEventService {
         } catch (Exception e) {
             log.error("Error publishing payment event: {}", e.getMessage());
         }
+    }
+    private PaymentResponse convertToPaymentResponse(Payment payment) {
+        return PaymentResponse.builder()
+                .paymentId(payment.getPaymentId())
+                .reservationId(payment.getReservationId())
+                .orderId(payment.getOrderId())
+                .amount(payment.getAmount().getAmount())
+                .currency(payment.getAmount().getCurrency())
+                .status(payment.getStatus().name())
+                .transactionId(payment.getTransactionId())
+                .approvalNumber(payment.getApprovalNumber())
+                .gatewayName(payment.getGatewayName())
+                .processedAt(payment.getProcessedAt())
+                .build();
     }
 
     private void publishOrderCompletedEvent(PaymentResponse payment) {
