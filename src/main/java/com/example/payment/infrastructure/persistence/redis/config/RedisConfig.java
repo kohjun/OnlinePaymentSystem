@@ -114,47 +114,35 @@ public class RedisConfig {
 
     // ==================== Lua Script Beans 추가 ====================
 
-    /**
-     * 재고 예약 스크립트
-     */
     @Bean
     public DefaultRedisScript<String> reserveScript() {
         DefaultRedisScript<String> script = new DefaultRedisScript<>();
-        script.setLocation(new ClassPathResource("redis/reserve_resource.lua"));
+        script.setLocation(new ClassPathResource("scripts/reserve_resource.lua"));
         script.setResultType(String.class);  // JSON 문자열로 반환
         return script;
     }
 
     /**
      * 예약 확정 스크립트
+     * [수정] 4. 경로를 'redis/'에서 'scripts/'로 변경
      */
     @Bean
     public DefaultRedisScript<String> confirmScript() {
         DefaultRedisScript<String> script = new DefaultRedisScript<>();
-        script.setLocation(new ClassPathResource("redis/confirm_reservation.lua"));
+        script.setLocation(new ClassPathResource("scripts/confirm_reservation.lua"));
         script.setResultType(String.class);  // JSON 문자열로 반환
         return script;
     }
 
     /**
      * 예약 취소 스크립트
+     * [수정] 5. 경로를 'redis/'에서 'scripts/'로 변경
      */
     @Bean
     public DefaultRedisScript<String> cancelScript() {
         DefaultRedisScript<String> script = new DefaultRedisScript<>();
-        script.setLocation(new ClassPathResource("redis/cancel_reservation.lua"));
+        script.setLocation(new ClassPathResource("scripts/cancel_reservation.lua"));
         script.setResultType(String.class);  // JSON 문자열로 반환
-        return script;
-    }
-
-    /**
-     * 릴리스 스크립트 (필요한 경우)
-     */
-    @Bean
-    public DefaultRedisScript<String> releaseScript() {
-        DefaultRedisScript<String> script = new DefaultRedisScript<>();
-        script.setLocation(new ClassPathResource("redis/cancel_reservation.lua")); // 또는 별도 release 스크립트
-        script.setResultType(String.class);
         return script;
     }
 }

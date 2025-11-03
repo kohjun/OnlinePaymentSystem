@@ -4,6 +4,8 @@ import com.example.payment.application.event.publisher.OrderEventPublisher;
 import com.example.payment.application.event.publisher.PaymentEventService;
 import com.example.payment.application.event.publisher.ReservationEventPublisher;
 import com.example.payment.application.service.OrderService.OrderCreationResult;
+// [추가] 1. ReservationService의 내부 클래스 임포트 (문제 2.B)
+import com.example.payment.application.service.ReservationService.ReservationResult;
 import com.example.payment.domain.model.inventory.InventoryConfirmation;
 import com.example.payment.domain.model.order.Order;
 import com.example.payment.domain.model.payment.Payment;
@@ -12,6 +14,7 @@ import com.example.payment.infrastructure.persistence.redis.repository.CacheServ
 import com.example.payment.infrastructure.persistence.wal.WalService;
 import com.example.payment.infrastructure.util.IdGenerator;
 import com.example.payment.presentation.dto.request.CompleteReservationRequest;
+// [추가] 2. CompleteReservationResponse 임포트 (문제 2.A)
 import com.example.payment.presentation.dto.response.CompleteReservationResponse;
 import com.example.payment.presentation.dto.response.ReservationResponse;
 import jakarta.transaction.Transactional;
@@ -19,6 +22,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -26,9 +30,7 @@ import java.util.Map;
 
 /**
  * 실제 프로젝트 구조에 맞춘 최종 수정본
- * - CompleteReservationRequest.paymentInfo 사용
- * - Payment.getAmount().getAmount() 사용 (Money 객체)
- * - Payment.isCompleted() 사용
+ * - [수정] WAL 체인 연결 및 통합 예약 취소 로직 수정 (문제 2.A, 2.B 해결)
  */
 @Service
 @Slf4j
@@ -53,6 +55,7 @@ public class ReservationOrchestrator {
 
     /**
      * 통합 예약 플로우 - 실제 프로젝트 구조 반영
+     * [수정됨] 2.B: ReservationResult를 받아 walLogId를 확정 단계로 전달
      */
     public CompleteReservationResponse processCompleteReservation(CompleteReservationRequest request) {
         String transactionId = request.getCorrelationId() != null ?
@@ -63,13 +66,19 @@ public class ReservationOrchestrator {
 
         Map<String, String> walLogIds = new HashMap<>();
 
+        // [수정] 3. try-catch 블록을 세분화하여 보상 트랜잭션이 명확히 실행되도록 함
+        ReservationResult reservationResult = null;
+        OrderCreationResult orderResult = null;
+        Payment payment = null;
+
         try {
             // ===================================
             // Phase 1: 재고 선점
             // ===================================
             log.debug("[Phase 1] Step 1: Reserve inventory (txId={})", transactionId);
 
-            InventoryReservation reservation = reservationService.reserveInventory(
+            // [수정] 4. 반환 타입을 ReservationResult로 변경
+            reservationResult = reservationService.reserveInventory(
                     transactionId,
                     request.getProductId(),
                     request.getCustomerId(),
@@ -77,7 +86,7 @@ public class ReservationOrchestrator {
                     request.getClientId()
             );
 
-            if (reservation == null) {
+            if (reservationResult == null) {
                 log.warn("[Phase 1] Reservation failed: txId={}, insufficient inventory", transactionId);
                 reservationEventPublisher.publishReservationCancelled(
                         "TEMP-" + IdGenerator.generateReservationId(),
@@ -86,8 +95,13 @@ public class ReservationOrchestrator {
                 return CompleteReservationResponse.failed("재고 선점 실패: 재고가 부족합니다");
             }
 
-            log.info("[Phase 1] Reservation succeeded: txId={}, reservationId={}",
-                    transactionId, reservation.getReservationId());
+            // [수정] 5. 객체 및 walLogId 추출
+            InventoryReservation reservation = reservationResult.getReservation();
+            String reservationPhase1LogId = reservationResult.getWalLogId();
+            walLogIds.put("RESERVATION_PHASE1", reservationPhase1LogId);
+
+            log.info("[Phase 1] Reservation succeeded: txId={}, reservationId={}, phase1LogId={}",
+                    transactionId, reservation.getReservationId(), reservationPhase1LogId);
             reservationEventPublisher.publishReservationCreated(reservation);
 
             // ===================================
@@ -95,7 +109,7 @@ public class ReservationOrchestrator {
             // ===================================
             log.debug("[Phase 1] Step 2: Create order (txId={})", transactionId);
 
-            OrderCreationResult orderResult = orderService.createOrder(
+            orderResult = orderService.createOrder(
                     transactionId,
                     request.getCustomerId(),
                     request.getProductId(),
@@ -112,7 +126,6 @@ public class ReservationOrchestrator {
             log.info("[Phase 1] Order created: txId={}, orderId={}, phase1LogId={}",
                     transactionId, order.getOrderId(), orderPhase1LogId);
 
-            // publishOrderCreated 호출
             orderEventPublisher.publishOrderCreated(
                     order.getOrderId(),
                     order.getCustomerId(),
@@ -125,16 +138,15 @@ public class ReservationOrchestrator {
             log.debug("[PG Integration] Processing payment (txId={})", transactionId);
             String paymentId = IdGenerator.generatePaymentId();
 
-            // processPayment 호출 (8개 파라미터)
-            Payment payment = paymentProcessingService.processPayment(
-                    transactionId,  // 1. transactionId
-                    paymentId,      // 2
-                    order.getOrderId(),  // 3
-                    reservation.getReservationId(),  // 4
-                    request.getCustomerId(),  // 5
-                    request.getPaymentInfo().getAmount(),  // 6
-                    request.getPaymentInfo().getCurrency(),  // 7
-                    request.getPaymentInfo().getPaymentMethod()  // 8
+            payment = paymentProcessingService.processPayment(
+                    transactionId,
+                    paymentId,
+                    order.getOrderId(),
+                    reservation.getReservationId(),
+                    request.getCustomerId(),
+                    request.getPaymentInfo().getAmount(),
+                    request.getPaymentInfo().getCurrency(),
+                    request.getPaymentInfo().getPaymentMethod()
             );
 
             if (payment == null || !payment.isCompleted()) {
@@ -142,6 +154,7 @@ public class ReservationOrchestrator {
                         transactionId, order.getOrderId(),
                         payment != null ? payment.getStatus() : "null");
 
+                // [수정] 결제 실패 시 즉시 보상 트랜잭션 실행
                 compensateReservation(transactionId, reservation.getReservationId(), request.getCustomerId());
                 compensateOrder(transactionId, order.getOrderId(), request.getCustomerId());
 
@@ -158,24 +171,22 @@ public class ReservationOrchestrator {
             // ===================================
             log.debug("[Phase 2] Step 1: Confirm inventory (txId={})", transactionId);
 
-            // ConfirmReservation 호출 (5개 파라미터)
-            // TODO: 향후 ReservationService 개선 시 phase1LogId 받아오기
-            String reservationPhase1LogId = null;
-
             InventoryConfirmation confirmation = inventoryManagementService.confirmReservation(
-                    transactionId,                    // 1. transactionId
-                    reservationPhase1LogId,           // 2. phase1LogId (현재 null)
-                    reservation.getReservationId(),   // 3. reservationId
-                    order.getOrderId(),               // 4. orderId
-                    payment.getPaymentId()            // 5. paymentId
+                    transactionId,
+                    reservationPhase1LogId,           // [수정] 6. null 대신 실제 walLogId 전달
+                    reservation.getReservationId(),
+                    order.getOrderId(),
+                    payment.getPaymentId()
             );
 
             if (confirmation == null || !confirmation.isSuccess()) {
                 log.warn("[Phase 2] Inventory confirmation failed: txId={}, reservationId={}",
                         transactionId, reservation.getReservationId());
 
+                // [수정] 재고 확정 실패 시 결제/주문 보상
                 compensatePayment(transactionId, payment.getPaymentId());
                 compensateOrder(transactionId, order.getOrderId(), request.getCustomerId());
+                // (재고는 이미 1단계에서 선점되었으므로 롤백할 필요 없음. 단, 재고 확정이 실패했으므로 수동 개입 필요)
 
                 return CompleteReservationResponse.failed("재고 확정 실패");
             }
@@ -199,6 +210,7 @@ public class ReservationOrchestrator {
                 log.warn("[Phase 2] Order payment update failed: txId={}, orderId={}",
                         transactionId, order.getOrderId());
 
+                // [수정] 주문 확정 실패 시 결제 보상 및 재고 롤백
                 compensatePayment(transactionId, payment.getPaymentId());
                 inventoryManagementService.rollbackReservation(
                         transactionId,
@@ -233,6 +245,32 @@ public class ReservationOrchestrator {
             log.error("System error in complete reservation flow: txId={}, customerId={}, productId={}",
                     transactionId, request.getCustomerId(), request.getProductId(), e);
 
+            // [수정] 7. SAGA 진행 단계에 따라 보상 트랜잭션 실행
+            if (payment != null && payment.isCompleted()) {
+                log.error("[Compensation] System error after payment success. Triggering compensation for payment/order/inventory.");
+                compensatePayment(transactionId, payment.getPaymentId());
+                if (orderResult != null) {
+                    compensateOrder(transactionId, orderResult.getOrder().getOrderId(), request.getCustomerId());
+                }
+                if (reservationResult != null) {
+                    inventoryManagementService.rollbackReservation(
+                            transactionId,
+                            reservationResult.getReservation().getReservationId(),
+                            (orderResult != null) ? orderResult.getOrder().getOrderId() : null,
+                            "System Error Recovery"
+                    );
+                }
+            } else if (orderResult != null) {
+                log.error("[Compensation] System error after order creation. Triggering compensation for order/reservation.");
+                compensateOrder(transactionId, orderResult.getOrder().getOrderId(), request.getCustomerId());
+                if (reservationResult != null) {
+                    compensateReservation(transactionId, reservationResult.getReservation().getReservationId(), request.getCustomerId());
+                }
+            } else if (reservationResult != null) {
+                log.error("[Compensation] System error after reservation. Triggering compensation for reservation.");
+                compensateReservation(transactionId, reservationResult.getReservation().getReservationId(), request.getCustomerId());
+            }
+
             return CompleteReservationResponse.failed("시스템 오류: " + e.getMessage());
         }
     }
@@ -253,7 +291,8 @@ public class ReservationOrchestrator {
             log.info("Creating inventory reservation only: txId={}, productId={}, customerId={}",
                     transactionId, productId, customerId);
 
-            InventoryReservation reservation = reservationService.reserveInventory(
+            // [수정] 8. ReservationResult 사용
+            ReservationResult reservationResult = reservationService.reserveInventory(
                     transactionId,
                     productId,
                     customerId,
@@ -261,11 +300,12 @@ public class ReservationOrchestrator {
                     clientId
             );
 
-            if (reservation == null) {
+            if (reservationResult == null) {
                 return ReservationResponse.failed(productId, quantity,
                         "INSUFFICIENT_INVENTORY", "재고가 부족합니다");
             }
 
+            InventoryReservation reservation = reservationResult.getReservation();
             reservationEventPublisher.publishReservationCreated(reservation);
 
             return ReservationResponse.success(
@@ -308,10 +348,11 @@ public class ReservationOrchestrator {
     public CompleteReservationResponse getCompleteReservationStatus(String reservationId) {
         try {
             String cacheKey = "complete_reservation:" + reservationId;
-            Object cachedData = cacheService.getCachedData(cacheKey);
+            // [수정] 9. 캐시 타입 명시
+            CompleteReservationResponse cachedData = cacheService.getCachedObject(cacheKey, CompleteReservationResponse.class);
 
-            if (cachedData != null && cachedData instanceof CompleteReservationResponse) {
-                return (CompleteReservationResponse) cachedData;
+            if (cachedData != null) {
+                return cachedData;
             }
 
             // 캐시에 없으면 부분 정보만 조회
@@ -339,6 +380,7 @@ public class ReservationOrchestrator {
 
     /**
      * 통합 예약 취소
+     * [수정됨] 2.A: 재고, 주문, 결제(환불)를 모두 보상 트랜잭션 처리
      */
     public boolean cancelCompleteReservation(String reservationId, String customerId, String reason) {
         String transactionId = IdGenerator.generateCorrelationId();
@@ -347,20 +389,51 @@ public class ReservationOrchestrator {
             log.info("Cancelling complete reservation: txId={}, reservationId={}, customerId={}, reason={}",
                     transactionId, reservationId, customerId, reason);
 
-            boolean cancelled = reservationService.cancelReservation(transactionId, reservationId, customerId);
+            // 1. 재고 선점 취소
+            boolean reservationCancelled = reservationService.cancelReservation(transactionId, reservationId, customerId);
 
-            if (cancelled) {
+            if (reservationCancelled) {
                 reservationEventPublisher.publishReservationCancelled(reservationId, reason);
-
-                String cacheKey = "complete_reservation:" + reservationId;
-                cacheService.deleteCache(cacheKey);
-
-                log.info("Complete reservation cancelled: txId={}, reservationId={}",
-                        transactionId, reservationId);
-                return true;
+                log.info("Step 1/3: Reservation cancelled: txId={}, reservationId={}", transactionId, reservationId);
+            } else {
+                log.warn("Failed to cancel reservation (already cancelled or invalid?): reservationId={}", reservationId);
+                // 재고가 이미 취소되었어도, 주문/결제는 취소/환불 시도
             }
 
-            return false;
+            // 2. 캐시에서 OrderId, PaymentId 조회 (가장 중요!)
+            CompleteReservationResponse cachedResponse = getCompleteReservationStatus(reservationId);
+            String orderId = null;
+            String paymentId = null;
+
+            if (cachedResponse != null && cachedResponse.getOrder() != null && cachedResponse.getPayment() != null) {
+                orderId = cachedResponse.getOrder().getOrderId();
+                paymentId = cachedResponse.getPayment().getPaymentId();
+            } else {
+                log.warn("Could not find orderId/paymentId from cache for reservationId: {}. " +
+                        "Only reservation stock will be cancelled.", reservationId);
+                // (개선) 이 경우 DB에서 reservationId로 Order/Payment를 조회하는 로직이 필요.
+                return reservationCancelled; // 재고 취소 결과만 반환
+            }
+
+            // 3. 주문(Order) 취소
+            if (orderId != null) {
+                orderService.cancelOrder(transactionId, orderId, customerId, reason);
+                log.info("Step 2/3: Order cancelled: txId={}, orderId={}", transactionId, orderId);
+            }
+
+            // 4. 결제(Payment) 환불
+            if (paymentId != null) {
+                paymentProcessingService.refundPayment(paymentId);
+                log.info("Step 3/3: Payment refund processed: txId={}, paymentId={}", transactionId, paymentId);
+            }
+
+            // 5. 통합 캐시 삭제
+            String cacheKey = "complete_reservation:" + reservationId;
+            cacheService.deleteCache(cacheKey);
+
+            log.info("Complete reservation cancellation finished: txId={}, reservationId={}",
+                    transactionId, reservationId);
+            return true;
 
         } catch (Exception e) {
             log.error("Error cancelling complete reservation: reservationId={}", reservationId, e);
@@ -456,6 +529,7 @@ public class ReservationOrchestrator {
         return CompleteReservationResponse.builder()
                 .status("SUCCESS")
                 .message("예약이 완료되었습니다")
+                .correlationId(transactionId) // [추가] 응답에 트랜잭션 ID 포함
                 // 예약 정보
                 .reservation(CompleteReservationResponse.ReservationInfo.builder()
                         .reservationId(reservation.getReservationId())
@@ -487,11 +561,12 @@ public class ReservationOrchestrator {
                                           CompleteReservationResponse response) {
         try {
             String cacheKey = "complete_reservation:" + reservationId;
-            cacheService.cacheData(cacheKey, response, 3600); // 1시간
+            // [수정] 10. cacheData 대신 cacheObject 사용
+            cacheService.cacheObject(cacheKey, response, Duration.ofHours(1)); // 1시간
 
             // 트랜잭션 ID로도 캐싱 (조회 편의성)
             String txCacheKey = "tx_complete_reservation:" + transactionId;
-            cacheService.cacheData(txCacheKey, reservationId, 3600);
+            cacheService.cacheObject(txCacheKey, reservationId, Duration.ofHours(1));
 
             log.debug("Complete reservation cached: txId={}, reservationId={}",
                     transactionId, reservationId);

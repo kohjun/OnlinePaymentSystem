@@ -9,6 +9,8 @@ import com.example.payment.infrastructure.persistence.wal.WalService;
 import com.example.payment.infrastructure.util.IdGenerator;
 import com.example.payment.infrastructure.util.ResourceReservationService;
 
+import lombok.AllArgsConstructor;
+import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -24,6 +26,7 @@ import java.util.List;
  * 1. 트랜잭션 ID를 외부에서 주입받아 WAL 일관성 보장
  * 2. 엔티티 ID(reservationId) 추적 강화
  * 3. WAL 로그에 엔티티 메타데이터 포함
+ * 4. [수정] reserveInventory가 walLogId를 반환하도록 변경 (문제 2.B 해결)
  */
 @Service
 @Slf4j
@@ -38,21 +41,33 @@ public class ReservationService {
     private static final int DEFAULT_RESERVATION_TTL_SECONDS = 300; // 5분
 
     /**
+     * [추가] 1. 반환용 DTO 내부 클래스 생성
+     * 재고 예약(Phase 1)의 결과물과 해당 작업의 WAL 로그 ID를 함께 반환합니다.
+     */
+    @Data
+    @AllArgsConstructor
+    public static class ReservationResult {
+        private InventoryReservation reservation;
+        private String walLogId;
+    }
+
+    /**
      * ✅ 개선: 재고 선점 (Phase 1) - 트랜잭션 ID 주입
+     * [수정] 2. 반환 타입을 ReservationResult로 변경
      *
      * @param transactionId 비즈니스 트랜잭션 ID (correlationId)
      * @param productId 상품 ID
      * @param customerId 고객 ID
      * @param quantity 수량
      * @param clientId 클라이언트 ID
-     * @return 예약 도메인 객체 (실패 시 null)
+     * @return ReservationResult (예약 도메인 객체 + WAL 로그 ID)
      */
-    public InventoryReservation reserveInventory(
-            String transactionId,  // ✅ 트랜잭션 ID 추가
-            String productId,
-            String customerId,
-            Integer quantity,
-            String clientId) {
+    public ReservationResult reserveInventory( // 2. 반환 타입 변경
+                                               String transactionId,  // ✅ 트랜잭션 ID 추가
+                                               String productId,
+                                               String customerId,
+                                               Integer quantity,
+                                               String clientId) {
 
         log.info("[Phase 1] Starting inventory reservation: txId={}, productId={}, customerId={}, quantity={}",
                 transactionId, productId, customerId, quantity);
@@ -62,6 +77,7 @@ public class ReservationService {
 
         // 분산 락으로 동시성 제어
         return lockService.executeWithLock(lockKey, () -> {
+            String walLogId = null; // 3. walLogId 변수 선언
             try {
                 // ===================================
                 // 1. WAL Phase 1 시작 로그 기록
@@ -71,7 +87,7 @@ public class ReservationService {
                         reservationId, productId, customerId, quantity, "RESERVED"
                 );
 
-                String walLogId = walService.logOperationStart(
+                walLogId = walService.logOperationStart( // 4. walLogId 할당
                         transactionId,
                         "INVENTORY_RESERVE_START",
                         "reservations",
@@ -108,7 +124,7 @@ public class ReservationService {
                             message
                     );
 
-                    return null;
+                    return null; // 5. 실패 시 null 반환
                 }
 
                 // ===================================
@@ -150,13 +166,16 @@ public class ReservationService {
                 log.info("[Phase 1] Inventory reservation succeeded: txId={}, reservationId={}, productId={}",
                         transactionId, reservationId, productId);
 
-                return reservation;
+                return new ReservationResult(reservation, walLogId); // 6. ReservationResult 반환
 
             } catch (Exception e) {
                 log.error("[Phase 1] Error during inventory reservation: txId={}, productId={}, customerId={}",
                         transactionId, productId, customerId, e);
 
-                // WAL 실패 로그
+                // 7. 예외 발생 시에도 WAL 기록
+                if (walLogId != null) {
+                    walService.updateLogStatus(walLogId, "FAILED", e.getMessage());
+                }
                 String entityIds = buildEntityIdsJson(reservationId, null, null);
                 walService.logOperationFailure(
                         transactionId,
@@ -222,8 +241,9 @@ public class ReservationService {
             String resourceKey = "inventory:" + reservation.getProductId();
             int quantityToRelease = reservation.getQuantity();
 
-            // 올바른 메서드(releaseResource)와 인자를 사용하여 호출합니다.
-            boolean cancelled = redisReservationService.releaseResource(resourceKey, quantityToRelease);
+            // (참고) 이 호출이 성공하려면 ResourceReservationService.releaseResource에
+            // reservationId 인자가 추가되어야 합니다. (이전 분석의 '오류 2' 항목)
+            boolean cancelled = redisReservationService.releaseResource(resourceKey, quantityToRelease,reservation.getReservationId()); //
 
             if (cancelled) {
                 // 6. 도메인 상태 업데이트

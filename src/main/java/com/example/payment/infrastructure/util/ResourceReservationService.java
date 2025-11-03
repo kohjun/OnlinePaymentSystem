@@ -18,9 +18,8 @@ public class ResourceReservationService {
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
 
-    // ✅ [FIX 1] RedisConfig에서 생성된 스크립트 Bean들을 주입받습니다.
     private final DefaultRedisScript<String> reserveScript;
-    private final DefaultRedisScript<String> releaseScript;
+    private final DefaultRedisScript<String> cancelScript;
     private final DefaultRedisScript<String> confirmScript;
 
     /**
@@ -32,12 +31,11 @@ public class ResourceReservationService {
             long ttlSeconds = (ttl != null) ? ttl.getSeconds() : 0;
             String reservationId = UUID.randomUUID().toString();
 
-            // ✅ [FIX 2] 'reserveScript' 사용
             String jsonResult = redisTemplate.execute(
                     reserveScript,
                     keys,
                     String.valueOf(quantity),
-                    reservationId, // 이 인자는 reserve_resource.lua에서 사용해야 함
+                    reservationId,
                     String.valueOf(ttlSeconds),
                     String.valueOf(System.currentTimeMillis())
             );
@@ -66,18 +64,15 @@ public class ResourceReservationService {
     /**
      * 리소스 해제 (취소/롤백 시 사용)
      */
-    public boolean releaseResource(String resourceKey, int quantity) {
+    public boolean releaseResource(String resourceKey, int quantity, String reservationId) {
         try {
             List<String> keys = Collections.singletonList(resourceKey);
-            // cancel_reservation.lua가 reservation_id를 받는다면 여기서 전달해야 함
-            // String reservationId = "";
 
-            //
             String jsonResult = redisTemplate.execute(
-                    releaseScript,
+                    cancelScript,
                     keys,
-                    String.valueOf(quantity)
-                    // , reservationId // 필요 시 추가
+                    String.valueOf(quantity),
+                    reservationId
             );
 
             log.debug("Release script result: {}", jsonResult);
@@ -102,18 +97,19 @@ public class ResourceReservationService {
     }
 
     /**
-     * 리소스 예약 확정 (새로 추가)
-     * 'reserved' 필드에서 수량을 차감합니다. (confirm_reservation.lua)
+     * 리소스 예약 확정
+     * [수정] 1. 'reservationId' 인자 추가 (Lua 스크립트 ARGV[2] 전달용)
      */
-    public boolean confirmResource(String resourceKey, int quantity) {
+    public boolean confirmResource(String resourceKey, int quantity, String reservationId) {
         try {
             List<String> keys = Collections.singletonList(resourceKey);
 
-            // [FIX 4] 'confirmScript' 사용 (confirm_reservation.lua)
+            // [수정] 2. 'reservationId'를 스크립트에 전달
             String jsonResult = redisTemplate.execute(
                     confirmScript,
                     keys,
-                    String.valueOf(quantity) // ARGV[1]
+                    String.valueOf(quantity), // ARGV[1]
+                    reservationId             // ARGV[2]
             );
 
             log.debug("Confirm script result: {}", jsonResult);

@@ -1,18 +1,21 @@
 package com.example.payment;
 
+import com.example.payment.application.dto.PaymentGatewayResult; // 1. 임포트 추가
+import com.example.payment.infrastructure.gateway.MockPaymentGateway; // 2. 임포트 추가
 import com.example.payment.presentation.dto.request.CompleteReservationRequest;
 import com.example.payment.presentation.dto.response.CompleteReservationResponse;
-import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
+import com.example.payment.infrastructure.util.ResourceReservationService;
 
 import org.junit.jupiter.api.*;
+import org.mockito.Mockito; // 3. 임포트 추가
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean; // 4. 임포트 추가
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.ResponseEntity;
 
 import java.math.BigDecimal;
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -20,9 +23,12 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any; // 5. 임포트 추가
 
 /**
  * 동시성 테스트
+ * [수정]
+ * 1. MockPaymentGateway를 MockBean으로 만들어 10% 랜덤 실패를 제거 (테스트 안정성 확보)
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -35,21 +41,22 @@ class ConcurrentReservationTest {
     private TestRestTemplate restTemplate;
 
     @Autowired
-    private CacheService cacheService;
+    private ResourceReservationService redisReservationService;
 
-    // 실제 초기화된 상품 사용
-    private static final String PRODUCT_ID = "PROD-001";  // TestDataInitializer에서 생성된 상품
+    // [수정] 6. MockPaymentGateway를 MockBean으로 선언
+    @MockBean
+    private MockPaymentGateway mockPaymentGateway;
+
+    private static final String PRODUCT_ID = "CONCURRENCY-TEST-001";
     private static final int TOTAL_STOCK = 3;
     private static final int CONCURRENT_USERS = 10;
 
     @BeforeAll
     void setupOnce() {
         System.out.println("\n" + "=".repeat(60));
-        System.out.println("🧪 ConcurrentReservationTest 시작");
-        System.out.println("서버 포트: " + port);
+        System.out.println("🧪 ConcurrentReservationTest 시작 (Payment Mock)");
         System.out.println("=".repeat(60) + "\n");
 
-        // 잠시 대기 (애플리케이션 완전 시작 대기)
         try {
             Thread.sleep(2000);
         } catch (InterruptedException e) {
@@ -60,25 +67,31 @@ class ConcurrentReservationTest {
     @BeforeEach
     void setUp() {
         System.out.println("\n" + "=".repeat(60));
-        System.out.println("📦 테스트 환경 초기화");
+        System.out.println("📦 동시성 테스트 환경 초기화");
         System.out.println("=".repeat(60));
 
-        // 재고 초기화 - 이미 존재하는 PROD-001 사용
-        Map<String, Object> inventory = Map.of(
-                "product_id", PRODUCT_ID,
-                "product_name", "초특가 스마트폰",
-                "quantity", TOTAL_STOCK,
-                "reserved", 0,
-                "price", "799.99"
-        );
-
+        // 1. Redis 재고 초기화
+        String resourceKey = "inventory:" + PRODUCT_ID;
         try {
-            cacheService.cacheMapData("inventory:" + PRODUCT_ID, inventory, Duration.ofSeconds(300));
-            System.out.println("✅ 재고 초기화 완료: " + PRODUCT_ID);
+            redisReservationService.initializeResource(
+                    resourceKey,
+                    TOTAL_STOCK,
+                    TOTAL_STOCK
+            );
+            System.out.println("✅ Redis 재고 초기화 완료: " + PRODUCT_ID + ", 재고: " + TOTAL_STOCK);
         } catch (Exception e) {
-            System.err.println("⚠️ 재고 초기화 실패: " + e.getMessage());
+            System.err.println("⚠️ Redis 재고 초기화 실패: " + e.getMessage());
             e.printStackTrace();
         }
+
+        // [수정] 7. MockGateway가 항상 성공하도록 설정
+        Mockito.when(mockPaymentGateway.processPayment(any()))
+                .thenReturn(PaymentGatewayResult.builder()
+                        .success(true)
+                        .transactionId("MOCK_TX_CONCURRENT")
+                        .approvalNumber("MOCK_APPROVAL_CONCURRENT")
+                        .processedAmount(new BigDecimal("799.99"))
+                        .build());
 
         printCurrentInventory();
     }
@@ -89,11 +102,7 @@ class ConcurrentReservationTest {
     void testConcurrentReservations() throws InterruptedException {
         System.out.println("\n" + "=".repeat(60));
         System.out.println("🚀 동시 예약 테스트 시작");
-        System.out.println("=".repeat(60));
-        System.out.println("총 사용자: " + CONCURRENT_USERS + "명");
-        System.out.println("총 재고: " + TOTAL_STOCK + "개");
-        System.out.println("예상 성공: " + TOTAL_STOCK + "명");
-        System.out.println("예상 실패: " + (CONCURRENT_USERS - TOTAL_STOCK) + "명");
+        // ... (로그 동일) ...
         System.out.println("=".repeat(60) + "\n");
 
         ExecutorService executor = Executors.newFixedThreadPool(CONCURRENT_USERS);
@@ -121,6 +130,8 @@ class ConcurrentReservationTest {
 
                     System.out.println("📥 [사용자" + userId + "] 응답 받음: " + response.getStatusCode());
 
+                    // [수정] 8. Mocking으로 결제는 100% 성공하므로,
+                    // 이제 "SUCCESS" 또는 "재고 선점 실패" (Bad Request)만 응답으로 와야 함.
                     if (response.getStatusCode().is2xxSuccessful() &&
                             response.getBody() != null &&
                             "SUCCESS".equals(response.getBody().getStatus())) {
@@ -132,7 +143,7 @@ class ConcurrentReservationTest {
 
                     } else {
                         failureCount.incrementAndGet();
-                        String reason = response.getBody() != null ?
+                        String reason = (response.getBody() != null && response.getBody().getMessage() != null) ?
                                 response.getBody().getMessage() : "Unknown: " + response.getStatusCode();
                         failedReasons.add("[사용자" + userId + "] " + reason);
                         System.out.println("❌ [사용자" + userId + "] 예약 실패: " + reason);
@@ -143,7 +154,6 @@ class ConcurrentReservationTest {
                     String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                     failedReasons.add("[사용자" + userId + "] Exception: " + errorMsg);
                     System.err.println("💥 [사용자" + userId + "] 오류: " + errorMsg);
-                    e.printStackTrace();
                 } finally {
                     completeLatch.countDown();
                 }
@@ -169,24 +179,17 @@ class ConcurrentReservationTest {
         System.out.println("\n" + "=".repeat(60));
         System.out.println("🔍 결과 검증");
         System.out.println("=".repeat(60));
-        System.out.println("실제 성공: " + successCount.get() + ", 예상: " + TOTAL_STOCK);
-        System.out.println("실제 실패: " + failureCount.get() + ", 예상: " + (CONCURRENT_USERS - TOTAL_STOCK));
 
-        // 유연한 검증 - 적어도 일부는 성공해야 함
-        assertTrue(successCount.get() > 0, "❌ 최소 1명 이상은 예약에 성공해야 합니다");
-        assertTrue(successCount.get() <= TOTAL_STOCK, "❌ 성공 수가 재고를 초과할 수 없습니다");
+        // [수정] 9. Mocking으로 결제 실패가 제거되었으므로,
+        // 이 Assert는 이제 무조건 통과해야 함 (라인 177)
+        assertEquals(TOTAL_STOCK, successCount.get(), "✅ 성공한 요청 수가 정확히 재고 수와 일치해야 합니다.");
+        assertEquals(CONCURRENT_USERS - TOTAL_STOCK, failureCount.get(), "❌ 실패한 요청 수가 (총 요청 - 재고)와 일치해야 합니다.");
 
-        System.out.println("✅ 기본 검증 통과");
-
-        // 엄격한 검증 (선택적)
-        if (successCount.get() == TOTAL_STOCK && failureCount.get() == (CONCURRENT_USERS - TOTAL_STOCK)) {
-            System.out.println("✅ ✅ ✅ 완벽한 동시성 제어! ✅ ✅ ✅");
-        } else {
-            System.out.println("⚠️ 동시성 제어가 완벽하지 않지만 기본 요구사항은 충족");
-        }
+        System.out.println("✅ ✅ ✅ 완벽한 동시성 제어! ✅ ✅ ✅");
     }
 
     private CompleteReservationRequest createReservationRequest(int userId) {
+        // ... (메소드 동일) ...
         String customerId = "TEST-CUSTOMER-" + String.format("%03d", userId);
         String idempotencyKey = UUID.randomUUID().toString();
 
@@ -207,6 +210,7 @@ class ConcurrentReservationTest {
 
     private void printTestResults(int success, int failure,
                                   List<String> successIds, List<String> failedReasons) {
+        // ... (메소드 동일) ...
         System.out.println("📊 테스트 결과 요약");
         System.out.println("-".repeat(60));
         System.out.println("✅ 성공: " + success + "명");
@@ -229,21 +233,19 @@ class ConcurrentReservationTest {
     }
 
     private void printCurrentInventory() {
+        // ... (메소드 동일) ...
         try {
-            Map<String, Object> inventory = cacheService.getCachedData("inventory:" + PRODUCT_ID);
+            Map<String, Object> inventory = redisReservationService.getResourceStatus("inventory:" + PRODUCT_ID);
             if (inventory != null && !inventory.isEmpty()) {
-                System.out.println("\n📦 현재 재고 상태:");
-                System.out.println("   - 총 재고: " + inventory.get("quantity"));
-                System.out.println("   - 예약됨: " + inventory.get("reserved"));
-                Integer qty = (Integer) inventory.get("quantity");
-                Integer reserved = (Integer) inventory.get("reserved");
-                System.out.println("   - 가용: " + (qty - reserved));
+                System.out.println("\n📦 현재 재고 상태 (Redis Hash):");
+                System.out.println("   - total: " + inventory.get("total"));
+                System.out.println("   - available: " + inventory.get("available"));
+                System.out.println("   - reserved: " + inventory.get("reserved"));
             } else {
-                System.out.println("\n⚠️ 재고 정보 없음");
+                System.out.println("\n⚠️ 재고 정보 없음 (" + "inventory:" + PRODUCT_ID + ")");
             }
         } catch (Exception e) {
             System.out.println("\n⚠️ 재고 조회 실패: " + e.getMessage());
-            e.printStackTrace();
         }
     }
 }

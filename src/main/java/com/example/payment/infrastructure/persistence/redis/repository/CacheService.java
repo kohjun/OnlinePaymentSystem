@@ -10,7 +10,6 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -21,14 +20,15 @@ public class CacheService {
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
 
-    // Local fallback cache
-    private final Map<String, Map<String, Object>> localMapCache = new ConcurrentHashMap<>();
-    private final Map<String, String> localObjectCache = new ConcurrentHashMap<>();
+    // [수정] 2. 로컬 캐시 필드 제거 (분산 환경에서 데이터 불일치 유발)
+    // private final Map<String, Map<String, Object>> localMapCache = new ConcurrentHashMap<>();
+    // private final Map<String, String> localObjectCache = new ConcurrentHashMap<>();
 
     // ==================== Map 데이터 캐싱 (Hash 타입) ====================
 
     /**
      * Map 데이터를 Redis Hash로 캐싱
+     * [수정] 3. 로컬 캐시 백업 로직 제거
      */
     public void cacheMapData(String key, Map<String, Object> data, Duration ttl) {
         try {
@@ -36,18 +36,16 @@ public class CacheService {
             redisTemplate.opsForHash().putAll(key, data);
             redisTemplate.expire(key, ttl);
 
-            // Local cache에도 백업
-            localMapCache.put(key, new ConcurrentHashMap<>(data));
-
             log.debug("Map data cached: key={}", key);
         } catch (Exception e) {
-            log.error("Failed to cache map data for key: {}, using local cache only", key, e);
-            localMapCache.put(key, new ConcurrentHashMap<>(data));
+            // [수정] 로컬 캐시 대신 에러 로깅만 수행
+            log.error("Failed to cache map data for key: {}", key, e);
         }
     }
 
     /**
      * Redis Hash에서 Map 데이터 조회
+     * [수정] 4. 로컬 캐시 조회 로직 제거
      */
     public Map<String, Object> getCachedData(String key) {
         try {
@@ -61,57 +59,24 @@ public class CacheService {
                                 Map.Entry::getValue
                         ));
 
-                // Local cache 동기화
-                localMapCache.put(key, new ConcurrentHashMap<>(result));
-
                 log.debug("Map data retrieved from Redis: key={}", key);
                 return result;
             }
 
-            // Redis에 없으면 local cache 확인
-            Map<String, Object> localData = localMapCache.get(key);
-            if (localData != null) {
-                log.debug("Map data retrieved from local cache: key={}", key);
-                return new ConcurrentHashMap<>(localData);
-            }
-
+            // [수정] 로컬 캐시 확인 로직 제거
             return Collections.emptyMap();
 
         } catch (Exception e) {
-            log.error("Redis error for key: {}, using local cache", key, e);
-            Map<String, Object> localData = localMapCache.getOrDefault(key, Collections.emptyMap());
-            return new ConcurrentHashMap<>(localData);
+            // [수정] 로컬 캐시 대신 에러 로깅 후 빈 맵 반환
+            log.error("Redis error for key: {}, returning empty map", key, e);
+            return Collections.emptyMap();
         }
     }
 
     /**
      * Redis Hash의 특정 필드 값 증가
+     * [수정] 5. 로컬 캐시 동기화 로직 제거
      */
-    public Long incrementHashField(String key, String field, long delta) {
-        try {
-            Long result = redisTemplate.opsForHash().increment(key, field, delta);
-
-            // Local cache 동기화
-            localMapCache.computeIfAbsent(key, k -> new ConcurrentHashMap<>())
-                    .merge(field, result, (oldVal, newVal) -> newVal);
-
-            return result;
-        } catch (Exception e) {
-            log.error("Failed to increment hash field for key: {}, field: {}", key, field, e);
-
-            // Local cache에서 증가
-            Map<String, Object> data = localMapCache.computeIfAbsent(key, k -> new ConcurrentHashMap<>());
-            Long currentValue = data.containsKey(field) ?
-                    Long.parseLong(data.get(field).toString()) : 0L;
-            Long newValue = currentValue + delta;
-            data.put(field, newValue);
-
-            return newValue;
-        }
-    }
-
-    // ==================== 객체 캐싱 (String 타입, JSON 직렬화) ====================
-
     /**
      * 객체를 JSON으로 직렬화하여 Redis String으로 캐싱 (초 단위)
      */
@@ -121,64 +86,38 @@ public class CacheService {
 
     /**
      * 객체를 JSON으로 직렬화하여 Redis String으로 캐싱 (Duration)
+     * [수정] 6. 로컬 캐시 백업 로직 제거
      */
     public void cacheObject(String key, Object data, Duration ttl) {
         try {
             String jsonData = objectMapper.writeValueAsString(data);
             redisTemplate.opsForValue().set(key, jsonData, ttl);
-
-            // Local cache에도 백업
-            localObjectCache.put(key, jsonData);
-
             log.debug("Object cached: key={}", key);
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize object for key: {}", key, e);
-            // 직렬화 실패 시 local cache에만 저장 시도
-            try {
-                String jsonData = objectMapper.writeValueAsString(data);
-                localObjectCache.put(key, jsonData);
-            } catch (JsonProcessingException ex) {
-                log.error("Failed to cache object locally for key: {}", key, ex);
-            }
         } catch (Exception e) {
+            // [수정] 로컬 캐시 대신 에러 로깅
             log.error("Failed to cache object for key: {}", key, e);
         }
     }
 
     /**
      * Redis String에서 객체를 조회하여 역직렬화
+     * [수정] 7. 로컬 캐시 조회 로직 제거
      */
     public <T> T getCachedObject(String key, Class<T> type) {
         try {
             Object value = redisTemplate.opsForValue().get(key);
             if (value != null) {
                 String jsonData = value.toString();
-                // Local cache 동기화
-                localObjectCache.put(key, jsonData);
                 return objectMapper.readValue(jsonData, type);
             }
 
-            // Redis에 없으면 local cache 확인
-            String localData = localObjectCache.get(key);
-            if (localData != null) {
-                log.debug("Object retrieved from local cache: key={}", key);
-                return objectMapper.readValue(localData, type);
-            }
-
+            // [수정] 로컬 캐시 확인 로직 제거
             return null;
         } catch (Exception e) {
+            // [수정] 로컬 캐시 대신 에러 로깅 후 null 반환
             log.error("Failed to deserialize object for key: {}", key, e);
-
-            // Local cache에서 재시도
-            try {
-                String localData = localObjectCache.get(key);
-                if (localData != null) {
-                    return objectMapper.readValue(localData, type);
-                }
-            } catch (Exception ex) {
-                log.error("Failed to deserialize from local cache for key: {}", key, ex);
-            }
-
             return null;
         }
     }
@@ -194,30 +133,30 @@ public class CacheService {
 
     /**
      * 캐시 삭제 (evict와 동일)
+     * [수정] 8. 로컬 캐시 제거 로직 제거
      */
     public void evict(String key) {
         try {
             redisTemplate.delete(key);
-            localMapCache.remove(key);
-            localObjectCache.remove(key);
             log.debug("Cache evicted: key={}", key);
         } catch (Exception e) {
+            // [수정] 로컬 캐시 대신 에러 로깅
             log.error("Failed to evict cache for key: {}", key, e);
-            localMapCache.remove(key);
-            localObjectCache.remove(key);
         }
     }
 
     /**
      * 캐시 존재 여부 확인
+     * [수정] 9. 로컬 캐시 확인 로직 제거
      */
     public boolean exists(String key) {
         try {
             Boolean exists = redisTemplate.hasKey(key);
             return exists != null && exists;
         } catch (Exception e) {
+            // [수정] 로컬 캐시 대신 에러 로깅 후 false 반환
             log.error("Failed to check cache existence for key: {}", key, e);
-            return localMapCache.containsKey(key) || localObjectCache.containsKey(key);
+            return false;
         }
     }
 
@@ -245,23 +184,5 @@ public class CacheService {
         }
     }
 
-    /**
-     * Local cache 상태 조회 (디버깅용)
-     */
-    public Map<String, Object> getLocalCacheStats() {
-        return Map.of(
-                "mapCacheSize", localMapCache.size(),
-                "objectCacheSize", localObjectCache.size(),
-                "totalSize", localMapCache.size() + localObjectCache.size()
-        );
-    }
 
-    /**
-     * Local cache 초기화
-     */
-    public void clearLocalCache() {
-        localMapCache.clear();
-        localObjectCache.clear();
-        log.info("Local cache cleared");
-    }
 }

@@ -1,7 +1,6 @@
 package com.example.payment.application.service;
 
 import com.example.payment.domain.model.inventory.InventoryConfirmation;
-// ✅ [FIX] ReservationService 및 관련 도메인 모델 임포트
 import com.example.payment.application.service.ReservationService;
 import com.example.payment.domain.model.reservation.InventoryReservation;
 import com.example.payment.infrastructure.persistence.wal.WalService;
@@ -13,7 +12,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 
 /**
- * ✅ 개선된 재고 관리 서비스 - 트랜잭션 ID 정합성 강화
+ * [수정] 1. confirmResource 호출 시 reservationId 인자 전달
  */
 @Service
 @Slf4j
@@ -21,7 +20,6 @@ import java.time.LocalDateTime;
 public class InventoryManagementService {
 
     private final WalService walService;
-    // ✅ [FIX] ReservationService가 주입되었는지 확인
     private final ReservationService reservationService;
     private final ResourceReservationService redisReservationService;
 
@@ -38,18 +36,12 @@ public class InventoryManagementService {
         log.info("🟢 [Phase 2] Confirming inventory reservation: txId={}, reservationId={}, orderId={}, paymentId={}, phase1LogId={}",
                 transactionId, reservationId, orderId, paymentId, phase1LogId);
 
-        // ✅ [FIX 1] 재고 확정을 위해 예약 정보(productId, quantity) 조회
         InventoryReservation reservation = reservationService.getReservation(reservationId);
         if (reservation == null) {
             log.error("[Phase 2] Reservation not found, cannot confirm: txId={}, reservationId={}",
                     transactionId, reservationId);
-
-            // 예약 정보가 없으면 실패 처리
             return InventoryConfirmation.failure(
-                    reservationId,
-                    orderId,
-                    paymentId,
-                    "예약 정보를 찾을 수 없어 확정 실패"
+                    reservationId, orderId, paymentId, "예약 정보를 찾을 수 없어 확정 실패"
             );
         }
 
@@ -62,13 +54,8 @@ public class InventoryManagementService {
             String afterData = buildConfirmationJson(reservationId, "CONFIRMED");
 
             String walLogId = walService.logPhase2Start(
-                    transactionId,
-                    phase1LogId,
-                    "INVENTORY_CONFIRM_START",
-                    "inventory",
-                    entityIds,
-                    beforeData,
-                    afterData
+                    transactionId, phase1LogId, "INVENTORY_CONFIRM_START",
+                    "inventory", entityIds, beforeData, afterData
             );
 
             log.debug("WAL Phase 2 logged: txId={}, walLogId={}, phase1LogId={}",
@@ -77,55 +64,40 @@ public class InventoryManagementService {
             // ===================================
             // 2. Redis에서 재고 확정 (Lua: confirm_reservation.lua)
             // ===================================
-
-            // ✅ [FIX 2] 올바른 메서드(confirmResource)와 인자 사용
             String resourceKey = "inventory:" + reservation.getProductId();
             int quantityToConfirm = reservation.getQuantity();
 
+            // [수정] 2. confirmResource 호출 시 reservationId 전달
             boolean redisConfirmed = redisReservationService.confirmResource(
                     resourceKey,
-                    quantityToConfirm
+                    quantityToConfirm,
+                    reservationId // <-- [수정] 이 인자가 누락되었었음
             );
 
             if (!redisConfirmed) {
                 log.error("Redis reservation confirmation failed: txId={}, reservationId={}",
                         transactionId, reservationId);
-
-                // WAL 실패 로그
                 walService.updateLogStatus(walLogId, "FAILED", "Redis 예약 확정 실패");
-
                 walService.logOperationFailure(
-                        transactionId,
-                        "INVENTORY_CONFIRM_FAILED",
-                        "inventory",
-                        entityIds,
-                        "Redis 예약 확정 실패"
+                        transactionId, "INVENTORY_CONFIRM_FAILED", "inventory",
+                        entityIds, "Redis 예약 확정 실패"
                 );
-
                 return InventoryConfirmation.failure(
-                        reservationId,
-                        orderId,
-                        paymentId,
-                        "Redis 예약 확정 실패"
+                        reservationId, orderId, paymentId, "Redis 예약 확정 실패"
                 );
             }
 
             // ===================================
-            // 3. ✅ [FIX 3] 예약 객체 상태 업데이트 (Cache)
+            // 3. 예약 객체 상태 업데이트 (Cache)
             // ===================================
             reservationService.confirmReservationStatus(reservation);
-
 
             // ===================================
             // 4. WAL Phase 2 완료 로그
             // ===================================
             walService.logOperationComplete(
-                    transactionId,
-                    "INVENTORY_CONFIRM_COMPLETE",
-                    "inventory",
-                    entityIds,
-                    beforeData,
-                    afterData
+                    transactionId, "INVENTORY_CONFIRM_COMPLETE", "inventory",
+                    entityIds, beforeData, afterData
             );
             walService.updateLogStatus(walLogId, "COMMITTED", "재고 확정 완료");
 
@@ -136,37 +108,26 @@ public class InventoryManagementService {
             // 5. 확정 결과 도메인 객체 반환
             // ===================================
             return InventoryConfirmation.success(
-                    reservationId,
-                    orderId,
-                    paymentId,
-                    "재고 확정 완료",
-                    LocalDateTime.now()
+                    reservationId, orderId, paymentId,
+                    "재고 확정 완료", LocalDateTime.now()
             );
 
         } catch (Exception e) {
             log.error("[Phase 2] Error confirming inventory reservation: txId={}, reservationId={}",
                     transactionId, reservationId, e);
-
             String entityIds = buildEntityIdsJson(reservationId, orderId, paymentId);
             walService.logOperationFailure(
-                    transactionId,
-                    "INVENTORY_CONFIRM_ERROR",
-                    "inventory",
-                    entityIds,
-                    e.getMessage()
+                    transactionId, "INVENTORY_CONFIRM_ERROR", "inventory",
+                    entityIds, e.getMessage()
             );
-
             return InventoryConfirmation.failure(
-                    reservationId,
-                    orderId,
-                    paymentId,
-                    "시스템 오류: " + e.getMessage()
+                    reservationId, orderId, paymentId, "시스템 오류: " + e.getMessage()
             );
         }
     }
 
     /**
-     * 예약 복구 (보상 트랜잭션) - 트랜잭션 ID 주입
+     * 예약 복구 (보상 트랜잭션)
      */
     public boolean rollbackReservation(
             String transactionId,
@@ -177,48 +138,39 @@ public class InventoryManagementService {
             log.info("[Compensation] Rolling back inventory reservation: txId={}, reservationId={}, orderId={}, reason={}",
                     transactionId, reservationId, orderId, reason);
 
-            // ✅ [FIX 4] 롤백할 재고의 productId와 quantity를 알기 위해 예약 정보 조회
             InventoryReservation reservation = reservationService.getReservation(reservationId);
-
             if (reservation == null) {
                 log.warn("[Compensation] Reservation not found, rollback skipped (already cancelled or expired?): reservationId={}", reservationId);
-                // 롤백할 대상이 없으므로 성공으로 간주
                 return true;
             }
 
             // 1. WAL 로그
             String entityIds = buildEntityIdsJson(reservationId, orderId, null);
             String afterData = buildConfirmationJson(reservationId, "ROLLED_BACK");
-
             String walLogId = walService.logOperationStart(
-                    transactionId,
-                    "INVENTORY_ROLLBACK_START",
-                    "inventory",
-                    entityIds,
-                    afterData
+                    transactionId, "INVENTORY_ROLLBACK_START", "inventory",
+                    entityIds, afterData
             );
 
             // 2. Redis에서 예약 취소
-            // ✅ [FIX 5] 올바른 메서드(releaseResource) 및 인자(resourceKey, quantity) 사용
             String resourceKey = "inventory:" + reservation.getProductId();
             int quantityToRelease = reservation.getQuantity();
-            boolean cancelled = redisReservationService.releaseResource(resourceKey, quantityToRelease);
+
+            // (참고) 이 호출은 이전 단계에서 reservationId를 받도록 이미 수정되었습니다.
+            boolean cancelled = redisReservationService.releaseResource(
+                    resourceKey,
+                    quantityToRelease,
+                    reservationId
+            );
 
             if (cancelled) {
                 // 3. WAL 완료
                 String beforeData = buildConfirmationJson(reservationId, "CONFIRMED"); // 또는 RESERVED
-
                 walService.logOperationComplete(
-                        transactionId,
-                        "INVENTORY_ROLLBACK_COMPLETE",
-                        "inventory",
-                        entityIds,
-                        beforeData,
-                        afterData
+                        transactionId, "INVENTORY_ROLLBACK_COMPLETE", "inventory",
+                        entityIds, beforeData, afterData
                 );
                 walService.updateLogStatus(walLogId, "COMMITTED", "재고 롤백 완료: " + reason);
-
-                // (선택) 롤백 시 캐시된 Reservation 객체 상태도 변경 (예: reservationService.cancelReservation)
 
                 log.info("[Compensation] Inventory reservation rolled back: txId={}, reservationId={}",
                         transactionId, reservationId);
@@ -226,15 +178,10 @@ public class InventoryManagementService {
 
             } else {
                 walService.updateLogStatus(walLogId, "FAILED", "Redis 롤백 실패");
-
                 walService.logOperationFailure(
-                        transactionId,
-                        "INVENTORY_ROLLBACK_FAILED",
-                        "inventory",
-                        entityIds,
-                        "Redis 롤백 실패"
+                        transactionId, "INVENTORY_ROLLBACK_FAILED", "inventory",
+                        entityIds, "Redis 롤백 실패"
                 );
-
                 log.warn("Failed to rollback inventory reservation in Redis: reservationId={}", reservationId);
                 return false;
             }
@@ -242,27 +189,18 @@ public class InventoryManagementService {
         } catch (Exception e) {
             log.error("[Compensation] Error rolling back inventory reservation: txId={}, reservationId={}",
                     transactionId, reservationId, e);
-
             String entityIds = buildEntityIdsJson(reservationId, orderId, null);
             walService.logOperationFailure(
-                    transactionId,
-                    "INVENTORY_ROLLBACK_ERROR",
-                    "inventory",
-                    entityIds,
-                    e.getMessage()
+                    transactionId, "INVENTORY_ROLLBACK_ERROR", "inventory",
+                    entityIds, e.getMessage()
             );
-
             return false;
         }
     }
 
     // ===================================
-    // Helper Methods - 엔티티 ID 추적용 JSON 빌더
+    // Helper Methods
     // ===================================
-
-    /**
-     * 엔티티 ID들을 JSON 형태로 구성
-     */
     private String buildEntityIdsJson(String reservationId, String orderId, String paymentId) {
         return String.format(
                 "{\"reservationId\":\"%s\",\"orderId\":\"%s\",\"paymentId\":\"%s\"}",

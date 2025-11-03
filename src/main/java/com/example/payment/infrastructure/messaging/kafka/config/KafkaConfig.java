@@ -36,7 +36,7 @@ import java.util.Map;
  */
 @Configuration
 @EnableKafka
-@ConditionalOnProperty(name = "spring.kafka.enabled", havingValue = "true", matchIfMissing = true)  // ✅ 추가
+@ConditionalOnProperty(name = "spring.kafka.enabled", havingValue = "true", matchIfMissing = true)
 public class KafkaConfig {
 
     @Value("${spring.kafka.bootstrap-servers}")
@@ -50,6 +50,10 @@ public class KafkaConfig {
 
     @Value("${payment.topics.dead-letter:payment-dead-letter}")
     private String deadLetterTopic;
+
+    // [수정] 2. application.yml에서 group-id 주입
+    @Value("${spring.kafka.consumer.group-id}")
+    private String consumerGroupId;
 
 
     // 토픽 정의 - 단일 브로커 환경용
@@ -149,7 +153,8 @@ public class KafkaConfig {
     public ConsumerFactory<String, String> stringConsumerFactory() {
         Map<String, Object> props = new HashMap<>();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, "payment-group");
+        // [수정] 3. 하드코딩된 "payment-group" 대신 주입받은 값 사용
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, consumerGroupId);
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 
         // Deserializers with error handling
@@ -173,7 +178,8 @@ public class KafkaConfig {
     public ConsumerFactory<String, PaymentEvent> paymentEventConsumerFactory(ObjectMapper objectMapper) {
         Map<String, Object> props = new HashMap<>();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, "payment-events-group");
+        // [수정] 4. 하드코딩된 "payment-events-group" 대신 주입받은 값 사용
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, consumerGroupId);
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 
         // Deserializers with error handling

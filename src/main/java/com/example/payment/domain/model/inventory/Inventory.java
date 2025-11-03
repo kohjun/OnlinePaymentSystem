@@ -46,39 +46,4 @@ public class Inventory {
         lastUpdatedAt = LocalDateTime.now();
     }
 
-    /**
-     * 재고 예약
-     */
-    public boolean reserve(int quantity) {
-        if (availableQuantity >= quantity) {
-            availableQuantity -= quantity;
-            reservedQuantity += quantity;
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * 예약 확정 (재고 차감)
-     */
-    public boolean confirm(int quantity) {
-        if (reservedQuantity >= quantity) {
-            reservedQuantity -= quantity;
-            totalQuantity -= quantity;
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * 예약 취소 (재고 복원)
-     */
-    public boolean cancel(int quantity) {
-        if (reservedQuantity >= quantity) {
-            reservedQuantity -= quantity;
-            availableQuantity += quantity;
-            return true;
-        }
-        return false;
-    }
 }

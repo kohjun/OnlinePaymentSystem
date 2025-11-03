@@ -1,6 +1,6 @@
 spring:
   application:
-    name: payment-service
+    name: payment-service-test
 
   datasource:
     url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
@@ -17,23 +17,24 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: validate
+      ddl-auto: create-drop
     show-sql: true
     properties:
       hibernate:
         dialect: org.hibernate.dialect.H2Dialect
         format_sql: true
     open-in-view: false
-    defer-datasource-initialization: true  # ✅ JPA 생성 후 SQL 실행
+    defer-datasource-initialization: true
 
   sql:
     init:
-      mode: always  # ✅ schema.sql 실행 (시퀀스만 생성)
+      mode: always
       encoding: UTF-8
       schema-locations: classpath:schema.sql
       data-locations: classpath:test-data.sql
       continue-on-error: false
 
+  # [수정] 1. 누락되었던 'task' (thread-pool) 설정 추가
   task:
     execution:
       pool:
@@ -66,8 +67,6 @@ spring:
       acks: all
       retries: 3
     consumer:
-      # [수정] 1. group-id를 'payment-group' -> 'payment-events-group' 로 변경
-      # (KafkaConfig에서 사용하던 실제 값으로 yml을 수정)
       group-id: payment-events-group
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
