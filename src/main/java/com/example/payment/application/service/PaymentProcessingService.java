@@ -35,10 +35,10 @@ public class PaymentProcessingService {
     private static final int PAYMENT_CACHE_TTL_SECONDS = 86400; // 24시간
 
     /**
-     * ✅ 결제 처리 (내부 메서드) - transactionId 추가 (8개 파라미터)
+     * 결제 처리 (내부 메서드)
      */
     public Payment processPayment(
-            String transactionId,    // ✅ 1. transactionId 추가
+            String transactionId,    // 1
             String paymentId,        // 2
             String orderId,          // 3
             String reservationId,    // 4
@@ -51,7 +51,7 @@ public class PaymentProcessingService {
                 transactionId, paymentId, orderId, amount, method);
 
         try {
-            // ✅ WAL 로그 시작 - 5개 파라미터
+            //  WAL 로그 시작 - 5개 파라미터
             String entityIds = buildEntityIdsJson(paymentId, orderId, reservationId);
             String afterData = buildPaymentJson(paymentId, orderId, customerId, amount, currency, "PROCESSING");
 
@@ -98,7 +98,7 @@ public class PaymentProcessingService {
                 log.info("Payment completed: paymentId={}, transactionId={}",
                         paymentId, pgResult.getTransactionId());
 
-                // ✅ WAL 완료 로그 - 6개 파라미터
+                // WAL 완료 로그 - 6개 파라미터
                 String beforeData = buildPaymentJson(paymentId, orderId, customerId, amount, currency, "PROCESSING");
                 String completedData = buildPaymentJson(paymentId, orderId, customerId, amount, currency, "COMPLETED");
 
@@ -124,7 +124,7 @@ public class PaymentProcessingService {
         } catch (Exception e) {
             log.error("Error processing payment: paymentId={}", paymentId, e);
 
-            // ✅ WAL 실패 로그 - 5개 파라미터
+            // WAL 실패 로그 - 5개 파라미터
             String entityIds = buildEntityIdsJson(paymentId, orderId, reservationId);
             walService.logOperationFailure(
                     transactionId,            // 1. transactionId
@@ -321,7 +321,7 @@ public class PaymentProcessingService {
     // ===================================
 
     /**
-     * ✅ 엔티티 ID JSON 생성 (WAL용)
+     * 엔티티 ID JSON 생성 (WAL용)
      */
     private String buildEntityIdsJson(String paymentId, String orderId, String reservationId) {
         return String.format(

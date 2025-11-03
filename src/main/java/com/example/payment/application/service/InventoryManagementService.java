@@ -26,7 +26,7 @@ public class InventoryManagementService {
     private final ResourceReservationService redisReservationService;
 
     /**
-     * ✅ 개선: 예약 확정 (Phase 2) - Phase 1 로그와 연결
+     * 예약 확정 (Phase 2) - Phase 1 로그와 연결
      *
      * @param transactionId 비즈니스 트랜잭션 ID
      * @param phase1LogId Phase 1의 WAL Entry ID (연결용)
@@ -36,8 +36,8 @@ public class InventoryManagementService {
      * @return 확정 결과 도메인 객체
      */
     public InventoryConfirmation confirmReservation(
-            String transactionId,   // ✅ 트랜잭션 ID 추가
-            String phase1LogId,     // ✅ Phase 1 로그 ID 추가
+            String transactionId,
+            String phase1LogId,
             String reservationId,
             String orderId,
             String paymentId) {
@@ -47,15 +47,15 @@ public class InventoryManagementService {
 
         try {
             // ===================================
-            // 1. WAL Phase 2 시작 로그 (Phase 1과 연결)
+            // 1. WAL Phase 2 시작 로그
             // ===================================
             String entityIds = buildEntityIdsJson(reservationId, orderId, paymentId);
             String beforeData = buildConfirmationJson(reservationId, "RESERVED");
             String afterData = buildConfirmationJson(reservationId, "CONFIRMED");
 
             String walLogId = walService.logPhase2Start(
-                    transactionId,      // ✅ 동일한 트랜잭션 ID
-                    phase1LogId,        // ✅ Phase 1 로그와 연결
+                    transactionId,
+                    phase1LogId,
                     "INVENTORY_CONFIRM_START",
                     "inventory",
                     entityIds,
@@ -63,7 +63,7 @@ public class InventoryManagementService {
                     afterData
             );
 
-            log.debug("✅ WAL Phase 2 logged: txId={}, walLogId={}, phase1LogId={}",
+            log.debug("WAL Phase 2 logged: txId={}, walLogId={}, phase1LogId={}",
                     transactionId, walLogId, phase1LogId);
 
             // ===================================
@@ -72,7 +72,7 @@ public class InventoryManagementService {
             boolean redisConfirmed = redisReservationService.confirmReservation(reservationId);
 
             if (!redisConfirmed) {
-                log.error("❌ Redis reservation confirmation failed: txId={}, reservationId={}",
+                log.error("Redis reservation confirmation failed: txId={}, reservationId={}",
                         transactionId, reservationId);
 
                 // WAL 실패 로그
@@ -107,7 +107,7 @@ public class InventoryManagementService {
             );
             walService.updateLogStatus(walLogId, "COMMITTED", "재고 확정 완료");
 
-            log.info("✅ [Phase 2] Inventory reservation confirmed: txId={}, reservationId={}",
+            log.info("[Phase 2] Inventory reservation confirmed: txId={}, reservationId={}",
                     transactionId, reservationId);
 
             // ===================================
@@ -122,7 +122,7 @@ public class InventoryManagementService {
             );
 
         } catch (Exception e) {
-            log.error("❌ [Phase 2] Error confirming inventory reservation: txId={}, reservationId={}",
+            log.error("[Phase 2] Error confirming inventory reservation: txId={}, reservationId={}",
                     transactionId, reservationId, e);
 
             String entityIds = buildEntityIdsJson(reservationId, orderId, paymentId);
@@ -144,7 +144,7 @@ public class InventoryManagementService {
     }
 
     /**
-     * ✅ 개선: 예약 복구 (보상 트랜잭션) - 트랜잭션 ID 주입
+     * 예약 복구 (보상 트랜잭션) - 트랜잭션 ID 주입
      */
     public boolean rollbackReservation(
             String transactionId,
@@ -152,7 +152,7 @@ public class InventoryManagementService {
             String orderId,
             String reason) {
         try {
-            log.info("🟠 [Compensation] Rolling back inventory reservation: txId={}, reservationId={}, orderId={}, reason={}",
+            log.info("[Compensation] Rolling back inventory reservation: txId={}, reservationId={}, orderId={}, reason={}",
                     transactionId, reservationId, orderId, reason);
 
             // 1. WAL 로그
@@ -184,7 +184,7 @@ public class InventoryManagementService {
                 );
                 walService.updateLogStatus(walLogId, "COMMITTED", "재고 롤백 완료: " + reason);
 
-                log.info("✅ [Compensation] Inventory reservation rolled back: txId={}, reservationId={}",
+                log.info("[Compensation] Inventory reservation rolled back: txId={}, reservationId={}",
                         transactionId, reservationId);
                 return true;
 
@@ -204,7 +204,7 @@ public class InventoryManagementService {
             }
 
         } catch (Exception e) {
-            log.error("❌ [Compensation] Error rolling back inventory reservation: txId={}, reservationId={}",
+            log.error("[Compensation] Error rolling back inventory reservation: txId={}, reservationId={}",
                     transactionId, reservationId, e);
 
             String entityIds = buildEntityIdsJson(reservationId, orderId, null);
@@ -225,7 +225,7 @@ public class InventoryManagementService {
     // ===================================
 
     /**
-     * ✅ 엔티티 ID들을 JSON 형태로 구성
+     * 엔티티 ID들을 JSON 형태로 구성
      */
     private String buildEntityIdsJson(String reservationId, String orderId, String paymentId) {
         return String.format(

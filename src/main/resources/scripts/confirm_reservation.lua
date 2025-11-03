@@ -1,45 +1,45 @@
--- KEYS[1]: 예약 키 (e.g. "reservation:12345")
+-- confirm_reservation.lua
+local key = KEYS[1]
+local quantity = tonumber(ARGV[1])
+local reservation_id = ARGV[2]
 
--- 예약 정보 조회
-local reservation = redis.call('HGETALL', KEYS[1])
-if #reservation == 0 then
-    return false -- 예약이 존재하지 않음
+-- 재고 정보 가져오기
+local reserved = tonumber(redis.call('HGET', key, 'reserved') or 0)
+local total = tonumber(redis.call('HGET', key, 'total') or 0)
+
+-- 유효성 검사
+if quantity <= 0 then
+    return cjson.encode({
+        status = "ERROR",
+        code = "INVALID_QUANTITY",
+        message = "Quantity must be positive"
+    })
 end
 
--- 예약 정보 파싱
-local resourceKey = nil
-local quantity = 0
-local status = nil
-
-for i = 1, #reservation, 2 do
-    if reservation[i] == "resource_key" then
-        resourceKey = reservation[i+1]
-    elseif reservation[i] == "quantity" then
-        quantity = tonumber(reservation[i+1]) or 0
-    elseif reservation[i] == "status" then
-        status = reservation[i+1]
-    end
+if reserved < quantity then
+    return cjson.encode({
+        status = "ERROR",
+        code = "INSUFFICIENT_RESERVED",
+        message = "Not enough reserved stock to confirm"
+    })
 end
 
--- 상태 확인
-if status == "CONFIRMED" then
-    return true -- 이미 확정됨
+-- 예약 재고를 차감만 (available은 이미 reserve 시점에 차감됨)
+redis.call('HINCRBY', key, 'reserved', -quantity)
+
+-- 예약 정보 업데이트
+if reservation_id and reservation_id ~= '' then
+    local reservation_key = 'reservation:' .. reservation_id
+    redis.call('HSET', reservation_key, 'status', 'CONFIRMED')
 end
 
-if status == "CANCELLED" then
-    return false -- 이미 취소됨
-end
-
-if status ~= "RESERVED" then
-    return false -- 예약 상태가 아님
-end
-
--- 상태 업데이트
-redis.call('HSET', KEYS[1], 'status', 'CONFIRMED')
-
-if resourceKey then
-    redis.call('HINCRBY', resourceKey, 'reserved', -quantity)
-end
-
--- 성공
-return true
+-- 성공 응답
+local available = tonumber(redis.call('HGET', key, 'available') or 0)
+return cjson.encode({
+    status = "SUCCESS",
+    code = "CONFIRMED",
+    message = "Reservation confirmed successfully",
+    available = available,
+    reserved = reserved - quantity,
+    total = total
+})

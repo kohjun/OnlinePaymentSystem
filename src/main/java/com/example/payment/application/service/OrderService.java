@@ -54,7 +54,7 @@ public class OrderService {
             String currency,
             String reservationId) {
 
-        log.info("🔵 [Phase 1] Creating order: txId={}, customerId={}, productId={}, reservationId={}",
+        log.info("[Phase 1] Creating order: txId={}, customerId={}, productId={}, reservationId={}",
                 transactionId, customerId, productId, reservationId);
 
         String orderId = IdGenerator.generateOrderId();
@@ -70,7 +70,7 @@ public class OrderService {
             );
 
             String walLogId = walService.logOperationStart(
-                    transactionId,  // ✅ 트랜잭션 ID 전달
+                    transactionId,
                     "ORDER_CREATE_START",
                     "orders",
                     entityIds,
@@ -119,14 +119,14 @@ public class OrderService {
             );
             walService.updateLogStatus(walLogId, "COMMITTED", "주문 생성 완료");
 
-            log.info("✅ [Phase 1] Order created successfully: txId={}, orderId={}",
+            log.info("[Phase 1] Order created successfully: txId={}, orderId={}",
                     transactionId, orderId);
 
             // ✅ Phase 1 WAL 로그 ID와 함께 반환 (Phase 2 연결용)
             return new OrderCreationResult(order, walLogId);
 
         } catch (Exception e) {
-            log.error("❌ [Phase 1] Error creating order: txId={}, customerId={}, reservationId={}",
+            log.error("[Phase 1] Error creating order: txId={}, customerId={}, reservationId={}",
                     transactionId, customerId, reservationId, e);
 
             String entityIds = buildEntityIdsJson(reservationId, orderId, null);
@@ -152,12 +152,12 @@ public class OrderService {
      * @return 성공 여부
      */
     public boolean markOrderAsPaid(
-            String transactionId,  // ✅ 트랜잭션 ID 추가
-            String phase1LogId,    // ✅ Phase 1 로그 ID 추가
+            String transactionId,
+            String phase1LogId,
             String orderId,
             String paymentId) {
 
-        log.info("🟢 [Phase 2] Marking order as paid: txId={}, orderId={}, paymentId={}, phase1LogId={}",
+        log.info("[Phase 2] Marking order as paid: txId={}, orderId={}, paymentId={}, phase1LogId={}",
                 transactionId, orderId, paymentId, phase1LogId);
 
         try {
@@ -176,8 +176,8 @@ public class OrderService {
             String afterData = buildOrderStatusJson(orderId, "PAID");
 
             String walLogId = walService.logPhase2Start(
-                    transactionId,      // ✅ 동일한 트랜잭션 ID
-                    phase1LogId,        // ✅ Phase 1 로그와 연결
+                    transactionId,
+                    phase1LogId,
                     "ORDER_PAYMENT_START",
                     "orders",
                     entityIds,
@@ -185,7 +185,7 @@ public class OrderService {
                     afterData
             );
 
-            log.debug("✅ WAL Phase 2 logged: txId={}, walLogId={}, phase1LogId={}",
+            log.debug(" WAL Phase 2 logged: txId={}, walLogId={}, phase1LogId={}",
                     transactionId, walLogId, phase1LogId);
 
             // ===================================
@@ -212,12 +212,12 @@ public class OrderService {
             );
             walService.updateLogStatus(walLogId, "COMMITTED", "주문 결제 완료");
 
-            log.info("✅ [Phase 2] Order marked as paid: txId={}, orderId={}",
+            log.info(" [Phase 2] Order marked as paid: txId={}, orderId={}",
                     transactionId, orderId);
             return true;
 
         } catch (Exception e) {
-            log.error("❌ [Phase 2] Error marking order as paid: txId={}, orderId={}",
+            log.error(" [Phase 2] Error marking order as paid: txId={}, orderId={}",
                     transactionId, orderId, e);
 
             String entityIds = buildEntityIdsJson(null, orderId, paymentId);
@@ -234,7 +234,7 @@ public class OrderService {
     }
 
     /**
-     * ✅ 개선: 주문 상태 변경 - 트랜잭션 ID 주입
+     * 주문 상태 변경 - 트랜잭션 ID 주입
      */
     public boolean updateOrderStatus(
             String transactionId,
@@ -242,7 +242,7 @@ public class OrderService {
             String newStatus,
             String reason) {
         try {
-            log.info("🟡 Updating order status: txId={}, orderId={}, newStatus={}, reason={}",
+            log.info("Updating order status: txId={}, orderId={}, newStatus={}, reason={}",
                     transactionId, orderId, newStatus, reason);
 
             // 1. 주문 조회
@@ -286,12 +286,12 @@ public class OrderService {
             );
             walService.updateLogStatus(walLogId, "COMMITTED", "상태 변경 완료: " + reason);
 
-            log.info("✅ Order status updated: txId={}, orderId={}, {} -> {}",
+            log.info(" Order status updated: txId={}, orderId={}, {} -> {}",
                     transactionId, orderId, oldStatus, newStatus);
             return true;
 
         } catch (Exception e) {
-            log.error("❌ Error updating order status: txId={}, orderId={}, newStatus={}",
+            log.error(" Error updating order status: txId={}, orderId={}, newStatus={}",
                     transactionId, orderId, newStatus, e);
 
             String entityIds = buildEntityIdsJson(null, orderId, null);
@@ -308,7 +308,7 @@ public class OrderService {
     }
 
     /**
-     * ✅ 개선: 주문 취소 - 트랜잭션 ID 주입
+     *  개선: 주문 취소 - 트랜잭션 ID 주입
      */
     public boolean cancelOrder(String transactionId, String orderId, String customerId, String reason) {
         try {
@@ -369,11 +369,11 @@ public class OrderService {
             );
             walService.updateLogStatus(walLogId, "COMMITTED", "주문 취소 완료: " + reason);
 
-            log.info("✅ Order cancelled: txId={}, orderId={}", transactionId, orderId);
+            log.info("Order cancelled: txId={}, orderId={}", transactionId, orderId);
             return true;
 
         } catch (Exception e) {
-            log.error("❌ Error cancelling order: txId={}, orderId={}", transactionId, orderId, e);
+            log.error("Error cancelling order: txId={}, orderId={}", transactionId, orderId, e);
 
             String entityIds = buildEntityIdsJson(null, orderId, null);
             walService.logOperationFailure(
@@ -422,7 +422,7 @@ public class OrderService {
     // ===================================
 
     /**
-     * ✅ 엔티티 ID들을 JSON 형태로 구성
+     * 엔티티 ID들을 JSON 형태로 구성
      */
     private String buildEntityIdsJson(String reservationId, String orderId, String paymentId) {
         return String.format(
@@ -457,7 +457,7 @@ public class OrderService {
     // ===================================
 
     /**
-     * ✅ 주문 생성 결과 (주문 + WAL 로그 ID)
+     * 주문 생성 결과 (주문 + WAL 로그 ID)
      * Phase 2에서 Phase 1과 연결하기 위해 필요
      */
     public static class OrderCreationResult {

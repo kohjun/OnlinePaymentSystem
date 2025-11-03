@@ -1,69 +1,54 @@
--- KEYS[1]: 리소스 키 (e.g. "inventory:PROD-001")
--- ARGV[1]: 예약 ID (멱등성 키)
--- ARGV[2]: 예약 수량
--- ARGV[3]: TTL (초)
+-- reserve_resource.lua
+local key = KEYS[1]
+local quantity = tonumber(ARGV[1])
+local reservation_id = ARGV[2]
+local ttl = tonumber(ARGV[3])
 
--- 리소스 정보 조회
-local resource = redis.call('HGETALL', KEYS[1])
-local available = 0
-local reserved = 0
-local total = 0
+-- 재고 정보 가져오기
+local available = tonumber(redis.call('HGET', key, 'available') or 0)
+local reserved = tonumber(redis.call('HGET', key, 'reserved') or 0)
+local total = tonumber(redis.call('HGET', key, 'total') or 0)
 
--- ✅ 수정: 해시 결과를 키-값 쌍으로 변환
-for i = 1, #resource, 2 do
-    if resource[i] == "available" then          -- ✅ "quantity" → "available"
-        available = tonumber(resource[i+1]) or 0
-    elseif resource[i] == "reserved" then
-        reserved = tonumber(resource[i+1]) or 0
-    elseif resource[i] == "total" then          -- ✅ 추가: total 필드
-        total = tonumber(resource[i+1]) or 0
+-- 유효성 검사
+if quantity <= 0 then
+    return cjson.encode({
+        status = "ERROR",
+        code = "INVALID_QUANTITY",
+        message = "Quantity must be positive"
+    })
+end
+
+if available < quantity then
+    return cjson.encode({
+        status = "ERROR",
+        code = "INSUFFICIENT_STOCK",
+        message = "Not enough available stock"
+    })
+end
+
+-- 재고 업데이트
+redis.call('HINCRBY', key, 'available', -quantity)
+redis.call('HINCRBY', key, 'reserved', quantity)
+
+-- 예약 정보 저장 (reservation_id가 있는 경우)
+if reservation_id and reservation_id ~= '' then
+    local reservation_key = 'reservation:' .. reservation_id
+    redis.call('HSET', reservation_key, 'product_id', key)
+    redis.call('HSET', reservation_key, 'quantity', quantity)
+    redis.call('HSET', reservation_key, 'status', 'RESERVED')
+    redis.call('HSET', reservation_key, 'created_at', ARGV[4] or '')
+
+    if ttl > 0 then
+        redis.call('EXPIRE', reservation_key, ttl)
     end
 end
-
--- 예약 수량
-local requestedAmount = tonumber(ARGV[2])
-
--- ✅ 수정: nil 체크 추가
-if not requestedAmount or requestedAmount <= 0 then
-    return {false, "INVALID_QUANTITY"}
-end
-
--- ✅ 수정: available 수량으로 직접 확인 (기존: quantity - reserved)
-if available < requestedAmount then
-    return {false, "INSUFFICIENT_QUANTITY"}
-end
-
--- 예약 정보 키
-local reservationKey = "reservation:" .. ARGV[1]
-
--- 이미 존재하는 예약 확인
-local exists = redis.call('EXISTS', reservationKey)
-if exists == 1 then
-    local status = redis.call('HGET', reservationKey, "status")
-    if status == "CONFIRMED" then
-        return {true, "ALREADY_CONFIRMED"}
-    elseif status == "CANCELLED" then
-        return {false, "ALREADY_CANCELLED"}
-    else
-        return {true, "ALREADY_RESERVED"}
-    end
-end
-
--- ✅ 수정: available 감소, reserved 증가
-redis.call('HINCRBY', KEYS[1], 'available', -requestedAmount)
-redis.call('HINCRBY', KEYS[1], 'reserved', requestedAmount)
-
--- 예약 정보 저장
-redis.call('HMSET', reservationKey,
-    'resource_key', KEYS[1],
-    'quantity', requestedAmount,
-    'status', 'RESERVED',
-    'timestamp', redis.call('TIME')[1]
-)
-
--- 예약 TTL 설정
-local ttl = tonumber(ARGV[3]) or 3600  -- ✅ 기본값 1시간
-redis.call('EXPIRE', reservationKey, ttl)
 
 -- 성공 응답
-return {true, "RESERVED"}
+return cjson.encode({
+    status = "SUCCESS",
+    code = "RESERVED",
+    message = "Resource reserved successfully",
+    available = available - quantity,
+    reserved = reserved + quantity,
+    total = total
+})

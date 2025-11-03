@@ -1,123 +1,133 @@
 package com.example.payment.infrastructure.util;
 
-import java.util.Collections;
-import java.util.List;
-import org.springframework.core.io.ClassPathResource;
-import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
-import org.springframework.data.redis.core.script.RedisScript;
-import org.springframework.stereotype.Service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.stereotype.Service;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
-/**
- * Redis Lua 스크립트를 사용한 리소스 예약 서비스
- * - 결제 관련 리소스 예약을 원자적으로 처리
- * - 멱등성 및 동시성 안전한 작업 보장
- */
-@Service
+import java.time.Duration;
+import java.util.*;
+
 @Slf4j
+@Service
 @RequiredArgsConstructor
 public class ResourceReservationService {
 
     private final RedisTemplate<String, Object> redisTemplate;
-
-    // 리소스 예약 스크립트 로드 - List 타입으로 수정
-    private final RedisScript<List> reserveScript = new DefaultRedisScript<>(
-            loadScriptFromFile("scripts/reserve_resource.lua"),
-            List.class
-    );
-
-    // 예약 확정 스크립트 로드
-    private final RedisScript<Boolean> confirmScript = new DefaultRedisScript<>(
-            loadScriptFromFile("scripts/confirm_reservation.lua"),
-            Boolean.class
-    );
-
-    // 예약 취소 스크립트 로드
-    private final RedisScript<Boolean> cancelScript = new DefaultRedisScript<>(
-            loadScriptFromFile("scripts/cancel_reservation.lua"),
-            Boolean.class
-    );
+    private final DefaultRedisScript<String> reserveScript;  // RedisConfig에서 주입
+    private final DefaultRedisScript<String> releaseScript;  // RedisConfig에서 주입
+    private final ObjectMapper objectMapper;
 
     /**
-     * 리소스 예약
-     * @param resourceKey 리소스 키 (예: "order:12345")
-     * @param reservationId 예약 ID (멱등성 키)
-     * @param quantity 예약 수량
-     * @param ttlSeconds TTL (초)
-     * @return [성공 여부, 메시지]
+     * 리소스 예약 (ReservationService에서 사용)
      */
-    @SuppressWarnings("unchecked")
-    public List<Object> reserveResource(String resourceKey, String reservationId, int quantity, int ttlSeconds) {
+    public boolean reserveResource(String resourceKey, int quantity, Duration ttl) {
         try {
-            // Redis Lua 스크립트 실행
-            // 반환 타입을 Object로 선언하고 캐스팅
-            List result = redisTemplate.execute(
+            List<String> keys = Collections.singletonList(resourceKey);
+            long ttlSeconds = (ttl != null) ? ttl.getSeconds() : 0;
+            String reservationId = UUID.randomUUID().toString();
+
+            // Lua 스크립트 실행 - JSON 문자열로 받기
+            String jsonResult = redisTemplate.execute(
                     reserveScript,
-                    Collections.singletonList(resourceKey),
-                    reservationId, String.valueOf(quantity), String.valueOf(ttlSeconds)
+                    keys,
+                    String.valueOf(quantity),
+                    reservationId,
+                    String.valueOf(ttlSeconds),
+                    String.valueOf(System.currentTimeMillis())
             );
 
-            log.debug("Resource reservation result for {}: {}", resourceKey, result);
-            return result;
+            log.debug("Reserve script result: {}", jsonResult);
+
+            // JSON 파싱
+            @SuppressWarnings("unchecked")
+            Map<String, Object> result = objectMapper.readValue(jsonResult, Map.class);
+
+            if ("SUCCESS".equals(result.get("status"))) {
+                log.info("Resource reserved: key={}, quantity={}, available={}, reserved={}",
+                        resourceKey, quantity, result.get("available"), result.get("reserved"));
+                return true;
+            } else {
+                log.warn("Reserve failed: key={}, code={}, message={}",
+                        resourceKey, result.get("code"), result.get("message"));
+                return false;
+            }
+
         } catch (Exception e) {
             log.error("Error reserving resource {}: {}", resourceKey, e.getMessage(), e);
-            return List.of(false, "REDIS_ERROR: " + e.getMessage());
-        }
-    }
-
-    /**
-     * 예약 확정
-     * @param reservationId 예약 ID
-     * @return 성공 여부
-     */
-    public boolean confirmReservation(String reservationId) {
-        try {
-            Boolean result = redisTemplate.execute(
-                    confirmScript,
-                    Collections.singletonList("reservation:" + reservationId)
-            );
-
-            log.debug("Reservation confirmation result for {}: {}", reservationId, result);
-            return Boolean.TRUE.equals(result);
-        } catch (Exception e) {
-            log.error("Error confirming reservation {}: {}", reservationId, e.getMessage(), e);
             return false;
         }
     }
 
     /**
-     * 예약 취소
-     * @param reservationId 예약 ID
-     * @return 성공 여부
+     * 리소스 해제 (취소/롤백 시 사용)
      */
-    public boolean cancelReservation(String reservationId) {
+    public boolean releaseResource(String resourceKey, int quantity) {
         try {
-            Boolean result = redisTemplate.execute(
-                    cancelScript,
-                    Collections.singletonList("reservation:" + reservationId)
+            List<String> keys = Collections.singletonList(resourceKey);
+            String reservationId = "";  // 필요 시 추가
+
+            // Lua 스크립트 실행 - JSON 문자열로 받기
+            String jsonResult = redisTemplate.execute(
+                    releaseScript,
+                    keys,
+                    String.valueOf(quantity),
+                    reservationId
             );
 
-            log.debug("Reservation cancellation result for {}: {}", reservationId, result);
-            return Boolean.TRUE.equals(result);
+            log.debug("Release script result: {}", jsonResult);
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> result = objectMapper.readValue(jsonResult, Map.class);
+
+            if ("SUCCESS".equals(result.get("status"))) {
+                log.info("Resource released: key={}, quantity={}, available={}, reserved={}",
+                        resourceKey, quantity, result.get("available"), result.get("reserved"));
+                return true;
+            } else {
+                log.warn("Release failed: key={}, code={}, message={}",
+                        resourceKey, result.get("code"), result.get("message"));
+                return false;
+            }
+
         } catch (Exception e) {
-            log.error("Error cancelling reservation {}: {}", reservationId, e.getMessage(), e);
+            log.error("Error releasing resource {}: {}", resourceKey, e.getMessage(), e);
             return false;
         }
     }
 
     /**
-     * 스크립트 파일 로드
+     * 재고 초기화 (테스트용)
      */
-    private String loadScriptFromFile(String path) {
+    public void initializeResource(String resourceKey, int total, int available) {
         try {
-            ClassPathResource resource = new ClassPathResource(path);
-            byte[] bytes = resource.getInputStream().readAllBytes();
-            return new String(bytes);
+            Map<String, Object> resourceData = new HashMap<>();
+            resourceData.put("total", total);
+            resourceData.put("available", available);
+            resourceData.put("reserved", 0);
+
+            redisTemplate.opsForHash().putAll(resourceKey, resourceData);
+            log.info("Resource initialized: key={}, total={}, available={}",
+                    resourceKey, total, available);
         } catch (Exception e) {
-            log.error("Error loading Lua script from {}: {}", path, e.getMessage(), e);
-            throw new RuntimeException("Failed to load Lua script: " + path, e);
+            log.error("Error initializing resource {}: {}", resourceKey, e.getMessage());
+        }
+    }
+
+    /**
+     * 재고 상태 조회
+     */
+    public Map<String, Object> getResourceStatus(String resourceKey) {
+        try {
+            Map<Object, Object> entries = redisTemplate.opsForHash().entries(resourceKey);
+            Map<String, Object> result = new HashMap<>();
+            entries.forEach((k, v) -> result.put(k.toString(), v));
+            return result;
+        } catch (Exception e) {
+            log.error("Error getting resource status {}: {}", resourceKey, e.getMessage());
+            return new HashMap<>();
         }
     }
 }

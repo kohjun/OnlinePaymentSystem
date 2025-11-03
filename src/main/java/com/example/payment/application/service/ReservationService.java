@@ -53,7 +53,7 @@ public class ReservationService {
             Integer quantity,
             String clientId) {
 
-        log.info("🔵 [Phase 1] Starting inventory reservation: txId={}, productId={}, customerId={}, quantity={}",
+        log.info("[Phase 1] Starting inventory reservation: txId={}, productId={}, customerId={}, quantity={}",
                 transactionId, productId, customerId, quantity);
 
         String reservationId = IdGenerator.generateReservationId();
@@ -71,14 +71,14 @@ public class ReservationService {
                 );
 
                 String walLogId = walService.logOperationStart(
-                        transactionId,  // ✅ 트랜잭션 ID 전달
+                        transactionId,
                         "INVENTORY_RESERVE_START",
                         "reservations",
                         entityIds,
                         afterData
                 );
 
-                log.debug("✅ WAL Phase 1 logged: txId={}, walLogId={}, reservationId={}",
+                log.debug("WAL Phase 1 logged: txId={}, walLogId={}, reservationId={}",
                         transactionId, walLogId, reservationId);
 
                 // ===================================
@@ -95,7 +95,7 @@ public class ReservationService {
                 String message = (String) redisResult.get(1);
 
                 if (!success) {
-                    log.warn("❌ Inventory reservation failed: txId={}, productId={}, reason={}",
+                    log.warn("Inventory reservation failed: txId={}, productId={}, reason={}",
                             transactionId, productId, message);
 
                     // WAL 실패 로그
@@ -148,13 +148,13 @@ public class ReservationService {
                 );
                 walService.updateLogStatus(walLogId, "COMMITTED", "예약 완료");
 
-                log.info("✅ [Phase 1] Inventory reservation succeeded: txId={}, reservationId={}, productId={}",
+                log.info("[Phase 1] Inventory reservation succeeded: txId={}, reservationId={}, productId={}",
                         transactionId, reservationId, productId);
 
                 return reservation;
 
             } catch (Exception e) {
-                log.error("❌ [Phase 1] Error during inventory reservation: txId={}, productId={}, customerId={}",
+                log.error("[Phase 1] Error during inventory reservation: txId={}, productId={}, customerId={}",
                         transactionId, productId, customerId, e);
 
                 // WAL 실패 로그
@@ -173,7 +173,7 @@ public class ReservationService {
     }
 
     /**
-     * ✅ 개선: 예약 취소 - 트랜잭션 ID 주입
+     * 개선: 예약 취소 - 트랜잭션 ID 주입
      */
     public boolean cancelReservation(String transactionId, String reservationId, String customerId) {
         try {
@@ -249,7 +249,7 @@ public class ReservationService {
                 );
                 walService.updateLogStatus(walLogId, "COMMITTED", "예약 취소 완료");
 
-                log.info("✅ Reservation cancelled: txId={}, reservationId={}",
+                log.info("Reservation cancelled: txId={}, reservationId={}",
                         transactionId, reservationId);
                 return true;
 
@@ -269,7 +269,7 @@ public class ReservationService {
             }
 
         } catch (Exception e) {
-            log.error("❌ Error cancelling reservation: txId={}, reservationId={}",
+            log.error("Error cancelling reservation: txId={}, reservationId={}",
                     transactionId, reservationId, e);
 
             String entityIds = buildEntityIdsJson(reservationId, null, null);
@@ -319,7 +319,7 @@ public class ReservationService {
     // ===================================
 
     /**
-     * ✅ 엔티티 ID들을 JSON 형태로 구성
+     * 엔티티 ID들을 JSON 형태로 구성
      * WAL 로그의 beforeData 필드에 저장하여 데이터 추적 가능
      */
     private String buildEntityIdsJson(String reservationId, String orderId, String paymentId) {
