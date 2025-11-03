@@ -21,12 +21,7 @@ import java.util.List;
 
 /**
  * ✅ 개선된 재고 예약 서비스
- *
- * 주요 개선사항:
- * 1. 트랜잭션 ID를 외부에서 주입받아 WAL 일관성 보장
- * 2. 엔티티 ID(reservationId) 추적 강화
- * 3. WAL 로그에 엔티티 메타데이터 포함
- * 4. [수정] reserveInventory가 walLogId를 반환하도록 변경 (문제 2.B 해결)
+ * [수정] 4. getReservation의 캐시 읽기 방식을 getCachedObject로 변경
  */
 @Service
 @Slf4j
@@ -40,10 +35,6 @@ public class ReservationService {
 
     private static final int DEFAULT_RESERVATION_TTL_SECONDS = 300; // 5분
 
-    /**
-     * [추가] 1. 반환용 DTO 내부 클래스 생성
-     * 재고 예약(Phase 1)의 결과물과 해당 작업의 WAL 로그 ID를 함께 반환합니다.
-     */
     @Data
     @AllArgsConstructor
     public static class ReservationResult {
@@ -51,23 +42,12 @@ public class ReservationService {
         private String walLogId;
     }
 
-    /**
-     * ✅ 개선: 재고 선점 (Phase 1) - 트랜잭션 ID 주입
-     * [수정] 2. 반환 타입을 ReservationResult로 변경
-     *
-     * @param transactionId 비즈니스 트랜잭션 ID (correlationId)
-     * @param productId 상품 ID
-     * @param customerId 고객 ID
-     * @param quantity 수량
-     * @param clientId 클라이언트 ID
-     * @return ReservationResult (예약 도메인 객체 + WAL 로그 ID)
-     */
-    public ReservationResult reserveInventory( // 2. 반환 타입 변경
-                                               String transactionId,  // ✅ 트랜잭션 ID 추가
-                                               String productId,
-                                               String customerId,
-                                               Integer quantity,
-                                               String clientId) {
+    public ReservationResult reserveInventory(
+            String transactionId,
+            String productId,
+            String customerId,
+            Integer quantity,
+            String clientId) {
 
         log.info("[Phase 1] Starting inventory reservation: txId={}, productId={}, customerId={}, quantity={}",
                 transactionId, productId, customerId, quantity);
@@ -75,9 +55,8 @@ public class ReservationService {
         String reservationId = IdGenerator.generateReservationId();
         String lockKey = "inventory:" + productId;
 
-        // 분산 락으로 동시성 제어
         return lockService.executeWithLock(lockKey, () -> {
-            String walLogId = null; // 3. walLogId 변수 선언
+            String walLogId = null;
             try {
                 // ===================================
                 // 1. WAL Phase 1 시작 로그 기록
@@ -87,7 +66,7 @@ public class ReservationService {
                         reservationId, productId, customerId, quantity, "RESERVED"
                 );
 
-                walLogId = walService.logOperationStart( // 4. walLogId 할당
+                walLogId = walService.logOperationStart(
                         transactionId,
                         "INVENTORY_RESERVE_START",
                         "reservations",
@@ -104,16 +83,15 @@ public class ReservationService {
                 boolean success = redisReservationService.reserveResource(
                         lockKey,
                         quantity,
-                        Duration.ofSeconds(DEFAULT_RESERVATION_TTL_SECONDS)
+                        Duration.ofSeconds(DEFAULT_RESERVATION_TTL_SECONDS),
+                        reservationId
                 );
 
-                // [FIX 2] redisResult 파싱 로직을 제거하고 success 변수를 바로 사용합니다.
                 if (!success) {
-                    String message = "Redis 재고 선점 실패"; // message 변수가 없으므로 대체
+                    String message = "Redis 재고 선점 실패";
                     log.warn("Inventory reservation failed: txId={}, productId={}, reason={}",
                             transactionId, productId, message);
 
-                    // WAL 실패 로그
                     walService.updateLogStatus(walLogId, "FAILED", "재고 부족: " + message);
 
                     walService.logOperationFailure(
@@ -124,7 +102,7 @@ public class ReservationService {
                             message
                     );
 
-                    return null; // 5. 실패 시 null 반환
+                    return null;
                 }
 
                 // ===================================
@@ -144,9 +122,9 @@ public class ReservationService {
                 // 4. 캐시에 저장 (메타데이터 포함)
                 // ===================================
                 String cacheKey = "reservation:" + reservationId;
+                // cacheData는 cacheObject의 alias이며 String(JSON)으로 저장
                 cacheService.cacheData(cacheKey, reservation, DEFAULT_RESERVATION_TTL_SECONDS);
 
-                // 트랜잭션 ID 매핑 캐시 (복구 시 활용)
                 String txMappingKey = "tx_reservation:" + transactionId;
                 cacheService.cacheData(txMappingKey, reservationId, DEFAULT_RESERVATION_TTL_SECONDS);
 
@@ -166,13 +144,12 @@ public class ReservationService {
                 log.info("[Phase 1] Inventory reservation succeeded: txId={}, reservationId={}, productId={}",
                         transactionId, reservationId, productId);
 
-                return new ReservationResult(reservation, walLogId); // 6. ReservationResult 반환
+                return new ReservationResult(reservation, walLogId);
 
             } catch (Exception e) {
                 log.error("[Phase 1] Error during inventory reservation: txId={}, productId={}, customerId={}",
                         transactionId, productId, customerId, e);
 
-                // 7. 예외 발생 시에도 WAL 기록
                 if (walLogId != null) {
                     walService.updateLogStatus(walLogId, "FAILED", e.getMessage());
                 }
@@ -198,28 +175,24 @@ public class ReservationService {
             log.info("🟠 Cancelling reservation: txId={}, reservationId={}, customerId={}",
                     transactionId, reservationId, customerId);
 
-            // 1. 예약 조회 (권한 확인)
             InventoryReservation reservation = getReservation(reservationId);
             if (reservation == null) {
                 log.warn("Reservation not found: reservationId={}", reservationId);
                 return false;
             }
 
-            // 2. 권한 확인
             if (!customerId.equals(reservation.getCustomerId()) && !"SYSTEM".equals(customerId)) {
                 log.warn("Customer ID mismatch: reservationId={}, expected={}, actual={}",
                         reservationId, reservation.getCustomerId(), customerId);
                 return false;
             }
 
-            // 3. 취소 가능 여부 확인
             if (!reservation.canBeCancelled()) {
                 log.warn("Reservation cannot be cancelled: reservationId={}, status={}",
                         reservationId, reservation.getStatus());
                 return false;
             }
 
-            // 4. WAL 로그
             String entityIds = buildEntityIdsJson(reservationId, null, null);
             String afterData = buildReservationJson(
                     reservationId,
@@ -237,23 +210,17 @@ public class ReservationService {
                     afterData
             );
 
-            // 5. Redis에서 예약 취소
             String resourceKey = "inventory:" + reservation.getProductId();
             int quantityToRelease = reservation.getQuantity();
 
-            // (참고) 이 호출이 성공하려면 ResourceReservationService.releaseResource에
-            // reservationId 인자가 추가되어야 합니다. (이전 분석의 '오류 2' 항목)
-            boolean cancelled = redisReservationService.releaseResource(resourceKey, quantityToRelease,reservation.getReservationId()); //
+            boolean cancelled = redisReservationService.releaseResource(resourceKey, quantityToRelease,reservation.getReservationId());
 
             if (cancelled) {
-                // 6. 도메인 상태 업데이트
                 reservation.setStatus(ReservationStatus.CANCELLED);
 
-                // 7. 캐시 업데이트
                 String cacheKey = "reservation:" + reservationId;
                 cacheService.cacheData(cacheKey, reservation, DEFAULT_RESERVATION_TTL_SECONDS);
 
-                // 8. WAL 완료
                 String beforeData = buildReservationJson(
                         reservationId,
                         reservation.getProductId(),
@@ -310,22 +277,17 @@ public class ReservationService {
 
     /**
      * 예약 조회
+     * [수정] 4. getCachedData (Hash 읽기) -> getCachedObject (String 읽기) 변경
      */
     public InventoryReservation getReservation(String reservationId) {
         try {
             String cacheKey = "reservation:" + reservationId;
-            Object cachedData = cacheService.getCachedData(cacheKey);
+            // [수정] String(JSON)으로 저장된 객체를 읽어옵니다.
+            InventoryReservation cachedData = cacheService.getCachedObject(cacheKey, InventoryReservation.class);
 
             if (cachedData != null) {
                 log.debug("Reservation found in cache: reservationId={}", reservationId);
-
-                if (cachedData instanceof InventoryReservation) {
-                    return (InventoryReservation) cachedData;
-                } else {
-                    log.warn("Cached data is not InventoryReservation type: reservationId={}, actualType={}",
-                            reservationId, cachedData.getClass().getName());
-                    cacheService.deleteCache(cacheKey);
-                }
+                return cachedData;
             }
 
             log.debug("Reservation not found: reservationId={}", reservationId);
@@ -336,9 +298,9 @@ public class ReservationService {
             return null;
         }
     }
+
     /**
-     * ✅ [NEW] 예약 상태를 'CONFIRMED'로 업데이트하고 캐시를 갱신
-     * InventoryManagementService에서 호출
+     * 예약 상태를 'CONFIRMED'로 업데이트하고 캐시를 갱신
      */
     public void confirmReservationStatus(InventoryReservation reservation) {
         try {
@@ -349,7 +311,6 @@ public class ReservationService {
 
             reservation.setStatus(ReservationStatus.CONFIRMED);
 
-            // 캐시 업데이트 (TTL은 기존과 동일하게)
             String cacheKey = "reservation:" + reservation.getReservationId();
             cacheService.cacheData(cacheKey, reservation, DEFAULT_RESERVATION_TTL_SECONDS);
 
@@ -357,18 +318,9 @@ public class ReservationService {
 
         } catch (Exception e) {
             log.error("Error updating reservation status to CONFIRMED: {}", reservation.getReservationId(), e);
-            // 여기서 예외를 던지면 confirmReservation의 트랜잭션이 롤백될 수 있으나,
-            // 이 작업은 보조적이므로 에러 로그만 남깁니다.
         }
     }
-    // ===================================
-    // Helper Methods - 엔티티 ID 추적용 JSON 빌더
-    // ===================================
 
-    /**
-     * 엔티티 ID들을 JSON 형태로 구성
-     * WAL 로그의 beforeData 필드에 저장하여 데이터 추적 가능
-     */
     private String buildEntityIdsJson(String reservationId, String orderId, String paymentId) {
         return String.format(
                 "{\"reservationId\":\"%s\",\"orderId\":\"%s\",\"paymentId\":\"%s\"}",

@@ -24,6 +24,8 @@ import java.time.Duration;
 /**
  * Redis 단일 모드 설정
  * - 클러스터 모드 대신 단일 Redis 인스턴스 사용
+ * - [수정] Lua 스크립트 반환 값(순수 JSON)의 역직렬화 오류를 해결하기 위해
+ * ObjectMapper의 `activateDefaultTyping` 옵션 제거
  */
 @Configuration
 public class RedisConfig {
@@ -47,10 +49,13 @@ public class RedisConfig {
         mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         mapper.setVisibility(PropertyAccessor.ALL, JsonAutoDetect.Visibility.ANY);
-        mapper.activateDefaultTyping(
-                mapper.getPolymorphicTypeValidator(),
-                ObjectMapper.DefaultTyping.NON_FINAL
-        );
+
+        // [수정] 아래 코드가 Lua 스크립트의 순수 JSON 반환 값을 역직렬화할 때
+        // MismatchedInputException (START_OBJECT vs START_ARRAY) 오류를 유발하므로 제거합니다.
+        // mapper.activateDefaultTyping(
+        //         mapper.getPolymorphicTypeValidator(),
+        //         ObjectMapper.DefaultTyping.NON_FINAL
+        // );
         return mapper;
     }
 

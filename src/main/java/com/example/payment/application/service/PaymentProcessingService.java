@@ -21,7 +21,8 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
- * ✅ 결제 처리 서비스 - transactionId 정합성 강화
+ * ✅ 결제 처리 서비스
+ * [수정] getPayment의 캐시 읽기 방식을 getCachedObject로 변경
  */
 @Service
 @Slf4j
@@ -38,29 +39,28 @@ public class PaymentProcessingService {
      * 결제 처리 (내부 메서드)
      */
     public Payment processPayment(
-            String transactionId,    // 1
-            String paymentId,        // 2
-            String orderId,          // 3
-            String reservationId,    // 4
-            String customerId,       // 5
-            BigDecimal amount,       // 6
-            String currency,         // 7
-            String method) {         // 8
+            String transactionId,
+            String paymentId,
+            String orderId,
+            String reservationId,
+            String customerId,
+            BigDecimal amount,
+            String currency,
+            String method) {
 
         log.info("Processing payment: txId={}, paymentId={}, orderId={}, amount={}, method={}",
                 transactionId, paymentId, orderId, amount, method);
 
         try {
-            //  WAL 로그 시작 - 5개 파라미터
             String entityIds = buildEntityIdsJson(paymentId, orderId, reservationId);
             String afterData = buildPaymentJson(paymentId, orderId, customerId, amount, currency, "PROCESSING");
 
             String walLogId = walService.logOperationStart(
-                    transactionId,           // 1. transactionId
-                    "PAYMENT_PROCESS_START", // 2. operation
-                    "payments",              // 3. tableName
-                    entityIds,               // 4. entityIds
-                    afterData                // 5. afterData
+                    transactionId,
+                    "PAYMENT_PROCESS_START",
+                    "payments",
+                    entityIds,
+                    afterData
             );
 
             Payment payment = Payment.builder()
@@ -74,9 +74,9 @@ public class PaymentProcessingService {
                     .build();
 
             String cacheKey = "payment:" + paymentId;
+            // cacheData는 cacheObject의 alias이며 String(JSON)으로 저장
             cacheService.cacheData(cacheKey, payment, PAYMENT_CACHE_TTL_SECONDS);
 
-            // PG 연동 처리
             PaymentGatewayService gateway = gatewayFactory.getGateway(method);
 
             PaymentGatewayRequest pgRequest = PaymentGatewayRequest.builder()
@@ -98,17 +98,16 @@ public class PaymentProcessingService {
                 log.info("Payment completed: paymentId={}, transactionId={}",
                         paymentId, pgResult.getTransactionId());
 
-                // WAL 완료 로그 - 6개 파라미터
                 String beforeData = buildPaymentJson(paymentId, orderId, customerId, amount, currency, "PROCESSING");
                 String completedData = buildPaymentJson(paymentId, orderId, customerId, amount, currency, "COMPLETED");
 
                 walService.logOperationComplete(
-                        transactionId,               // 1. transactionId
-                        "PAYMENT_PROCESS_COMPLETE",  // 2. operation
-                        "payments",                  // 3. tableName
-                        entityIds,                   // 4. entityIds
-                        beforeData,                  // 5. beforeData
-                        completedData                // 6. afterData
+                        transactionId,
+                        "PAYMENT_PROCESS_COMPLETE",
+                        "payments",
+                        entityIds,
+                        beforeData,
+                        completedData
                 );
                 walService.updateLogStatus(walLogId, "COMMITTED", "결제 완료");
 
@@ -124,14 +123,13 @@ public class PaymentProcessingService {
         } catch (Exception e) {
             log.error("Error processing payment: paymentId={}", paymentId, e);
 
-            // WAL 실패 로그 - 5개 파라미터
             String entityIds = buildEntityIdsJson(paymentId, orderId, reservationId);
             walService.logOperationFailure(
-                    transactionId,            // 1. transactionId
-                    "PAYMENT_PROCESS_ERROR",  // 2. operation
-                    "payments",               // 3. tableName
-                    entityIds,                // 4. entityIds
-                    e.getMessage()            // 5. errorMessage
+                    transactionId,
+                    "PAYMENT_PROCESS_ERROR",
+                    "payments",
+                    entityIds,
+                    e.getMessage()
             );
 
             Payment failedPayment = Payment.builder()
@@ -173,7 +171,6 @@ public class PaymentProcessingService {
                 return false;
             }
 
-            // ✅ WAL 시작 로그 - 5개 파라미터
             String entityIds = buildEntityIdsJson(paymentId, payment.getOrderId(), payment.getReservationId());
             String afterData = buildRefundJson(paymentId, payment.getStatus().name());
 
@@ -194,7 +191,6 @@ public class PaymentProcessingService {
                 String cacheKey = "payment:" + paymentId;
                 cacheService.cacheData(cacheKey, payment, PAYMENT_CACHE_TTL_SECONDS);
 
-                // ✅ WAL 완료 로그
                 String beforeData = buildRefundJson(paymentId, "COMPLETED");
                 String refundedData = buildRefundJson(paymentId, "REFUNDED");
 
@@ -231,7 +227,7 @@ public class PaymentProcessingService {
             String transactionId = IdGenerator.generateCorrelationId();
 
             Payment payment = processPayment(
-                    transactionId,  // ✅ 1. transactionId
+                    transactionId,
                     request.getPaymentId(),
                     request.getOrderId(),
                     request.getReservationId(),
@@ -276,23 +272,17 @@ public class PaymentProcessingService {
 
     /**
      * 결제 조회
+     * [수정] getCachedData (Hash 읽기) -> getCachedObject (String 읽기) 변경
      */
     public Payment getPayment(String paymentId) {
         try {
             String cacheKey = "payment:" + paymentId;
-            Object cachedData = cacheService.getCachedData(cacheKey);
+            // [수정] String(JSON)으로 저장된 객체를 읽어옵니다.
+            Payment cachedData = cacheService.getCachedObject(cacheKey, Payment.class);
 
             if (cachedData != null) {
                 log.debug("Payment found in cache: paymentId={}", paymentId);
-
-                if (cachedData instanceof Payment) {
-                    return (Payment) cachedData;
-                } else {
-                    log.warn("Cached data is not Payment type: paymentId={}, actualType={}",
-                            paymentId, cachedData.getClass().getName());
-                    cacheService.deleteCache(cacheKey);
-                    return null;
-                }
+                return cachedData;
             }
 
             log.debug("Payment not found: paymentId={}", paymentId);
@@ -320,9 +310,6 @@ public class PaymentProcessingService {
     // Helper Methods
     // ===================================
 
-    /**
-     * 엔티티 ID JSON 생성 (WAL용)
-     */
     private String buildEntityIdsJson(String paymentId, String orderId, String reservationId) {
         return String.format(
                 "{\"paymentId\":\"%s\",\"orderId\":\"%s\",\"reservationId\":\"%s\"}",
@@ -359,7 +346,7 @@ public class PaymentProcessingService {
                 .transactionId(payment.getTransactionId())
                 .approvalNumber(payment.getApprovalNumber())
                 .gatewayName(payment.getGatewayName())
-                .currency(payment.getFailureReason())
+                .currency(payment.getFailureReason()) // [버그 의심]
                 .processedAt(payment.getProcessedAt())
                 .build();
     }

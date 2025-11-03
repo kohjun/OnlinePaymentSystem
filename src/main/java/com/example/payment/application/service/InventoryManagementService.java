@@ -156,7 +156,6 @@ public class InventoryManagementService {
             String resourceKey = "inventory:" + reservation.getProductId();
             int quantityToRelease = reservation.getQuantity();
 
-            // (참고) 이 호출은 이전 단계에서 reservationId를 받도록 이미 수정되었습니다.
             boolean cancelled = redisReservationService.releaseResource(
                     resourceKey,
                     quantityToRelease,
@@ -182,7 +181,7 @@ public class InventoryManagementService {
                         transactionId, "INVENTORY_ROLLBACK_FAILED", "inventory",
                         entityIds, "Redis 롤백 실패"
                 );
-                log.warn("Failed to rollback inventory reservation in Redis: reservationId={}", reservationId);
+                log.warn("Failed to cancel reservation in Redis: reservationId={}", reservationId);
                 return false;
             }
 

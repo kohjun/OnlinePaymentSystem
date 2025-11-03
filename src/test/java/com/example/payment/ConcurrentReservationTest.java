@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any; // 5. 임포트 추가
+import static org.mockito.Mockito.when;
 
 /**
  * 동시성 테스트
@@ -67,7 +68,7 @@ class ConcurrentReservationTest {
     @BeforeEach
     void setUp() {
         System.out.println("\n" + "=".repeat(60));
-        System.out.println("📦 동시성 테스트 환경 초기화");
+        System.out.println("동시성 테스트 환경 초기화");
         System.out.println("=".repeat(60));
 
         // 1. Redis 재고 초기화
@@ -85,14 +86,14 @@ class ConcurrentReservationTest {
         }
 
         // [수정] 7. MockGateway가 항상 성공하도록 설정
-        Mockito.when(mockPaymentGateway.processPayment(any()))
+        when(mockPaymentGateway.processPayment(any())) // Mockito.when 대신 when 사용
                 .thenReturn(PaymentGatewayResult.builder()
                         .success(true)
                         .transactionId("MOCK_TX_CONCURRENT")
                         .approvalNumber("MOCK_APPROVAL_CONCURRENT")
                         .processedAmount(new BigDecimal("799.99"))
                         .build());
-
+        when(mockPaymentGateway.getGatewayName()).thenReturn("MOCK_PAYMENT_GATEWAY");
         printCurrentInventory();
     }
 

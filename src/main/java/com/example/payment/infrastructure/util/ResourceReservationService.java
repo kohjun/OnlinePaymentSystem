@@ -24,34 +24,40 @@ public class ResourceReservationService {
 
     /**
      * 리소스 예약 (ReservationService에서 사용)
+     * [수정] 3. ClassCastException 해결:
+     * redisTemplate이 JSON을 역직렬화하여 Map(Object)으로 반환하므로,
+     * String으로 받고 다시 파싱하는 대신, 반환된 Map을 직접 사용합니다.
      */
-    public boolean reserveResource(String resourceKey, int quantity, Duration ttl) {
+    public boolean reserveResource(String resourceKey, int quantity, Duration ttl, String reservationId) {
         try {
             List<String> keys = Collections.singletonList(resourceKey);
             long ttlSeconds = (ttl != null) ? ttl.getSeconds() : 0;
-            String reservationId = UUID.randomUUID().toString();
 
-            String jsonResult = redisTemplate.execute(
+            // [수정] String jsonResult = ... -> Object rawResult = ...
+            Object rawResult = redisTemplate.execute(
                     reserveScript,
                     keys,
-                    String.valueOf(quantity),
+                    quantity,
                     reservationId,
-                    String.valueOf(ttlSeconds),
+                    ttlSeconds,
                     String.valueOf(System.currentTimeMillis())
             );
 
-            log.debug("Reserve script result: {}", jsonResult);
-
+            // [수정] rawResult를 Map으로 캐스팅 (objectMapper.readValue 제거)
             @SuppressWarnings("unchecked")
-            Map<String, Object> result = objectMapper.readValue(jsonResult, Map.class);
+            Map<String, Object> result = (Map<String, Object>) rawResult;
 
-            if ("SUCCESS".equals(result.get("status"))) {
+            log.debug("Reserve script result: {}", result);
+
+            if (result != null && "SUCCESS".equals(result.get("status"))) {
                 log.info("Resource reserved: key={}, quantity={}, available={}, reserved={}",
                         resourceKey, quantity, result.get("available"), result.get("reserved"));
                 return true;
             } else {
                 log.warn("Reserve failed: key={}, code={}, message={}",
-                        resourceKey, result.get("code"), result.get("message"));
+                        resourceKey,
+                        (result != null ? result.get("code") : "UNKNOWN"),
+                        (result != null ? result.get("message") : "Null result from script"));
                 return false;
             }
 
@@ -63,30 +69,35 @@ public class ResourceReservationService {
 
     /**
      * 리소스 해제 (취소/롤백 시 사용)
+     * [수정] 3. ClassCastException 해결
      */
     public boolean releaseResource(String resourceKey, int quantity, String reservationId) {
         try {
             List<String> keys = Collections.singletonList(resourceKey);
 
-            String jsonResult = redisTemplate.execute(
+            // [수정] String jsonResult = ... -> Object rawResult = ...
+            Object rawResult = redisTemplate.execute(
                     cancelScript,
                     keys,
-                    String.valueOf(quantity),
+                    quantity,
                     reservationId
             );
 
-            log.debug("Release script result: {}", jsonResult);
-
+            // [수정] rawResult를 Map으로 캐스팅 (objectMapper.readValue 제거)
             @SuppressWarnings("unchecked")
-            Map<String, Object> result = objectMapper.readValue(jsonResult, Map.class);
+            Map<String, Object> result = (Map<String, Object>) rawResult;
 
-            if ("SUCCESS".equals(result.get("status"))) {
+            log.debug("Release script result: {}", result);
+
+            if (result != null && "SUCCESS".equals(result.get("status"))) {
                 log.info("Resource released: key={}, quantity={}, available={}, reserved={}",
                         resourceKey, quantity, result.get("available"), result.get("reserved"));
                 return true;
             } else {
                 log.warn("Release failed: key={}, code={}, message={}",
-                        resourceKey, result.get("code"), result.get("message"));
+                        resourceKey,
+                        (result != null ? result.get("code") : "UNKNOWN"),
+                        (result != null ? result.get("message") : "Null result from script"));
                 return false;
             }
 
@@ -98,32 +109,35 @@ public class ResourceReservationService {
 
     /**
      * 리소스 예약 확정
-     * [수정] 1. 'reservationId' 인자 추가 (Lua 스크립트 ARGV[2] 전달용)
+     * [수정] 3. ClassCastException 해결
      */
     public boolean confirmResource(String resourceKey, int quantity, String reservationId) {
         try {
             List<String> keys = Collections.singletonList(resourceKey);
 
-            // [수정] 2. 'reservationId'를 스크립트에 전달
-            String jsonResult = redisTemplate.execute(
+            // [수정] String jsonResult = ... -> Object rawResult = ...
+            Object rawResult = redisTemplate.execute(
                     confirmScript,
                     keys,
-                    String.valueOf(quantity), // ARGV[1]
-                    reservationId             // ARGV[2]
+                    quantity,
+                    reservationId
             );
 
-            log.debug("Confirm script result: {}", jsonResult);
-
+            // [수정] rawResult를 Map으로 캐스팅 (objectMapper.readValue 제거)
             @SuppressWarnings("unchecked")
-            Map<String, Object> result = objectMapper.readValue(jsonResult, Map.class);
+            Map<String, Object> result = (Map<String, Object>) rawResult;
 
-            if ("SUCCESS".equals(result.get("status"))) {
+            log.debug("Confirm script result: {}", result);
+
+            if (result != null && "SUCCESS".equals(result.get("status"))) {
                 log.info("Resource confirmed: key={}, quantity={}, available={}, reserved={}",
                         resourceKey, quantity, result.get("available"), result.get("reserved"));
                 return true;
             } else {
                 log.warn("Confirm failed: key={}, code={}, message={}",
-                        resourceKey, result.get("code"), result.get("message"));
+                        resourceKey,
+                        (result != null ? result.get("code") : "UNKNOWN"),
+                        (result != null ? result.get("message") : "Null result from script"));
                 return false;
             }
 

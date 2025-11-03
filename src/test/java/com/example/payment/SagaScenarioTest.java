@@ -29,6 +29,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 
 /**
  * Saga 시나리오 테스트 (보상 트랜잭션 검증)
@@ -66,7 +67,7 @@ class SagaScenarioTest {
 
         // 2. MockGateway가 기본적으로 성공하도록 설정
         // (MockPaymentGateway의 10% 실패 확률을 제거하여 테스트 안정성 확보)
-        Mockito.when(mockPaymentGateway.processPayment(any()))
+        when(mockPaymentGateway.processPayment(any()))
                 .thenReturn(PaymentGatewayResult.builder()
                         .success(true)
                         .transactionId("MOCK_TX_SUCCESS")
@@ -75,15 +76,16 @@ class SagaScenarioTest {
                         .build());
 
         // 3. MockGateway의 환불도 성공하도록 설정
-        Mockito.when(mockPaymentGateway.refundPayment(any()))
+        when(mockPaymentGateway.refundPayment(any()))
                 .thenReturn(true);
+        when(mockPaymentGateway.getGatewayName()).thenReturn("MOCK_PAYMENT_GATEWAY");
     }
 
     @Test
     @DisplayName("[실패 시나리오] 결제가 실패하면 Saga 보상 트랜잭션이 동작하여 재고가 롤백된다")
     void test_whenPaymentFails_thenSagaIsCompensated() {
         // 1. [Given] PG(결제)가 실패하도록 Mock을 설정
-        Mockito.when(mockPaymentGateway.processPayment(any()))
+        when(mockPaymentGateway.processPayment(any()))
                 .thenReturn(PaymentGatewayResult.failure("MOCK_FAILURE", "의도된 결제 실패"));
 
         // 2. [When] 통합 예약을 시도
