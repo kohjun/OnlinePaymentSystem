@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -84,17 +85,15 @@ public class ReservationService {
                 // ===================================
                 // 2. Redis에서 재고 선점 (Lua 스크립트)
                 // ===================================
-                List<Object> redisResult = redisReservationService.reserveResource(
+                boolean success = redisReservationService.reserveResource(
                         lockKey,
-                        reservationId,
                         quantity,
-                        DEFAULT_RESERVATION_TTL_SECONDS
+                        Duration.ofSeconds(DEFAULT_RESERVATION_TTL_SECONDS)
                 );
 
-                boolean success = (Boolean) redisResult.get(0);
-                String message = (String) redisResult.get(1);
-
+                // [FIX 2] redisResult 파싱 로직을 제거하고 success 변수를 바로 사용합니다.
                 if (!success) {
+                    String message = "Redis 재고 선점 실패"; // message 변수가 없으므로 대체
                     log.warn("Inventory reservation failed: txId={}, productId={}, reason={}",
                             transactionId, productId, message);
 
@@ -220,7 +219,11 @@ public class ReservationService {
             );
 
             // 5. Redis에서 예약 취소
-            boolean cancelled = redisReservationService.cancelReservation(reservationId);
+            String resourceKey = "inventory:" + reservation.getProductId();
+            int quantityToRelease = reservation.getQuantity();
+
+            // 올바른 메서드(releaseResource)와 인자를 사용하여 호출합니다.
+            boolean cancelled = redisReservationService.releaseResource(resourceKey, quantityToRelease);
 
             if (cancelled) {
                 // 6. 도메인 상태 업데이트
@@ -313,7 +316,31 @@ public class ReservationService {
             return null;
         }
     }
+    /**
+     * ✅ [NEW] 예약 상태를 'CONFIRMED'로 업데이트하고 캐시를 갱신
+     * InventoryManagementService에서 호출
+     */
+    public void confirmReservationStatus(InventoryReservation reservation) {
+        try {
+            if (reservation == null) {
+                log.warn("Cannot confirm status for null reservation.");
+                return;
+            }
 
+            reservation.setStatus(ReservationStatus.CONFIRMED);
+
+            // 캐시 업데이트 (TTL은 기존과 동일하게)
+            String cacheKey = "reservation:" + reservation.getReservationId();
+            cacheService.cacheData(cacheKey, reservation, DEFAULT_RESERVATION_TTL_SECONDS);
+
+            log.info("Reservation status set to CONFIRMED and re-cached: {}", reservation.getReservationId());
+
+        } catch (Exception e) {
+            log.error("Error updating reservation status to CONFIRMED: {}", reservation.getReservationId(), e);
+            // 여기서 예외를 던지면 confirmReservation의 트랜잭션이 롤백될 수 있으나,
+            // 이 작업은 보조적이므로 에러 로그만 남깁니다.
+        }
+    }
     // ===================================
     // Helper Methods - 엔티티 ID 추적용 JSON 빌더
     // ===================================
