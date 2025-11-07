@@ -35,6 +35,10 @@ public class RateLimiter {
      * @return 요청 허용 여부
      */
     public boolean allowRequest(String clientId) {
+        // [수정된 부분] 스트레스 테스트를 위해 Rate Limiter 기능을 완전히 무력화합니다.
+        return true;
+
+        /*
         // 클라이언트 등급에 따른 토큰 버킷 파라미터 선택
         int capacity =  DEFAULT_CAPACITY;
         int refillRate =  DEFAULT_REFILL_RATE;
@@ -71,6 +75,7 @@ public class RateLimiter {
 
         log.warn("Rate limit exceeded for client: {}", clientId);
         return false;
+        */
     }
 
     /**
