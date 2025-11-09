@@ -19,7 +19,7 @@ public class DistributedLockService {
     // --- [테스트 제어 플래그] ---
     // true: 경쟁 테스트 (Lock 사용 및 1초 타임아웃 적용)
     // false: 최대 TPS 측정 (Lock 미사용)
-    private final boolean isLockEnabled = false; // 현재 최대 TPS 측정을 위해 false 설정
+    private final boolean isLockEnabled = true; // 현재 최대 TPS 측정을 위해 false 설정
 
     // Lock 대기 시간 설정 (경쟁 테스트 시 사용)
     private static final long DEFAULT_SLEEP_TIME_MILLIS = 10;

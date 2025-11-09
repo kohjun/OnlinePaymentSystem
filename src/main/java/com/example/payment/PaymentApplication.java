@@ -36,7 +36,7 @@ public class PaymentApplication implements CommandLineRunner {
 
         // Lock 상태에 따라 초기 재고를 설정합니다.
         int initialStock;
-        boolean isLockEnabled = false; // LockEnabled 상태를 직접 확인하거나 코드에서 가져와야 함 (DistributedLockService에서 가져오는 것이 이상적)
+        boolean isLockEnabled = true; // LockEnabled 상태를 직접 확인하거나 코드에서 가져와야 함 (DistributedLockService에서 가져오는 것이 이상적)
 
         // ** LockEnabled 상태가 false (최대 TPS)일 때, 재고를 10000개로 설정합니다. **
         if (!isLockEnabled) {

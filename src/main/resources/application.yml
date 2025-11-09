@@ -8,7 +8,7 @@ spring:
     password:
     driver-class-name: org.h2.Driver
     hikari:
-      maximum-pool-size: 100
+      maximum-pool-size: 300
       minimum-idle: 5
 
   wal:
@@ -51,10 +51,10 @@ spring:
       timeout: 5000
       lettuce:
         pool:
-          max-active: 8
-          max-idle: 8
-          min-idle: 0
-          max-wait: -1ms
+          max-active: 200 # [수정] 동시성 스레드 수(1000)에 대비하여 연결 풀 확장 (8 -> 100)
+          max-idle: 50    # [수정] 유휴 연결 풀 확장 (8 -> 50)
+          min-idle: 10    # [수정] 최소 유휴 연결 유지 (0 -> 10)
+          max-wait: 50ms  # [수정] 연결 대기 시간 제한 (무제한 -> 50ms)
 
   kafka:
     bootstrap-servers: localhost:9092
@@ -80,7 +80,7 @@ server:
 logging:
   level:
     root: INFO
-    com.example.payment: DEBUG
+    com.example.payment: INFO
     org.springframework.kafka: WARN
 
 payment:

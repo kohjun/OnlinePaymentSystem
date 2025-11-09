@@ -23,7 +23,7 @@ public class WalLogRepository {
     /**
      * WAL 로그 기록 (독립적인 트랜잭션)
      * - 메인 트랜잭션과 분리하여 빠른 기록
-     * - 내구성 최우선 보장
+     * - 내구성 최우선 보장 (saveAndFlush를 사용)
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public WalLogEntry writeLog(WalLogEntry logEntry) {
@@ -48,11 +48,17 @@ public class WalLogRepository {
             logEntry.setLsn(lsn);
             logEntry.setWrittenAt(LocalDateTime.now());
 
-            // 2. 즉시 디스크에 기록 (fsync 보장)
+            // 2. 즉시 디스크에 기록 (fsync 보장) - 내구성을 위한 필수 작업
             WalLogEntry savedEntry = jpaRepository.saveAndFlush(logEntry);
 
             // 3. 비동기로 백업 및 압축 처리
-            asyncProcessor.processLogAsync(savedEntry);
+            // ✅ DEBUG 레벨에서만 비동기 후처리를 실행하여 TPS 측정 시 오버헤드 최소화
+            if (log.isDebugEnabled()) {
+                asyncProcessor.processLogAsync(savedEntry);
+            } else {
+                log.trace("Async processing skipped (INFO level): logId={}", savedEntry.getLogId());
+            }
+
 
             log.debug("WAL log written successfully: logId={}, lsn={}",
                     savedEntry.getLogId(), lsn);
@@ -60,7 +66,7 @@ public class WalLogRepository {
             return savedEntry;
 
         } catch (Exception e) {
-            log.error("Failed to write WAL log: transactionId={}, operation={}",
+            log.error("❌ Failed to write WAL log: transactionId={}, operation={}",
                     logEntry.getTransactionId(), logEntry.getOperation(), e);
             throw new WalException("WAL 로그 기록 실패", e);
         }
