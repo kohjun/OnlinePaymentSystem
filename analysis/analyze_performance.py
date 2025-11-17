@@ -5,18 +5,27 @@ import numpy as np
 
 # --- 1. JTL 파일 경로 정의 (경쟁 테스트 레벨) ---
 # NOTE: 이 경로는 사용자님의 JMeter 실행 결과 폴더 구조와 일치해야 합니다.
+# (코드 실행부인 main 블록의 JTL_FILES_TO_ANALYZE와 동일하게 맞추는 것이 좋음)
 JTL_FILES_COMPETITIVE = {
     '50': 'load-test/results/stress_test_50t/results.jtl',
     '100': 'load-test/results/stress_test_100t/results.jtl',
     '500': 'load-test/results/stress_test_500t/results.jtl',
     '1000': 'load-test/results/stress_test_1000t/results.jtl',
+    '5000': 'load-test/results/stress_test_5000t/results.jtl', # [추가] 5000 스레드
 }
 
 # --- 2. JTL 파일 처리 함수 ---
 def process_jtl(test_name, jtl_path):
     try:
+        # 파일 존재 여부 확인 (pandas 에러 방지)
+        if not os.path.exists(jtl_path):
+            print(f"⚠️ WARNING: File not found - {jtl_path}. Skipping data.")
+            return None
+
         df = pd.read_csv(jtl_path)
+
         # 'Complete Reservation (Saga Test)' 트랜잭션만 필터링
+        # (다른 Sampler 결과가 섞여있을 경우를 대비)
         df = df[df['label'].str.contains('Complete Reservation', na=False)].copy()
 
         # 성공적인 응답 (HTTP 200) 필터링
@@ -64,9 +73,6 @@ def process_jtl(test_name, jtl_path):
             'Median Latency (ms)': latency_median * 1000,
             'Duration (s)': duration_s,
         }
-    except FileNotFoundError:
-        print(f"⚠️ WARNING: File not found - {jtl_path}. Skipping data.")
-        return None
     except Exception as e:
         print(f"❌ ERROR occurred while processing {jtl_path}: {e}")
         return None
@@ -108,7 +114,7 @@ def visualize_stress_test_competitive_results(jtl_files, output_dir='analysis_ou
     plt.ylim(0, max(df_results['Success Count'].max() + 2, 5))
     plt.grid(axis='y', linestyle='--', alpha=0.5)
     plt.tight_layout()
-    output_path_success_count = os.path.join(output_dir, 'concurrency_success_count_competitive.png')
+    output_path_success_count = os.path.join(output_dir, 'concurrency_success_count_competitive_5000t.png') # 파일명 변경
     plt.savefig(output_path_success_count)
     print(f"✅ Concurrency Proof graph generated: {output_path_success_count}")
 
@@ -144,11 +150,11 @@ def visualize_stress_test_competitive_results(jtl_files, output_dir='analysis_ou
     labels = [l.get_label() for l in lines]
     ax1.legend(lines, labels, loc='upper left')
 
-    plt.title('Performance Scaling Analysis: TPS vs. Latency (50T to 1000T)', fontsize=16)
+    plt.title('Performance Scaling Analysis: TPS vs. Latency (50T to 5000T)', fontsize=16) # 제목 수정
     ax1.grid(axis='y', linestyle='--', alpha=0.5)
 
     plt.tight_layout()
-    output_path_scaling = os.path.join(output_dir, 'performance_scaling_competitive.png')
+    output_path_scaling = os.path.join(output_dir, 'performance_scaling_competitive_5000t.png') # 파일명 변경
     plt.savefig(output_path_scaling)
     print(f"✅ Performance Scaling graph generated: {output_path_scaling}")
 
@@ -156,7 +162,7 @@ def visualize_stress_test_competitive_results(jtl_files, output_dir='analysis_ou
     df_results['95th Latency (s)'] = df_results['95th Latency (ms)'] / 1000
     df_results = df_results.drop(columns=['95th Latency (ms)', 'Duration (s)', 'Median Latency (ms)'])
     print("\n--- Final Competitive Metrics CSV ---")
-    print(df_results.to_csv(os.path.join(output_dir, 'final_competitive_metrics.csv'), index=False))
+    print(df_results.to_csv(os.path.join(output_dir, 'final_competitive_metrics_5000t.csv'), index=False)) # 파일명 변경
     print("-------------------------------------")
 
 
@@ -165,11 +171,13 @@ if __name__ == '__main__':
     print("      🚀 Starting Competitive Performance Analysis Script      ")
     print("================================================")
 
+    # [수정] 5000 스레드 경로 추가
     JTL_FILES_TO_ANALYZE = {
         '50': 'load-test/results/stress_test_50t/results.jtl',
         '100': 'load-test/results/stress_test_100t/results.jtl',
         '500': 'load-test/results/stress_test_500t/results.jtl',
         '1000': 'load-test/results/stress_test_1000t/results.jtl',
+        '5000': 'load-test/results/stress_test_5000t/results.jtl', # 추가됨
     }
 
     visualize_stress_test_competitive_results(JTL_FILES_TO_ANALYZE)

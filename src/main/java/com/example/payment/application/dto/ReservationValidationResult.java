@@ -36,11 +36,4 @@ public class ReservationValidationResult {
                 .errorMessage(errorMessage)
                 .build();
     }
-
-    /**
-     * 검증 실패 결과 생성 (간단 버전)
-     */
-    public static ReservationValidationResult invalid(String errorMessage) {
-        return invalid("VALIDATION_FAILED", errorMessage);
-    }
 }

@@ -35,7 +35,6 @@ public class PaymentEventListener {
         try {
             log.info("Received payment event: type={}, paymentId={}, correlationId={}",
                     event.getEventType(), event.getPayload().getPaymentId(), event.getCorrelationId());
-
             PaymentResponse payment = event.getPayload();
 
             switch (event.getEventType()) {
@@ -76,18 +75,10 @@ public class PaymentEventListener {
             log.info("Processing payment success: orderId={}, paymentId={}",
                     payment.getOrderId(), payment.getPaymentId());
 
-            // ❌ 잘못된 코드 (3개 파라미터):
-            // boolean updated = orderService.updateOrderStatus(
-            //         payment.getOrderId(),
-            //         "PAID",
-            //         "결제가 완료되었습니다."
-            // );
-
-            // ✅ 올바른 코드 (4개 파라미터):
             String transactionId = IdGenerator.generateCorrelationId();  // transactionId 생성
 
             boolean updated = orderService.updateOrderStatus(
-                    transactionId,                          // ✅ 1. transactionId 추가
+                    transactionId,                          // 1. transactionId 추가
                     payment.getOrderId(),                   // 2. orderId
                     "PAID",                                 // 3. newStatus
                     "결제가 완료되었습니다."                   // 4. reason
@@ -113,17 +104,10 @@ public class PaymentEventListener {
                     payment.getReservationId(), payment.getPaymentId());
 
             if (payment.getReservationId() != null) {
-                // ❌ 잘못된 코드 (2개 파라미터):
-                // boolean cancelled = reservationService.cancelReservation(
-                //         payment.getReservationId(),
-                //         "SYSTEM"
-                // );
-
-                // ✅ 올바른 코드 (3개 파라미터):
                 String transactionId = IdGenerator.generateCorrelationId();  // transactionId 생성
 
                 boolean cancelled = reservationService.cancelReservation(
-                        transactionId,                      // ✅ 1. transactionId 추가
+                        transactionId,                      // 1. transactionId 추가
                         payment.getReservationId(),         // 2. reservationId
                         "SYSTEM"                            // 3. customerId
                 );
@@ -150,8 +134,5 @@ public class PaymentEventListener {
     private void alertCriticalIssue(String issueType, PaymentResponse payment) {
         log.error("CRITICAL ISSUE: {} - PaymentId: {}, ReservationId: {}, OrderId: {}",
                 issueType, payment.getPaymentId(), payment.getReservationId(), payment.getOrderId());
-
-        // 실제 구현에서는 모니터링 시스템이나 알림 서비스로 전송
-        // alertService.sendCriticalAlert(issueType, payment);
     }
 }

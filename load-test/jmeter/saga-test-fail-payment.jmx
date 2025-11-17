@@ -32,6 +32,8 @@
           </elementProp>
         </collectionProp>
       </elementProp>
+      <boolProp name="TestPlan.functional_mode">false</boolProp>
+      <boolProp name="TestPlan.serialize_threadgroups">false</boolProp>
     </TestPlan>
     <hashTree>
       <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Gradual Load Test">
@@ -70,7 +72,7 @@
           <intProp name="Assertion.test_type">8</intProp>
         </ResponseAssertion>
         <hashTree/>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Complete Reservation (Saga Test)" enabled="true">
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Complete Reservation (Saga Test)">
           <stringProp name="HTTPSampler.domain">localhost</stringProp>
           <stringProp name="HTTPSampler.port">8080</stringProp>
           <stringProp name="HTTPSampler.protocol">http</stringProp>
@@ -87,7 +89,7 @@
     &quot;productId&quot;: &quot;SAGA-TEST-001&quot;,&#xd;
     &quot;customerId&quot;: &quot;CUS-$__threadNum-$__UUID()&quot;,&#xd;
     &quot;quantity&quot;: 1,&#xd;
-    &quot;clientId&quot;: &quot;SAGA-LOAD-TEST&quot;,&#xd;
+    &quot;clientId&quot;: &quot;FAIL_PAYMENT&quot;,&#xd;
     &quot;paymentInfo&quot;: {&#xd;
         &quot;amount&quot;: 100.00,&#xd;
         &quot;currency&quot;: &quot;KRW&quot;,&#xd;
@@ -176,7 +178,7 @@
         <stringProp name="filename"></stringProp>
       </ResultCollector>
       <hashTree/>
-      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Thread Group">
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Thread Group" enabled="true">
         <intProp name="ThreadGroup.num_threads">1</intProp>
         <intProp name="ThreadGroup.ramp_time">1</intProp>
         <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>

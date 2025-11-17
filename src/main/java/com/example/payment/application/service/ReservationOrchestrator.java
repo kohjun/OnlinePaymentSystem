@@ -6,6 +6,9 @@ import com.example.payment.application.event.publisher.ReservationEventPublisher
 import com.example.payment.application.service.OrderService.OrderCreationResult;
 // [추가] 1. ReservationService의 내부 클래스 임포트 (문제 2.B)
 import com.example.payment.application.service.ReservationService.ReservationResult;
+// [SAGA TEST] 1. 실패 주입을 위한 예외 클래스 임포트
+import com.example.payment.domain.exception.OrderException;
+import com.example.payment.domain.exception.PaymentException;
 import com.example.payment.domain.model.inventory.InventoryConfirmation;
 import com.example.payment.domain.model.order.Order;
 import com.example.payment.domain.model.payment.Payment;
@@ -31,6 +34,7 @@ import java.util.Map;
 /**
  * 실제 프로젝트 구조에 맞춘 최종 수정본
  * - [수정] WAL 체인 연결 및 통합 예약 취소 로직 수정 (문제 2.A, 2.B 해결)
+ * - [SAGA TEST] JMeter 테스트를 위한 실패 주입 로직 추가
  */
 @Service
 @Slf4j
@@ -83,7 +87,7 @@ public class ReservationOrchestrator {
                     request.getProductId(),
                     request.getCustomerId(),
                     request.getQuantity(),
-                    request.getClientId()
+                    request.getClientId() // <-- 실패 주입을 위해 clientId를 사용
             );
 
             if (reservationResult == null) {
@@ -108,6 +112,12 @@ public class ReservationOrchestrator {
             // Phase 1: 주문 생성
             // ===================================
             log.debug("[Phase 1] Step 2: Create order (txId={})", transactionId);
+
+            // [SAGA TEST] 2. '주문 실패' 주입 (JMeter에서 clientId='FAIL_ORDER' 전송 시)
+            if ("FAIL_ORDER".equals(request.getClientId())) {
+                log.warn("SAGA TEST: Intentional Order Failure triggered by clientId. txId={}", transactionId);
+                throw new OrderException("의도된 주문 생성 실패 (JMeter)");
+            }
 
             orderResult = orderService.createOrder(
                     transactionId,
@@ -137,6 +147,12 @@ public class ReservationOrchestrator {
             // ===================================
             log.debug("[PG Integration] Processing payment (txId={})", transactionId);
             String paymentId = IdGenerator.generatePaymentId();
+
+            // [SAGA TEST] 3. '결제 실패' 주입 (JMeter에서 clientId='FAIL_PAYMENT' 전송 시)
+            if ("FAIL_PAYMENT".equals(request.getClientId())) {
+                log.warn("SAGA TEST: Intentional Payment Failure triggered by clientId. txId={}", transactionId);
+                throw new PaymentException("의도된 결제 실패 (JMeter)");
+            }
 
             payment = paymentProcessingService.processPayment(
                     transactionId,
@@ -242,6 +258,10 @@ public class ReservationOrchestrator {
             return response;
 
         } catch (Exception e) {
+            // [SAGA TEST]
+            // 위에서 주입된 'FAIL_ORDER' 또는 'FAIL_PAYMENT' 예외가
+            // 이 catch 블록으로 잡혀 들어옵니다.
+            // SAGA 진행 단계에 따라 보상 트랜잭션이 올바르게 실행됩니다.
             log.error("System error in complete reservation flow: txId={}, customerId={}, productId={}",
                     transactionId, request.getCustomerId(), request.getProductId(), e);
 
@@ -260,13 +280,13 @@ public class ReservationOrchestrator {
                             "System Error Recovery"
                     );
                 }
-            } else if (orderResult != null) {
+            } else if (orderResult != null) { // "FAIL_PAYMENT"가 여기서 처리됩니다.
                 log.error("[Compensation] System error after order creation. Triggering compensation for order/reservation.");
                 compensateOrder(transactionId, orderResult.getOrder().getOrderId(), request.getCustomerId());
                 if (reservationResult != null) {
                     compensateReservation(transactionId, reservationResult.getReservation().getReservationId(), request.getCustomerId());
                 }
-            } else if (reservationResult != null) {
+            } else if (reservationResult != null) { // "FAIL_ORDER"가 여기서 처리됩니다.
                 log.error("[Compensation] System error after reservation. Triggering compensation for reservation.");
                 compensateReservation(transactionId, reservationResult.getReservation().getReservationId(), request.getCustomerId());
             }

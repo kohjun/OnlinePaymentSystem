@@ -33,20 +33,10 @@ public class PaymentApplication implements CommandLineRunner {
     @Override
     public void run(String... args) throws Exception {
         String productId = "SAGA-TEST-001";
-
-        // Lock 상태에 따라 초기 재고를 설정합니다.
+        
         int initialStock;
-        boolean isLockEnabled = true; // LockEnabled 상태를 직접 확인하거나 코드에서 가져와야 함 (DistributedLockService에서 가져오는 것이 이상적)
-
-        // ** LockEnabled 상태가 false (최대 TPS)일 때, 재고를 10000개로 설정합니다. **
-        if (!isLockEnabled) {
-            initialStock = 10000;
-            log.warn("--- [TEST MODE] Lock Disabled. Setting Stock to 10000 (Max TPS Mode) ---");
-        } else {
-            // ** LockEnabled 상태가 true (경쟁)일 때, 재고를 3개로 설정합니다. **
-            initialStock = 3;
-            log.warn("--- [TEST MODE] Lock Enabled. Setting Stock to 3 (Competition Mode) ---");
-        }
+        initialStock = 200;
+        log.warn("--- [TEST MODE] Lock Enabled. Setting Stock to 200 (Competition Mode) ---");
 
         // Redis 재고 초기화
         resourceReservationService.initializeResource(
