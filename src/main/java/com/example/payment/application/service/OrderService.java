@@ -16,8 +16,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
- * ✅ 개선된 주문 서비스
- * [수정] getOrder의 캐시 읽기 방식을 getCachedObject로 변경
+ * 주문 서비스
  */
 @Service
 @Slf4j
@@ -320,7 +319,7 @@ public class OrderService {
 
     /**
      * 주문 조회
-     * [수정] getCachedData (Hash 읽기) -> getCachedObject (String 읽기) 변경
+     * getCachedData (Hash 읽기) -> getCachedObject (String 읽기) 변경
      */
     public Order getOrder(String orderId) {
         try {

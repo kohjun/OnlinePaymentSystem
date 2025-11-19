@@ -141,10 +141,5 @@ public class IdGenerator {
         return prefix + "-" + timestamp + "-" + random;
     }
 
-    /**
-     * 단순 UUID 기반 ID 생성
-     */
-    public static String generateSimpleId() {
-        return UUID.randomUUID().toString().replace("-", "").toUpperCase();
-    }
+
 }

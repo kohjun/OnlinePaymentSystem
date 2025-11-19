@@ -62,18 +62,6 @@ public interface WalLogJpaRepository extends JpaRepository<WalLogEntry, String> 
     Long getNextLSN();
 
     /**
-     * 최대 LSN 조회 (체크포인트용)
-     */
-    @Query("SELECT MAX(w.lsn) FROM WalLogEntry w")
-    Long findMaxLsn();
-
-    /**
-     * 연산별 로그 개수 조회 (통계용)
-     */
-    @Query("SELECT w.operation, COUNT(w) FROM WalLogEntry w GROUP BY w.operation")
-    List<Object[]> getOperationStatistics();
-
-    /**
      * 최근 로그 조회 (모니터링용)
      */
     @Query("SELECT w FROM WalLogEntry w ORDER BY w.createdAt DESC")

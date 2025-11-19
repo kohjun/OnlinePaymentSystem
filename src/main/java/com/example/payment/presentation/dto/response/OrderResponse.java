@@ -85,7 +85,7 @@ public class OrderResponse {
     }
 
     /**
-     * 에러 응답 생성 헬퍼 ✨ 새로 추가
+     * 에러 응답 생성 헬퍼
      */
     public static OrderResponse error(String orderId, String errorMessage) {
         return OrderResponse.builder()
@@ -102,7 +102,7 @@ public class OrderResponse {
     }
 
     /**
-     * 도메인 객체로부터 응답 생성 ✨ 새로 추가
+     * 도메인 객체로부터 응답 생성
      */
     public static OrderResponse from(Order order) {
         return OrderResponse.builder()
@@ -119,7 +119,7 @@ public class OrderResponse {
     }
 
     /**
-     * 상태별 응답 생성 ✨ 새로 추가
+     * 상태별 응답 생성
      */
     public static OrderResponse withStatus(String orderId, String customerId, String status, String message) {
         return OrderResponse.builder()

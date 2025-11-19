@@ -25,7 +25,6 @@ public class WalLogEntry {
     @Id
     private String logId;
 
-    // ✅ @GeneratedValue 제거 - Repository에서 수동 생성
     @Column(unique = true, nullable = false)
     private Long lsn; // Log Sequence Number
 

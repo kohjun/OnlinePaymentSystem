@@ -21,8 +21,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
- * ✅ 결제 처리 서비스
- * [수정] getPayment의 캐시 읽기 방식을 getCachedObject로 변경
+ * 결제 처리 서비스
  */
 @Service
 @Slf4j
@@ -272,12 +271,10 @@ public class PaymentProcessingService {
 
     /**
      * 결제 조회
-     * [수정] getCachedData (Hash 읽기) -> getCachedObject (String 읽기) 변경
      */
     public Payment getPayment(String paymentId) {
         try {
             String cacheKey = "payment:" + paymentId;
-            // [수정] String(JSON)으로 저장된 객체를 읽어옵니다.
             Payment cachedData = cacheService.getCachedObject(cacheKey, Payment.class);
 
             if (cachedData != null) {

@@ -33,7 +33,6 @@ import java.util.Map;
 
 /**
  * 실제 프로젝트 구조에 맞춘 최종 수정본
- * - [수정] WAL 체인 연결 및 통합 예약 취소 로직 수정 (문제 2.A, 2.B 해결)
  * - [SAGA TEST] JMeter 테스트를 위한 실패 주입 로직 추가
  */
 @Service
@@ -59,7 +58,6 @@ public class ReservationOrchestrator {
 
     /**
      * 통합 예약 플로우 - 실제 프로젝트 구조 반영
-     * [수정됨] 2.B: ReservationResult를 받아 walLogId를 확정 단계로 전달
      */
     public CompleteReservationResponse processCompleteReservation(CompleteReservationRequest request) {
         String transactionId = request.getCorrelationId() != null ?
@@ -199,10 +197,9 @@ public class ReservationOrchestrator {
                 log.warn("[Phase 2] Inventory confirmation failed: txId={}, reservationId={}",
                         transactionId, reservation.getReservationId());
 
-                // [수정] 재고 확정 실패 시 결제/주문 보상
+                // 재고 확정 실패 시 결제/주문 보상
                 compensatePayment(transactionId, payment.getPaymentId());
                 compensateOrder(transactionId, order.getOrderId(), request.getCustomerId());
-                // (재고는 이미 1단계에서 선점되었으므로 롤백할 필요 없음. 단, 재고 확정이 실패했으므로 수동 개입 필요)
 
                 return CompleteReservationResponse.failed("재고 확정 실패");
             }
@@ -226,7 +223,7 @@ public class ReservationOrchestrator {
                 log.warn("[Phase 2] Order payment update failed: txId={}, orderId={}",
                         transactionId, order.getOrderId());
 
-                // [수정] 주문 확정 실패 시 결제 보상 및 재고 롤백
+                // 주문 확정 실패 시 결제 보상 및 재고 롤백
                 compensatePayment(transactionId, payment.getPaymentId());
                 inventoryManagementService.rollbackReservation(
                         transactionId,
@@ -265,7 +262,7 @@ public class ReservationOrchestrator {
             log.error("System error in complete reservation flow: txId={}, customerId={}, productId={}",
                     transactionId, request.getCustomerId(), request.getProductId(), e);
 
-            // [수정] 7. SAGA 진행 단계에 따라 보상 트랜잭션 실행
+            //  SAGA 진행 단계에 따라 보상 트랜잭션 실행
             if (payment != null && payment.isCompleted()) {
                 log.error("[Compensation] System error after payment success. Triggering compensation for payment/order/inventory.");
                 compensatePayment(transactionId, payment.getPaymentId());
@@ -400,7 +397,6 @@ public class ReservationOrchestrator {
 
     /**
      * 통합 예약 취소
-     * [수정됨] 2.A: 재고, 주문, 결제(환불)를 모두 보상 트랜잭션 처리
      */
     public boolean cancelCompleteReservation(String reservationId, String customerId, String reason) {
         String transactionId = IdGenerator.generateCorrelationId();
@@ -581,7 +577,7 @@ public class ReservationOrchestrator {
                                           CompleteReservationResponse response) {
         try {
             String cacheKey = "complete_reservation:" + reservationId;
-            // [수정] 10. cacheData 대신 cacheObject 사용
+            // cacheData 대신 cacheObject 사용
             cacheService.cacheObject(cacheKey, response, Duration.ofHours(1)); // 1시간
 
             // 트랜잭션 ID로도 캐싱 (조회 편의성)
@@ -596,7 +592,7 @@ public class ReservationOrchestrator {
     }
 
     // ===================================
-    // 조회 메서드들 (기존 유지)
+    // 조회 메서드들
     // ===================================
 
     public List<ReservationResponse> getActiveReservationsByCustomer(String customerId, int page, int size) {

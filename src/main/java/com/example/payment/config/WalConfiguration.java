@@ -18,17 +18,6 @@ import java.util.concurrent.Executors;
 
 /**
  * WAL(Write-Ahead Logging) 설정
- *
- * 구성 요소:
- * - WalArchiveService: 오래된 로그 아카이빙 (NoOp 구현)
- * - WalBackupService: 로그 백업 (NoOp 구현)
- * - WalMetricsService: 메트릭 수집 (NoOp 구현)
- * - 스케줄러: WAL 정리 작업용 스레드 풀
- *
- * 💡 NoOp 구현 사용 이유:
- * - 개발 단계에서는 간단한 구현으로 시작
- * - 프로덕션에서는 실제 구현체로 교체 가능
- * - 설정 파일 내에서 모든 동작 확인 가능
  */
 @Configuration
 @EnableScheduling
@@ -44,7 +33,6 @@ public class WalConfiguration implements SchedulingConfigurer {
 
     /**
      * WAL 아카이브 서비스 (NoOp 구현)
-     *
      * 역할: 오래된 WAL 로그를 장기 보관소로 이동
      * 현재: 로그만 출력 (실제 아카이빙 없음)
      * 향후: S3, GCS 등 외부 스토리지 연동 가능
@@ -168,7 +156,6 @@ public class WalConfiguration implements SchedulingConfigurer {
      * WAL 메트릭 서비스 (NoOp 구현)
      *
      * 역할: WAL 작업 성능 메트릭 수집
-     * 현재: 아무 동작 안 함 (성능 최적화)
      * 향후: Prometheus/Grafana 연동 가능
      */
     @Bean

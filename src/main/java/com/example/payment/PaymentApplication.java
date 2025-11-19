@@ -29,7 +29,7 @@ public class PaymentApplication implements CommandLineRunner {
     public static void main(String[] args) {
         SpringApplication.run(PaymentApplication.class, args);
     }
-
+    // 초기 재고 설정 변수 initialStock
     @Override
     public void run(String... args) throws Exception {
         String productId = "SAGA-TEST-001";

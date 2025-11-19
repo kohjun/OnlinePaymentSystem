@@ -16,7 +16,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 public class InventoryReservation extends BaseEntity {
-    // ... (기존 필드 동일) ...
+
     private String reservationId;
     private String productId;
     private String customerId;
@@ -25,7 +25,7 @@ public class InventoryReservation extends BaseEntity {
     private LocalDateTime createdAt;
     private LocalDateTime expiresAt;
 
-    // ... (기존 메서드 동일) ...
+
     public boolean isExpired() {
         return LocalDateTime.now().isAfter(expiresAt);
     }
@@ -40,7 +40,7 @@ public class InventoryReservation extends BaseEntity {
     }
 
     public boolean canBeCancelled() {
-        // [이전 수정 사항 유지]
+
         return status == ReservationStatus.RESERVED ||
                 status == ReservationStatus.EXPIRED ||
                 status == ReservationStatus.CONFIRMED;

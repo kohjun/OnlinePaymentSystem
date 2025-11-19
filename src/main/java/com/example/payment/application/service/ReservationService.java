@@ -20,8 +20,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * ✅ 개선된 재고 예약 서비스
- * [수정] 4. getReservation의 캐시 읽기 방식을 getCachedObject로 변경
+ * 개선된 재고 예약 서비스
  */
 @Service
 @Slf4j
@@ -277,12 +276,10 @@ public class ReservationService {
 
     /**
      * 예약 조회
-     * [수정] 4. getCachedData (Hash 읽기) -> getCachedObject (String 읽기) 변경
      */
     public InventoryReservation getReservation(String reservationId) {
         try {
             String cacheKey = "reservation:" + reservationId;
-            // [수정] String(JSON)으로 저장된 객체를 읽어옵니다.
             InventoryReservation cachedData = cacheService.getCachedObject(cacheKey, InventoryReservation.class);
 
             if (cachedData != null) {

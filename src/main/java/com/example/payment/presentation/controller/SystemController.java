@@ -85,28 +85,4 @@ public class SystemController {
         }
     }
 
-
-    /**
-     * 캐시 통계 조회 (관리자용)
-     */
-    @GetMapping("/cache/stats")
-    public ResponseEntity<java.util.Map<String, Object>> getCacheStats() {
-        try {
-            // 기본 캐시 통계 정보
-            java.util.Map<String, Object> stats = java.util.Map.of(
-                    "redis_connected", cacheService.isRedisConnected(),
-                    "message", "Cache statistics - 구현 예정 (MonitoringService 확장 필요)",
-                    "timestamp", System.currentTimeMillis()
-            );
-
-            return ResponseEntity.ok(stats);
-        } catch (Exception e) {
-            log.error("Error getting cache stats", e);
-            return ResponseEntity.internalServerError()
-                    .body(java.util.Map.of(
-                            "error", "Failed to get cache stats: " + e.getMessage(),
-                            "timestamp", System.currentTimeMillis()
-                    ));
-        }
-    }
 }

@@ -18,8 +18,6 @@ import java.util.Optional;
 
 /**
  * WAL (Write-Ahead Logging) 복구 서비스
- * - [수정] 'log' 변수명 충돌 해결
- * - [수정] confirmReservation 반환 타입(boolean) 불일치 해결
  */
 @Service
 @Slf4j
@@ -73,7 +71,6 @@ public class WalRecoveryService {
 
     /**
      * 개별 WAL 로그의 복구 로직
-     * [수정] confirmReservation()의 반환값을 InventoryConfirmation.isSuccess()로 변경
      */
     private boolean recoverOperation(WalLogEntry pendingLog) {
         Map<String, String> entityIds = parseEntityIds(pendingLog.getBeforeData());
@@ -111,8 +108,6 @@ public class WalRecoveryService {
 
             case "INVENTORY_CONFIRM_START":
                 log.info("[WAL Recovery] Found PENDING inventory confirm: {}. Retrying.", reservationId);
-
-                // [수정] 3. InventoryConfirmation.isSuccess()로 boolean 값 추출
                 InventoryConfirmation confirmResult = inventoryService.confirmReservation(txId, phase1LogId, reservationId, orderId, paymentId);
                 return confirmResult.isSuccess();
 

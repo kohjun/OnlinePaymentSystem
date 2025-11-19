@@ -67,11 +67,11 @@ public class InventoryManagementService {
             String resourceKey = "inventory:" + reservation.getProductId();
             int quantityToConfirm = reservation.getQuantity();
 
-            // [수정] 2. confirmResource 호출 시 reservationId 전달
+            // 2. confirmResource 호출 시 reservationId 전달
             boolean redisConfirmed = redisReservationService.confirmResource(
                     resourceKey,
                     quantityToConfirm,
-                    reservationId // <-- [수정] 이 인자가 누락되었었음
+                    reservationId
             );
 
             if (!redisConfirmed) {

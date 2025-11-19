@@ -20,7 +20,7 @@ public class WalScheduledTasks {
     private final WalRecoveryService walRecoveryService;
 
     /**
-     * 오래된 WAL 로그 정리 (매일 새벽 2시)
+     * 오래된 WAL 로그 정리
      */
     @Scheduled(cron = "0 0 2 * * ?")
     public void cleanupOldLogs() {
@@ -36,7 +36,6 @@ public class WalScheduledTasks {
 
     /**
      * 미완료 트랜잭션 복구 (매 5분마다)
-     * 3. 기존 checkPendingTransactions 메소드를 아래 내용으로 교체
      */
     @Scheduled(fixedRate = 300000) // 5분 (300000ms)
     public void recoverPendingTransactions() {

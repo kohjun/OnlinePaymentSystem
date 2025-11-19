@@ -168,52 +168,6 @@ public class PaymentGatewayFactory {
                 ));
     }
 
-    /**
-     * 사용 가능한 게이트웨이 목록 반환
-     */
-    public List<String> getAvailableGateways() {
-        return gatewayMap.keySet().stream()
-                .sorted()
-                .collect(Collectors.toList());
-    }
 
-    /**
-     * 특정 게이트웨이 존재 여부 확인
-     */
-    public boolean hasGateway(String gatewayName) {
-        return gatewayMap.containsKey(gatewayName);
-    }
 
-    /**
-     * 기본 게이트웨이 이름 반환
-     */
-    public String getDefaultGatewayName() {
-        return defaultGateway;
-    }
-
-    /**
-     * 게이트웨이 개수 반환
-     */
-    public int getGatewayCount() {
-        return gatewayMap.size();
-    }
-
-    /**
-     * 팩토리 상태 정보 반환 (모니터링용)
-     */
-    public Map<String, Object> getFactoryStatus() {
-        Map<String, Boolean> healthStatus = checkAllGatewayHealth();
-        long healthyCount = healthStatus.values().stream()
-                .mapToLong(healthy -> healthy ? 1 : 0)
-                .sum();
-
-        return Map.of(
-                "totalGateways", gatewayMap.size(),
-                "healthyGateways", healthyCount,
-                "defaultGateway", defaultGateway,
-                "availableGateways", getAvailableGateways(),
-                "healthStatus", healthStatus,
-                "allHealthy", healthyCount == gatewayMap.size()
-        );
-    }
 }

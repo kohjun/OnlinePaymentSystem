@@ -33,7 +33,6 @@ public class ResourceReservationService {
             List<String> keys = Collections.singletonList(resourceKey);
             long ttlSeconds = (ttl != null) ? ttl.getSeconds() : 0;
 
-            // [수정] String jsonResult = ... -> Object rawResult = ...
             Object rawResult = redisTemplate.execute(
                     reserveScript,
                     keys,
@@ -43,8 +42,6 @@ public class ResourceReservationService {
                     String.valueOf(System.currentTimeMillis())
             );
 
-            // [수정] rawResult를 Map으로 캐스팅 (objectMapper.readValue 제거)
-            @SuppressWarnings("unchecked")
             Map<String, Object> result = (Map<String, Object>) rawResult;
 
             log.debug("Reserve script result: {}", result);
@@ -69,13 +66,11 @@ public class ResourceReservationService {
 
     /**
      * 리소스 해제 (취소/롤백 시 사용)
-     * [수정] 3. ClassCastException 해결
      */
     public boolean releaseResource(String resourceKey, int quantity, String reservationId) {
         try {
             List<String> keys = Collections.singletonList(resourceKey);
 
-            // [수정] String jsonResult = ... -> Object rawResult = ...
             Object rawResult = redisTemplate.execute(
                     cancelScript,
                     keys,
@@ -83,8 +78,6 @@ public class ResourceReservationService {
                     reservationId
             );
 
-            // [수정] rawResult를 Map으로 캐스팅 (objectMapper.readValue 제거)
-            @SuppressWarnings("unchecked")
             Map<String, Object> result = (Map<String, Object>) rawResult;
 
             log.debug("Release script result: {}", result);
@@ -109,13 +102,11 @@ public class ResourceReservationService {
 
     /**
      * 리소스 예약 확정
-     * [수정] 3. ClassCastException 해결
      */
     public boolean confirmResource(String resourceKey, int quantity, String reservationId) {
         try {
             List<String> keys = Collections.singletonList(resourceKey);
 
-            // [수정] String jsonResult = ... -> Object rawResult = ...
             Object rawResult = redisTemplate.execute(
                     confirmScript,
                     keys,
@@ -123,8 +114,6 @@ public class ResourceReservationService {
                     reservationId
             );
 
-            // [수정] rawResult를 Map으로 캐스팅 (objectMapper.readValue 제거)
-            @SuppressWarnings("unchecked")
             Map<String, Object> result = (Map<String, Object>) rawResult;
 
             log.debug("Confirm script result: {}", result);
