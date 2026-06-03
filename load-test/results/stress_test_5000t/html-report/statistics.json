@@ -1,0 +1,34 @@
+{
+  "Complete Reservation (Saga Test)" : {
+    "transaction" : "Complete Reservation (Saga Test)",
+    "sampleCount" : 8089,
+    "errorCount" : 8086,
+    "errorPct" : 99.96291,
+    "meanResTime" : 75569.11818518961,
+    "medianResTime" : 76693.0,
+    "minResTime" : 7827.0,
+    "maxResTime" : 118905.0,
+    "pct1ResTime" : 113699.0,
+    "pct2ResTime" : 115506.5,
+    "pct3ResTime" : 116998.6,
+    "throughput" : 44.48929979815091,
+    "receivedKBytesPerSec" : 10.344287923360595,
+    "sentKBytesPerSec" : 22.766008881085035
+  },
+  "Total" : {
+    "transaction" : "Total",
+    "sampleCount" : 8089,
+    "errorCount" : 8086,
+    "errorPct" : 99.96291,
+    "meanResTime" : 75569.11818518961,
+    "medianResTime" : 76693.0,
+    "minResTime" : 7827.0,
+    "maxResTime" : 118905.0,
+    "pct1ResTime" : 113699.0,
+    "pct2ResTime" : 115506.5,
+    "pct3ResTime" : 116998.6,
+    "throughput" : 44.48929979815091,
+    "receivedKBytesPerSec" : 10.344287923360595,
+    "sentKBytesPerSec" : 22.766008881085035
+  }
+}
