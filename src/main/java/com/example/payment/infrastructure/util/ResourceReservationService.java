@@ -1,6 +1,7 @@
 package com.example.payment.infrastructure.util;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -18,9 +19,10 @@ public class ResourceReservationService {
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
 
-    private final DefaultRedisScript<String> reserveScript;
-    private final DefaultRedisScript<String> cancelScript;
-    private final DefaultRedisScript<String> confirmScript;
+    private final DefaultRedisScript<Object> reserveScript;
+    private final DefaultRedisScript<Object> cancelScript;
+    private final DefaultRedisScript<Object> confirmScript;
+    private static final TypeReference<Map<String, Object>> SCRIPT_RESULT_TYPE = new TypeReference<>() {};
 
     /**
      * 리소스 예약 (ReservationService에서 사용)
@@ -42,7 +44,7 @@ public class ResourceReservationService {
                     String.valueOf(System.currentTimeMillis())
             );
 
-            Map<String, Object> result = (Map<String, Object>) rawResult;
+            Map<String, Object> result = readScriptResult(rawResult);
 
             log.debug("Reserve script result: {}", result);
 
@@ -78,7 +80,7 @@ public class ResourceReservationService {
                     reservationId
             );
 
-            Map<String, Object> result = (Map<String, Object>) rawResult;
+            Map<String, Object> result = readScriptResult(rawResult);
 
             log.debug("Release script result: {}", result);
 
@@ -114,7 +116,7 @@ public class ResourceReservationService {
                     reservationId
             );
 
-            Map<String, Object> result = (Map<String, Object>) rawResult;
+            Map<String, Object> result = readScriptResult(rawResult);
 
             log.debug("Confirm script result: {}", result);
 
@@ -168,5 +170,21 @@ public class ResourceReservationService {
             log.error("Error getting resource status {}: {}", resourceKey, e.getMessage());
             return new HashMap<>();
         }
+    }
+
+    private Map<String, Object> readScriptResult(Object rawResult) throws Exception {
+        if (rawResult == null) {
+            return Map.of("status", "ERROR", "code", "EMPTY_RESULT", "message", "Lua script returned no data");
+        }
+        if (rawResult instanceof Map<?, ?> mapResult) {
+            return objectMapper.convertValue(mapResult, SCRIPT_RESULT_TYPE);
+        }
+        if (rawResult instanceof String stringResult) {
+            if (stringResult.isBlank()) {
+                return Map.of("status", "ERROR", "code", "EMPTY_RESULT", "message", "Lua script returned no data");
+            }
+            return objectMapper.readValue(stringResult, SCRIPT_RESULT_TYPE);
+        }
+        return objectMapper.convertValue(rawResult, SCRIPT_RESULT_TYPE);
     }
 }

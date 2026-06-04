@@ -2,10 +2,12 @@ package com.example.payment.application.service;
 
 import com.example.payment.application.dto.PaymentGatewayRequest;
 import com.example.payment.application.dto.PaymentGatewayResult;
+import com.example.payment.domain.entity.PaymentRecord;
 import com.example.payment.domain.model.common.Money;
 import com.example.payment.domain.model.payment.Payment;
 import com.example.payment.domain.model.payment.PaymentMethod;
 import com.example.payment.domain.model.payment.PaymentStatus;
+import com.example.payment.domain.repository.PaymentRecordRepository;
 import com.example.payment.domain.service.PaymentGatewayService;
 import com.example.payment.infrastructure.gateway.PaymentGatewayFactory;
 import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
@@ -31,6 +33,7 @@ public class PaymentProcessingService {
     private final PaymentGatewayFactory gatewayFactory;
     private final CacheService cacheService;
     private final WalService walService;
+    private final PaymentRecordRepository paymentRecordRepository;
 
     private static final int PAYMENT_CACHE_TTL_SECONDS = 86400; // 24시간
 
@@ -68,13 +71,24 @@ public class PaymentProcessingService {
                     .reservationId(reservationId)
                     .customerId(customerId)
                     .amount(Money.of(amount, currency))
-                    .method(PaymentMethod.valueOf(method.toUpperCase().replace("_", "_")))
+                    .method(toPaymentMethod(method))
                     .status(PaymentStatus.PROCESSING)
                     .build();
 
             String cacheKey = "payment:" + paymentId;
             // cacheData는 cacheObject의 alias이며 String(JSON)으로 저장
             cacheService.cacheData(cacheKey, payment, PAYMENT_CACHE_TTL_SECONDS);
+            paymentRecordRepository.save(PaymentRecord.builder()
+                    .paymentId(paymentId)
+                    .orderId(orderId)
+                    .reservationId(reservationId)
+                    .customerId(customerId)
+                    .amount(amount)
+                    .currency(currency)
+                    .method(method)
+                    .status(PaymentStatus.PROCESSING.name())
+                    .createdAt(payment.getCreatedAt())
+                    .build());
 
             PaymentGatewayService gateway = gatewayFactory.getGateway(method);
 
@@ -117,6 +131,7 @@ public class PaymentProcessingService {
             }
 
             cacheService.cacheData(cacheKey, payment, PAYMENT_CACHE_TTL_SECONDS);
+            paymentRecordRepository.save(toRecord(payment, method));
             return payment;
 
         } catch (Exception e) {
@@ -137,7 +152,7 @@ public class PaymentProcessingService {
                     .reservationId(reservationId)
                     .customerId(customerId)
                     .amount(Money.of(amount, currency))
-                    .method(PaymentMethod.valueOf(method.toUpperCase().replace("_", "_")))
+                    .method(toPaymentMethod(method))
                     .status(PaymentStatus.FAILED)
                     .failureReason("시스템 오류: " + e.getMessage())
                     .processedAt(LocalDateTime.now())
@@ -145,6 +160,7 @@ public class PaymentProcessingService {
 
             String cacheKey = "payment:" + paymentId;
             cacheService.cacheData(cacheKey, failedPayment, PAYMENT_CACHE_TTL_SECONDS);
+            paymentRecordRepository.save(toRecord(failedPayment, method));
 
             return failedPayment;
         }
@@ -189,6 +205,7 @@ public class PaymentProcessingService {
 
                 String cacheKey = "payment:" + paymentId;
                 cacheService.cacheData(cacheKey, payment, PAYMENT_CACHE_TTL_SECONDS);
+                paymentRecordRepository.save(toRecord(payment, payment.getMethod().name()));
 
                 String beforeData = buildRefundJson(paymentId, "COMPLETED");
                 String refundedData = buildRefundJson(paymentId, "REFUNDED");
@@ -282,11 +299,31 @@ public class PaymentProcessingService {
                 return cachedData;
             }
 
+            Payment payment = paymentRecordRepository.findById(paymentId)
+                    .map(this::toDomainPayment)
+                    .orElse(null);
+            if (payment != null) {
+                cacheService.cacheData(cacheKey, payment, PAYMENT_CACHE_TTL_SECONDS);
+                log.debug("Payment found in Postgres: paymentId={}", paymentId);
+                return payment;
+            }
+
             log.debug("Payment not found: paymentId={}", paymentId);
             return null;
 
         } catch (Exception e) {
             log.error("Error getting payment: paymentId={}", paymentId, e);
+            return null;
+        }
+    }
+
+    public Payment getPaymentByReservationId(String reservationId) {
+        try {
+            return paymentRecordRepository.findByReservationId(reservationId)
+                    .map(this::toDomainPayment)
+                    .orElse(null);
+        } catch (Exception e) {
+            log.error("Error getting payment by reservation: reservationId={}", reservationId, e);
             return null;
         }
     }
@@ -343,8 +380,56 @@ public class PaymentProcessingService {
                 .transactionId(payment.getTransactionId())
                 .approvalNumber(payment.getApprovalNumber())
                 .gatewayName(payment.getGatewayName())
-                .currency(payment.getFailureReason()) // [버그 의심]
+                .message(payment.getFailureReason())
                 .processedAt(payment.getProcessedAt())
                 .build();
+    }
+
+    private Payment toDomainPayment(PaymentRecord record) {
+        Payment payment = Payment.builder()
+                .paymentId(record.getPaymentId())
+                .orderId(record.getOrderId())
+                .reservationId(record.getReservationId())
+                .customerId(record.getCustomerId())
+                .amount(Money.of(record.getAmount(), record.getCurrency()))
+                .method(toPaymentMethod(record.getMethod()))
+                .status(PaymentStatus.valueOf(record.getStatus()))
+                .transactionId(record.getTransactionId())
+                .failureReason(record.getFailureReason())
+                .processedAt(record.getProcessedAt())
+                .approvalNumber(record.getApprovalNumber())
+                .gatewayName(record.getGatewayName())
+                .build();
+        payment.setCreatedAt(record.getCreatedAt());
+        payment.setUpdatedAt(record.getUpdatedAt());
+        return payment;
+    }
+
+    private PaymentRecord toRecord(Payment payment, String method) {
+        return PaymentRecord.builder()
+                .paymentId(payment.getPaymentId())
+                .orderId(payment.getOrderId())
+                .reservationId(payment.getReservationId())
+                .customerId(payment.getCustomerId())
+                .amount(payment.getAmount().getAmount())
+                .currency(payment.getAmount().getCurrency())
+                .method(method)
+                .status(payment.getStatus().name())
+                .transactionId(payment.getTransactionId())
+                .approvalNumber(payment.getApprovalNumber())
+                .gatewayName(payment.getGatewayName())
+                .failureReason(payment.getFailureReason())
+                .processedAt(payment.getProcessedAt())
+                .createdAt(payment.getCreatedAt())
+                .updatedAt(payment.getUpdatedAt())
+                .build();
+    }
+
+    private PaymentMethod toPaymentMethod(String method) {
+        try {
+            return PaymentMethod.valueOf(method);
+        } catch (Exception e) {
+            return PaymentMethod.CREDIT_CARD;
+        }
     }
 }

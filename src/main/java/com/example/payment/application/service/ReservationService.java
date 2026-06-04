@@ -1,8 +1,10 @@
 package com.example.payment.application.service;
 
 import com.example.payment.domain.exception.ReservationException;
+import com.example.payment.domain.entity.InventoryReservationRecord;
 import com.example.payment.domain.model.reservation.InventoryReservation;
 import com.example.payment.domain.model.reservation.ReservationStatus;
+import com.example.payment.domain.repository.InventoryReservationRecordRepository;
 import com.example.payment.infrastructure.lock.DistributedLockService;
 import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
 import com.example.payment.infrastructure.persistence.wal.WalService;
@@ -31,6 +33,7 @@ public class ReservationService {
     private final WalService walService;
     private final CacheService cacheService;
     private final ResourceReservationService redisReservationService;
+    private final InventoryReservationRecordRepository reservationRecordRepository;
 
     private static final int DEFAULT_RESERVATION_TTL_SECONDS = 300; // 5분
 
@@ -116,6 +119,16 @@ public class ReservationService {
                         .createdAt(LocalDateTime.now())
                         .expiresAt(LocalDateTime.now().plusMinutes(5))
                         .build();
+
+                reservationRecordRepository.save(InventoryReservationRecord.builder()
+                        .reservationId(reservation.getReservationId())
+                        .productId(reservation.getProductId())
+                        .customerId(reservation.getCustomerId())
+                        .quantity(reservation.getQuantity())
+                        .status(reservation.getStatus().name())
+                        .expiresAt(reservation.getExpiresAt())
+                        .createdAt(reservation.getCreatedAt())
+                        .build());
 
                 // ===================================
                 // 4. 캐시에 저장 (메타데이터 포함)
@@ -216,6 +229,10 @@ public class ReservationService {
 
             if (cancelled) {
                 reservation.setStatus(ReservationStatus.CANCELLED);
+                reservationRecordRepository.findById(reservationId).ifPresent(record -> {
+                    record.setStatus(ReservationStatus.CANCELLED.name());
+                    reservationRecordRepository.save(record);
+                });
 
                 String cacheKey = "reservation:" + reservationId;
                 cacheService.cacheData(cacheKey, reservation, DEFAULT_RESERVATION_TTL_SECONDS);
@@ -287,6 +304,15 @@ public class ReservationService {
                 return cachedData;
             }
 
+            InventoryReservation reservation = reservationRecordRepository.findById(reservationId)
+                    .map(this::toDomainReservation)
+                    .orElse(null);
+            if (reservation != null) {
+                cacheService.cacheData(cacheKey, reservation, DEFAULT_RESERVATION_TTL_SECONDS);
+                log.debug("Reservation found in Postgres: reservationId={}", reservationId);
+                return reservation;
+            }
+
             log.debug("Reservation not found: reservationId={}", reservationId);
             return null;
 
@@ -307,6 +333,10 @@ public class ReservationService {
             }
 
             reservation.setStatus(ReservationStatus.CONFIRMED);
+            reservationRecordRepository.findById(reservation.getReservationId()).ifPresent(record -> {
+                record.setStatus(ReservationStatus.CONFIRMED.name());
+                reservationRecordRepository.save(record);
+            });
 
             String cacheKey = "reservation:" + reservation.getReservationId();
             cacheService.cacheData(cacheKey, reservation, DEFAULT_RESERVATION_TTL_SECONDS);
@@ -334,5 +364,17 @@ public class ReservationService {
                         "\"quantity\":%d,\"status\":\"%s\",\"timestamp\":\"%s\"}",
                 reservationId, productId, customerId, quantity, status, LocalDateTime.now()
         );
+    }
+
+    private InventoryReservation toDomainReservation(InventoryReservationRecord record) {
+        return InventoryReservation.builder()
+                .reservationId(record.getReservationId())
+                .productId(record.getProductId())
+                .customerId(record.getCustomerId())
+                .quantity(record.getQuantity())
+                .status(ReservationStatus.valueOf(record.getStatus()))
+                .createdAt(record.getCreatedAt())
+                .expiresAt(record.getExpiresAt())
+                .build();
     }
 }

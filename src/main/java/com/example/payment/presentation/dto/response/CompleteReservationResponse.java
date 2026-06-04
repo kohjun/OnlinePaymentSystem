@@ -20,6 +20,8 @@ import java.time.LocalDateTime;
 @EqualsAndHashCode(callSuper = true)
 public class CompleteReservationResponse extends BaseResponse {
 
+    private String workflowId;
+
     // 예약 정보
     private ReservationInfo reservation;
 

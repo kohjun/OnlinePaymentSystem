@@ -1,24 +1,26 @@
 package com.example.payment.application.event.publisher;
 
-import com.example.payment.domain.model.payment.Payment;
-import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.stereotype.Service;
-
-import com.example.payment.presentation.dto.response.PaymentResponse;
 import com.example.payment.domain.event.PaymentEvent;
+import com.example.payment.domain.model.payment.Payment;
+import com.example.payment.infrastructure.messaging.outbox.OutboxEventService;
+import com.example.payment.presentation.dto.response.PaymentResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+
+import java.util.HashMap;
+import java.util.Map;
 
 @Service
 @Slf4j
 @RequiredArgsConstructor
 public class PaymentEventService {
 
-    private final KafkaTemplate<String, PaymentEvent> paymentEventKafkaTemplate;
-    private final KafkaTemplate<String, String> stringKafkaTemplate;
-
     private static final String PAYMENT_EVENTS_TOPIC = "payment-events";
     private static final String ORDER_EVENTS_TOPIC = "order-events";
+    private static final String RESERVATION_EVENTS_TOPIC = "reservation-events";
+
+    private final OutboxEventService outboxEventService;
 
     public void publishPaymentCreated(PaymentResponse payment) {
         publishPaymentEvent(PaymentEvent.PAYMENT_CREATED, payment);
@@ -29,7 +31,7 @@ public class PaymentEventService {
         publishPaymentEvent(PaymentEvent.PAYMENT_PROCESSED, paymentResponse);
 
         if (payment.isCompleted() && payment.getOrderId() != null) {
-            publishOrderCompletedEvent(paymentResponse);  // ✅ 변환된 객체 사용
+            publishOrderCompletedEvent(paymentResponse);
         }
     }
 
@@ -43,24 +45,16 @@ public class PaymentEventService {
 
     private void publishPaymentEvent(String eventType, PaymentResponse payment) {
         try {
-            PaymentEvent event = new PaymentEvent(eventType, payment, payment.getReservationId());
-
-            log.info("Publishing payment event: {} for paymentId: {}, reservationId: {}",
-                    eventType, payment.getPaymentId(), payment.getReservationId());
-
-            paymentEventKafkaTemplate.send(PAYMENT_EVENTS_TOPIC, payment.getPaymentId(), event)
-                    .whenComplete((result, ex) -> {
-                        if (ex == null) {
-                            log.debug("Payment event published successfully");
-                        } else {
-                            log.error("Payment event publishing failed: {}", ex.getMessage());
-                        }
-                    });
-
+            Map<String, Object> payload = paymentPayload(eventType, payment);
+            outboxEventService.record("PAYMENT", payment.getPaymentId(), eventType,
+                    PAYMENT_EVENTS_TOPIC, payment.getPaymentId(), payload);
+            log.debug("Payment event recorded in outbox: type={}, paymentId={}", eventType, payment.getPaymentId());
         } catch (Exception e) {
-            log.error("Error publishing payment event: {}", e.getMessage());
+            log.error("Error recording payment event: type={}, paymentId={}",
+                    eventType, payment != null ? payment.getPaymentId() : null, e);
         }
     }
+
     private PaymentResponse convertToPaymentResponse(Payment payment) {
         return PaymentResponse.builder()
                 .paymentId(payment.getPaymentId())
@@ -78,43 +72,53 @@ public class PaymentEventService {
 
     private void publishOrderCompletedEvent(PaymentResponse payment) {
         try {
-            java.util.Map<String, Object> orderEvent = java.util.Map.of(
-                    "eventType", "ORDER_COMPLETED",
-                    "orderId", payment.getOrderId(),
-                    "paymentId", payment.getPaymentId(),
-                    "reservationId", payment.getReservationId(),
-                    "amount", payment.getAmount(),
-                    "currency", payment.getCurrency(),
-                    "timestamp", System.currentTimeMillis()
-            );
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("eventType", "ORDER_COMPLETED");
+            payload.put("orderId", payment.getOrderId());
+            payload.put("paymentId", payment.getPaymentId());
+            payload.put("reservationId", payment.getReservationId());
+            payload.put("amount", payment.getAmount());
+            payload.put("currency", payment.getCurrency());
+            payload.put("timestamp", System.currentTimeMillis());
 
-            String eventJson = new com.fasterxml.jackson.databind.ObjectMapper()
-                    .writeValueAsString(orderEvent);
-
-            stringKafkaTemplate.send(ORDER_EVENTS_TOPIC, payment.getOrderId(), eventJson);
-
+            outboxEventService.record("ORDER", payment.getOrderId(), "ORDER_COMPLETED",
+                    ORDER_EVENTS_TOPIC, payment.getOrderId(), payload);
         } catch (Exception e) {
-            log.error("Error publishing order completed event", e);
+            log.error("Error recording order completed event", e);
         }
     }
 
     private void publishReservationFailedEvent(PaymentResponse payment) {
         try {
-            java.util.Map<String, Object> reservationEvent = java.util.Map.of(
-                    "eventType", "RESERVATION_PAYMENT_FAILED",
-                    "reservationId", payment.getReservationId(),
-                    "paymentId", payment.getPaymentId(),
-                    "reason", payment.getMessage() != null ? payment.getMessage() : "Payment failed",
-                    "timestamp", System.currentTimeMillis()
-            );
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("eventType", "RESERVATION_PAYMENT_FAILED");
+            payload.put("reservationId", payment.getReservationId());
+            payload.put("paymentId", payment.getPaymentId());
+            payload.put("reason", payment.getMessage() != null ? payment.getMessage() : "Payment failed");
+            payload.put("timestamp", System.currentTimeMillis());
 
-            String eventJson = new com.fasterxml.jackson.databind.ObjectMapper()
-                    .writeValueAsString(reservationEvent);
-
-            stringKafkaTemplate.send("reservation-events", payment.getReservationId(), eventJson);
-
+            outboxEventService.record("RESERVATION", payment.getReservationId(), "RESERVATION_PAYMENT_FAILED",
+                    RESERVATION_EVENTS_TOPIC, payment.getReservationId(), payload);
         } catch (Exception e) {
-            log.error("Error publishing reservation failed event", e);
+            log.error("Error recording reservation payment failed event", e);
         }
+    }
+
+    private Map<String, Object> paymentPayload(String eventType, PaymentResponse payment) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("eventType", eventType);
+        payload.put("paymentId", payment.getPaymentId());
+        payload.put("reservationId", payment.getReservationId());
+        payload.put("orderId", payment.getOrderId());
+        payload.put("amount", payment.getAmount());
+        payload.put("currency", payment.getCurrency());
+        payload.put("status", payment.getStatus());
+        payload.put("transactionId", payment.getTransactionId());
+        payload.put("approvalNumber", payment.getApprovalNumber());
+        payload.put("gatewayName", payment.getGatewayName());
+        payload.put("message", payment.getMessage());
+        payload.put("processedAt", payment.getProcessedAt());
+        payload.put("timestamp", System.currentTimeMillis());
+        return payload;
     }
 }

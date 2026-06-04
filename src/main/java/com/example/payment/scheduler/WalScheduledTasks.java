@@ -5,6 +5,7 @@ import com.example.payment.infrastructure.persistence.wal.WalLogRepository;
 import com.example.payment.application.service.WalRecoveryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -13,6 +14,7 @@ import java.time.LocalDateTime;
 @Component
 @Slf4j
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "app.legacy-wal.enabled", havingValue = "true")
 public class WalScheduledTasks {
 
     private final WalLogRepository walLogRepository;

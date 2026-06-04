@@ -3,7 +3,7 @@ spring:
     name: payment-service-test
 
   datasource:
-    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    url: jdbc:h2:mem:testdb;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
     username: sa
     password:
     driver-class-name: org.h2.Driver
@@ -11,30 +11,25 @@ spring:
       maximum-pool-size: 20
       minimum-idle: 5
 
-  wal:
+  flyway:
     enabled: true
-    retention-days: 30
+    locations: classpath:db/migration
+    baseline-on-migrate: true
 
   jpa:
     hibernate:
-      ddl-auto: create-drop
-    show-sql: true
+      ddl-auto: validate
+    show-sql: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.H2Dialect
         format_sql: true
     open-in-view: false
-    defer-datasource-initialization: true
 
   sql:
     init:
-      mode: always
-      encoding: UTF-8
-      schema-locations: classpath:schema.sql
-      data-locations: classpath:test-data.sql
-      continue-on-error: false
+      mode: never
 
-  # [수정] 1. 누락되었던 'task' (thread-pool) 설정 추가
   task:
     execution:
       pool:
@@ -59,18 +54,11 @@ spring:
 
   kafka:
     bootstrap-servers: localhost:9092
-    producer:
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
-      acks: all
-      retries: 3
+    admin:
+      auto-create: false
     consumer:
       group-id: payment-events-group
       auto-offset-reset: earliest
-      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonDeserializer
-      properties:
-        spring.json.trusted.packages: com.example.payment.event,com.example.payment.dto
       enable-auto-commit: false
 
 server:
@@ -86,6 +74,25 @@ payment:
   processing:
     retry-count: 3
     timeout-seconds: 60
+  default-gateway: MOCK_PAYMENT_GATEWAY
   topics:
     payment-requests: payment-requests
     payment-events: payment-events
+
+app:
+  temporal:
+    enabled: false
+    worker-enabled: false
+    target: localhost:7233
+    namespace: payment
+    task-queue: payment-reservation-task-queue
+    start-to-close-timeout-seconds: 30
+    result-wait-timeout-seconds: 5
+  outbox:
+    enabled: false
+  kafka:
+    listeners:
+      payment-events:
+        enabled: false
+  legacy-wal:
+    enabled: false

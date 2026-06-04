@@ -10,6 +10,8 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
@@ -29,6 +31,8 @@ public class MockPaymentGateway implements PaymentGatewayService {
     // [수정 2] 지연 시간을 0ms로 고정
     private final int minDelayMs = 100;
     private final int maxDelayMs = 500;
+    private final Map<String, PaymentGatewayResult> processedPayments = new ConcurrentHashMap<>();
+    private final Map<String, PaymentGatewayResult> paymentsByTransactionId = new ConcurrentHashMap<>();
 
     public MockPaymentGateway() {
         log.info("MockPaymentGateway initialized with success rate: {}%, delay: {}-{}ms (TPS Optimized)",
@@ -41,6 +45,12 @@ public class MockPaymentGateway implements PaymentGatewayService {
                 request.getPaymentId(), request.getAmount(), request.getMethod());
 
         try {
+            PaymentGatewayResult existing = processedPayments.get(request.getPaymentId());
+            if (existing != null) {
+                log.debug("Returning idempotent mock payment result: paymentId={}, transactionId={}",
+                        request.getPaymentId(), existing.getTransactionId());
+                return existing;
+            }
             // [수정 3] 의도적 지연 제거
             // int delay = ThreadLocalRandom.current().nextInt(minDelayMs, maxDelayMs);
             // Thread.sleep(delay);
@@ -55,7 +65,7 @@ public class MockPaymentGateway implements PaymentGatewayService {
                 log.debug("Mock payment succeeded: paymentId={}, transactionId={}",
                         request.getPaymentId(), transactionId);
 
-                return PaymentGatewayResult.builder()
+                PaymentGatewayResult result = PaymentGatewayResult.builder()
                         .success(true)
                         .transactionId(transactionId)
                         .approvalNumber(approvalNumber)
@@ -64,6 +74,9 @@ public class MockPaymentGateway implements PaymentGatewayService {
                         .processedAt(LocalDateTime.now())
                         .gatewayName(getGatewayName())
                         .build();
+                processedPayments.put(request.getPaymentId(), result);
+                paymentsByTransactionId.put(transactionId, result);
+                return result;
 
             } else {
                 // 이 블록은 실행되지 않음 (success=true)
@@ -73,7 +86,9 @@ public class MockPaymentGateway implements PaymentGatewayService {
                 log.warn("Mock payment failed: paymentId={}, errorCode={}",
                         request.getPaymentId(), errorCode);
 
-                return PaymentGatewayResult.failure(errorCode, errorMessage);
+                PaymentGatewayResult result = PaymentGatewayResult.failure(errorCode, errorMessage);
+                processedPayments.put(request.getPaymentId(), result);
+                return result;
             }
 
         } catch (Exception e) {
@@ -105,14 +120,11 @@ public class MockPaymentGateway implements PaymentGatewayService {
         log.debug("Getting mock payment status: transactionId={}", transactionId);
 
         try {
-            return PaymentGatewayResult.builder()
-                    .success(true)
-                    .transactionId(transactionId)
-                    .processedAmount(java.math.BigDecimal.valueOf(100.00))
-                    .currency("KRW")
-                    .processedAt(LocalDateTime.now().minusMinutes(5))
-                    .gatewayName(getGatewayName())
-                    .build();
+            PaymentGatewayResult result = paymentsByTransactionId.get(transactionId);
+            if (result != null) {
+                return result;
+            }
+            return PaymentGatewayResult.failure("MOCK_STATUS_NOT_FOUND", "payment transaction not found");
 
         } catch (Exception e) {
             log.error("Mock payment status check error: transactionId={}", transactionId, e);

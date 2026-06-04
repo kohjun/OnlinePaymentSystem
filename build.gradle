@@ -51,7 +51,14 @@ dependencies {
     // Kafka
     implementation 'org.springframework.kafka:spring-kafka'
 
-    // H2 Database (개발용 인메모리 DB)
+    // Database and migrations
+    implementation 'org.flywaydb:flyway-core'
+    runtimeOnly 'org.postgresql:postgresql'
+
+    // Temporal workflow orchestration
+    implementation 'io.temporal:temporal-spring-boot-starter:1.35.0'
+
+    // H2 Database (테스트용 인메모리 DB)
     runtimeOnly 'com.h2database:h2'
     testImplementation 'com.h2database:h2'
 
@@ -64,6 +71,7 @@ dependencies {
     // 테스트
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.kafka:spring-kafka-test'
+    testImplementation 'io.temporal:temporal-testing:1.35.0'
 }
 
 tasks.named('test') {

@@ -1,9 +1,11 @@
 package com.example.payment.application.service;
 
 import com.example.payment.domain.exception.OrderException;
+import com.example.payment.domain.entity.OrderRecord;
 import com.example.payment.domain.model.common.Money;
 import com.example.payment.domain.model.order.Order;
 import com.example.payment.domain.model.order.OrderStatus;
+import com.example.payment.domain.repository.OrderRecordRepository;
 import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
 import com.example.payment.infrastructure.persistence.wal.WalService;
 import com.example.payment.infrastructure.util.IdGenerator;
@@ -25,6 +27,7 @@ public class OrderService {
 
     private final WalService walService;
     private final CacheService cacheService;
+    private final OrderRecordRepository orderRecordRepository;
 
     private static final int ORDER_CACHE_TTL_SECONDS = 86400; // 24시간
 
@@ -72,6 +75,18 @@ public class OrderService {
                     .createdAt(LocalDateTime.now())
                     .updatedAt(LocalDateTime.now())
                     .build();
+
+            orderRecordRepository.save(OrderRecord.builder()
+                    .orderId(orderId)
+                    .customerId(customerId)
+                    .productId(productId)
+                    .reservationId(reservationId)
+                    .quantity(quantity)
+                    .amount(amount)
+                    .currency(currency)
+                    .status(OrderStatus.CREATED.name())
+                    .createdAt(order.getCreatedAt())
+                    .build());
 
             String cacheKey = "order:" + orderId;
             // cacheData는 cacheObject의 alias이며 String(JSON)으로 저장
@@ -146,6 +161,11 @@ public class OrderService {
                     transactionId, walLogId, phase1LogId);
 
             order.markAsPaid(paymentId);
+            orderRecordRepository.findById(orderId).ifPresent(record -> {
+                record.setPaymentId(paymentId);
+                record.setStatus(OrderStatus.PAID.name());
+                orderRecordRepository.save(record);
+            });
 
             String cacheKey = "order:" + orderId;
             cacheService.cacheData(cacheKey, order, ORDER_CACHE_TTL_SECONDS);
@@ -210,6 +230,10 @@ public class OrderService {
 
             order.setStatus(OrderStatus.valueOf(newStatus));
             order.setUpdatedAt(LocalDateTime.now());
+            orderRecordRepository.findById(orderId).ifPresent(record -> {
+                record.setStatus(newStatus);
+                orderRecordRepository.save(record);
+            });
 
             String cacheKey = "order:" + orderId;
             cacheService.cacheData(cacheKey, order, ORDER_CACHE_TTL_SECONDS);
@@ -283,6 +307,10 @@ public class OrderService {
             String oldStatus = order.getStatus().name();
             order.setStatus(OrderStatus.CANCELLED);
             order.setUpdatedAt(LocalDateTime.now());
+            orderRecordRepository.findById(orderId).ifPresent(record -> {
+                record.setStatus(OrderStatus.CANCELLED.name());
+                orderRecordRepository.save(record);
+            });
 
             String cacheKey = "order:" + orderId;
             cacheService.cacheData(cacheKey, order, ORDER_CACHE_TTL_SECONDS);
@@ -332,11 +360,31 @@ public class OrderService {
                 return cachedData;
             }
 
+            Order order = orderRecordRepository.findById(orderId)
+                    .map(this::toDomainOrder)
+                    .orElse(null);
+            if (order != null) {
+                cacheService.cacheData(cacheKey, order, ORDER_CACHE_TTL_SECONDS);
+                log.debug("Order found in Postgres: orderId={}", orderId);
+                return order;
+            }
+
             log.debug("Order not found: orderId={}", orderId);
             return null;
 
         } catch (Exception e) {
             log.error("Error getting order: orderId={}", orderId, e);
+            return null;
+        }
+    }
+
+    public Order getOrderByReservationId(String reservationId) {
+        try {
+            return orderRecordRepository.findByReservationId(reservationId)
+                    .map(this::toDomainOrder)
+                    .orElse(null);
+        } catch (Exception e) {
+            log.error("Error getting order by reservation: reservationId={}", reservationId, e);
             return null;
         }
     }
@@ -371,6 +419,22 @@ public class OrderService {
                 "{\"orderId\":\"%s\",\"status\":\"%s\",\"timestamp\":\"%s\"}",
                 orderId, status, LocalDateTime.now()
         );
+    }
+
+    private Order toDomainOrder(OrderRecord record) {
+        return Order.builder()
+                .orderId(record.getOrderId())
+                .customerId(record.getCustomerId())
+                .productId(record.getProductId())
+                .quantity(record.getQuantity())
+                .amount(Money.of(record.getAmount(), record.getCurrency()))
+                .currency(record.getCurrency())
+                .reservationId(record.getReservationId())
+                .paymentId(record.getPaymentId())
+                .status(OrderStatus.valueOf(record.getStatus()))
+                .createdAt(record.getCreatedAt())
+                .updatedAt(record.getUpdatedAt())
+                .build();
     }
 
     public static class OrderCreationResult {

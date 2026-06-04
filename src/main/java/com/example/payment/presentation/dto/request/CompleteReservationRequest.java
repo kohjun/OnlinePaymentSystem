@@ -1,10 +1,10 @@
-/**
- * 통합 예약+결제 요청 (Phase 1+2)
- */
 package com.example.payment.presentation.dto.request;
 
-import com.example.payment.presentation.dto.common.BaseReservationDto;
 import com.example.payment.presentation.dto.common.BasePaymentDto;
+import com.example.payment.presentation.dto.common.BaseReservationDto;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -18,26 +18,26 @@ import lombok.experimental.SuperBuilder;
 @EqualsAndHashCode(callSuper = true)
 public class CompleteReservationRequest extends BaseReservationDto {
 
-    // 결제 정보 포함 (조합 패턴)
+    @Valid
+    @NotNull(message = "paymentInfo is required")
     private PaymentInfo paymentInfo;
 
-    // 배송 정보 (선택적)
+    @Valid
     private ShippingInfo shippingInfo;
 
-    // 멱등성 및 추적
-    private String idempotencyKey; // 멱등성 키
-    private String correlationId;  // 추적용
+    @NotBlank(message = "idempotencyKey is required")
+    private String idempotencyKey;
+
+    private String correlationId;
 
     @Data
     @SuperBuilder
     @NoArgsConstructor
     @AllArgsConstructor
+    @EqualsAndHashCode(callSuper = true)
     public static class PaymentInfo extends BasePaymentDto {
-        // 추가 결제 전용 필드들
         private String merchantId;
-        private String orderName; // PG사 전달용 주문명
-
-        // 콜백 URL들
+        private String orderName;
         private String successUrl;
         private String failUrl;
         private String cancelUrl;
@@ -49,7 +49,7 @@ public class CompleteReservationRequest extends BaseReservationDto {
     @AllArgsConstructor
     public static class ShippingInfo {
         private String address;
-        private String method; // STANDARD, EXPRESS 등
+        private String method;
         private String specialInstructions;
         private String contactPhone;
     }

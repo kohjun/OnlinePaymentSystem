@@ -378,6 +378,36 @@ public class ReservationOrchestrator {
                 return null;
             }
 
+            Order order = orderService.getOrderByReservationId(reservationId);
+            Payment payment = paymentProcessingService.getPaymentByReservationId(reservationId);
+            if (order != null || payment != null) {
+                return CompleteReservationResponse.builder()
+                        .reservation(CompleteReservationResponse.ReservationInfo.builder()
+                                .reservationId(reservationId)
+                                .productId(reservation.getProductId())
+                                .quantity(reservation.getQuantity())
+                                .expiresAt(reservation.getExpiresAt())
+                                .build())
+                        .order(order != null ? CompleteReservationResponse.OrderInfo.builder()
+                                .orderId(order.getOrderId())
+                                .customerId(order.getCustomerId())
+                                .status(order.getStatus().name())
+                                .createdAt(order.getCreatedAt())
+                                .build() : null)
+                        .payment(payment != null ? CompleteReservationResponse.PaymentInfo.builder()
+                                .paymentId(payment.getPaymentId())
+                                .transactionId(payment.getTransactionId())
+                                .approvalNumber(payment.getApprovalNumber())
+                                .amount(payment.getAmount().getAmount())
+                                .currency(payment.getAmount().getCurrency())
+                                .status(payment.getStatus().name())
+                                .processedAt(payment.getProcessedAt())
+                                .build() : null)
+                        .status(order != null && payment != null ? "SUCCESS" : "PARTIAL")
+                        .message("Postgres 기준 예약 상태 조회")
+                        .build();
+            }
+
             return CompleteReservationResponse.builder()
                     .reservation(CompleteReservationResponse.ReservationInfo.builder()
                             .reservationId(reservationId)

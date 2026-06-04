@@ -1,81 +1,56 @@
 package com.example.payment.application.event.publisher;
 
-import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.stereotype.Service;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.example.payment.infrastructure.messaging.outbox.OutboxEventService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
 
+import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 
-/**
- * 주문 이벤트 퍼블리셔
- */
 @Service
 @Slf4j
 @RequiredArgsConstructor
 public class OrderEventPublisher {
 
-    private final KafkaTemplate<String, String> kafkaTemplate;
-    private final ObjectMapper objectMapper;
-
     private static final String TOPIC = "order-events";
 
-    /**
-     * 주문 생성 이벤트
-     */
+    private final OutboxEventService outboxEventService;
+
     public void publishOrderCreated(String orderId, String customerId, String reservationId) {
-        publishEvent("ORDER_CREATED", orderId, Map.of(
-                "customerId", customerId,
-                "reservationId", reservationId
-        ));
+        Map<String, Object> payload = basePayload("ORDER_CREATED", orderId);
+        payload.put("customerId", customerId);
+        payload.put("reservationId", reservationId);
+        record("ORDER_CREATED", orderId, payload);
     }
 
-    /**
-     * 주문 상태 변경 이벤트
-     */
     public void publishOrderStatusChanged(String orderId, String oldStatus, String newStatus) {
-        publishEvent("ORDER_STATUS_CHANGED", orderId, Map.of(
-                "oldStatus", oldStatus,
-                "newStatus", newStatus
-        ));
+        Map<String, Object> payload = basePayload("ORDER_STATUS_CHANGED", orderId);
+        payload.put("oldStatus", oldStatus);
+        payload.put("newStatus", newStatus);
+        record("ORDER_STATUS_CHANGED", orderId, payload);
     }
 
-    /**
-     * 주문 취소 이벤트
-     */
     public void publishOrderCancelled(String orderId, String reason) {
-        publishEvent("ORDER_CANCELLED", orderId, Map.of(
-                "reason", reason
-        ));
+        Map<String, Object> payload = basePayload("ORDER_CANCELLED", orderId);
+        payload.put("reason", reason);
+        record("ORDER_CANCELLED", orderId, payload);
     }
 
-    /**
-     * 공통 이벤트 발행 메서드
-     */
-    private void publishEvent(String eventType, String orderId, Map<String, Object> additionalData) {
+    private void record(String eventType, String orderId, Map<String, Object> payload) {
         try {
-            Map<String, Object> eventData = new java.util.HashMap<>(additionalData);
-            eventData.put("eventType", eventType);
-            eventData.put("orderId", orderId);
-            eventData.put("timestamp", Optional.of(System.currentTimeMillis()));
-
-            String eventJson = objectMapper.writeValueAsString(eventData);
-
-            kafkaTemplate.send(TOPIC, orderId, eventJson)
-                    .whenComplete((result, ex) -> {
-                        if (ex == null) {
-                            log.debug("Order event published: type={}, orderId={}", eventType, orderId);
-                        } else {
-                            log.error("Failed to publish order event: type={}, orderId={}, error={}",
-                                    eventType, orderId, ex.getMessage());
-                        }
-                    });
-
+            outboxEventService.record("ORDER", orderId, eventType, TOPIC, orderId, payload);
+            log.debug("Order event recorded in outbox: type={}, orderId={}", eventType, orderId);
         } catch (Exception e) {
-            log.error("Error publishing order event: type={}, orderId={}", eventType, orderId, e);
+            log.error("Error recording order event: type={}, orderId={}", eventType, orderId, e);
         }
+    }
+
+    private Map<String, Object> basePayload(String eventType, String orderId) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("eventType", eventType);
+        payload.put("orderId", orderId);
+        payload.put("timestamp", System.currentTimeMillis());
+        return payload;
     }
 }

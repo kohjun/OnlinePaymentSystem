@@ -38,7 +38,7 @@ public class Inventory {
     private LocalDateTime lastUpdatedAt;
 
     @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "product_id")
+    @JoinColumn(name = "product_id", insertable = false, updatable = false)
     private Product product;
 
     @PreUpdate

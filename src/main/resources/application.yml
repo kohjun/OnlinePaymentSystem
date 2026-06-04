@@ -3,46 +3,42 @@ spring:
     name: payment-service
 
   datasource:
-    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
-    username: sa
-    password:
-    driver-class-name: org.h2.Driver
+    url: jdbc:postgresql://localhost:5432/payment
+    username: payment
+    password: payment
+    driver-class-name: org.postgresql.Driver
     hikari:
-      maximum-pool-size: 300
+      maximum-pool-size: 50
       minimum-idle: 5
 
-  wal:
+  flyway:
     enabled: true
-    retention-days: 30
+    locations: classpath:db/migration
+    baseline-on-migrate: true
 
   jpa:
     hibernate:
-      ddl-auto: create-drop
-    show-sql: true
+      ddl-auto: validate
+    show-sql: false
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.H2Dialect
+        dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
     open-in-view: false
-    defer-datasource-initialization: true  # ✅ JPA 생성 후 SQL 실행
 
   sql:
     init:
-      mode: always  # ✅ schema.sql 실행 (시퀀스만 생성)
-      encoding: UTF-8
-      schema-locations: classpath:schema.sql
-      data-locations: classpath:test-data.sql
-      continue-on-error: false
+      mode: never
 
   task:
     execution:
       pool:
         core-size: 4
-        max-size: 8
-        queue-capacity: 100
+        max-size: 16
+        queue-capacity: 500
     scheduling:
       pool:
-        size: 2
+        size: 4
 
   data:
     redis:
@@ -51,10 +47,10 @@ spring:
       timeout: 5000
       lettuce:
         pool:
-          max-active: 200 # [수정] 동시성 스레드 수(1000)에 대비하여 연결 풀 확장 (8 -> 100)
-          max-idle: 50    # [수정] 유휴 연결 풀 확장 (8 -> 50)
-          min-idle: 10    # [수정] 최소 유휴 연결 유지 (0 -> 10)
-          max-wait: 50ms  # [수정] 연결 대기 시간 제한 (무제한 -> 50ms)
+          max-active: 200
+          max-idle: 50
+          min-idle: 10
+          max-wait: 50ms
 
   kafka:
     bootstrap-servers: localhost:9092
@@ -64,14 +60,12 @@ spring:
       acks: all
       retries: 3
     consumer:
-      # [수정] 1. group-id를 'payment-group' -> 'payment-events-group' 로 변경
-      # (KafkaConfig에서 사용하던 실제 값으로 yml을 수정)
       group-id: payment-events-group
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
-        spring.json.trusted.packages: com.example.payment.event,com.example.payment.dto
+        spring.json.trusted.packages: com.example.payment.event,com.example.payment.dto,com.example.payment.domain.event,com.example.payment.presentation.dto.response
       enable-auto-commit: false
 
 server:
@@ -87,6 +81,33 @@ payment:
   processing:
     retry-count: 3
     timeout-seconds: 60
+  default-gateway: MOCK_PAYMENT_GATEWAY
   topics:
     payment-requests: payment-requests
     payment-events: payment-events
+
+app:
+  temporal:
+    enabled: true
+    worker-enabled: true
+    target: localhost:7233
+    namespace: payment
+    task-queue: payment-reservation-task-queue
+    start-to-close-timeout-seconds: 30
+    result-wait-timeout-seconds: 5
+  outbox:
+    enabled: true
+    publish-fixed-delay-ms: 1000
+    batch-size: 50
+    max-retry: 5
+    retry-backoff-seconds: 5
+  kafka:
+    listeners:
+      payment-events:
+        enabled: false
+  legacy-wal:
+    enabled: false
+  inventory:
+    reconciliation:
+      enabled: false
+      fixed-delay-ms: 60000

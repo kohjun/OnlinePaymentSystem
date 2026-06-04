@@ -3,6 +3,7 @@ package com.example.payment.application.event.handler;
 import com.example.payment.infrastructure.util.IdGenerator;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import com.example.payment.domain.event.PaymentEvent;
@@ -21,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 @Component  
 @Slf4j
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "app.kafka.listeners.payment-events.enabled", havingValue = "true")
 public class PaymentEventListener {
 
     private final OrderService orderService;

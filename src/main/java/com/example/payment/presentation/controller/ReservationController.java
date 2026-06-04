@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import com.example.payment.application.service.ReservationOrchestrator;
+import com.example.payment.application.service.CompleteReservationGateway;
 import com.example.payment.presentation.dto.request.ReservationOnlyRequest;
 import com.example.payment.presentation.dto.request.CompleteReservationRequest;
 import com.example.payment.presentation.dto.response.ReservationResponse;
@@ -23,6 +24,7 @@ import com.example.payment.infrastructure.util.RateLimiter;
 public class ReservationController {
 
     private final ReservationOrchestrator reservationOrchestrator;
+    private final CompleteReservationGateway completeReservationGateway;
     private final RateLimiter rateLimiter;
 
     // ========================================
@@ -53,7 +55,7 @@ public class ReservationController {
         }
 
         // 오케스트레이터에 전체 플로우 위임
-        CompleteReservationResponse result = reservationOrchestrator.processCompleteReservation(request);
+        CompleteReservationResponse result = completeReservationGateway.processCompleteReservation(request);
 
         // 응답 처리
         if ("SUCCESS".equals(result.getStatus())) {
@@ -62,11 +64,26 @@ public class ReservationController {
                     result.getOrder().getOrderId(),
                     result.getPayment().getPaymentId());
             return ResponseEntity.ok(result);
+        } else if ("PENDING".equals(result.getStatus())) {
+            log.info("Complete reservation workflow pending: workflowId={}", result.getWorkflowId());
+            return ResponseEntity.accepted().body(result);
         } else {
             log.warn("Complete reservation failed: customerId={}, productId={}, reason={}",
                     request.getCustomerId(), request.getProductId(), result.getMessage());
             return ResponseEntity.badRequest().body(result);
         }
+    }
+
+    @GetMapping("/workflows/{workflowId}")
+    public ResponseEntity<CompleteReservationResponse> getWorkflowStatus(@PathVariable String workflowId) {
+        CompleteReservationResponse response = completeReservationGateway.getWorkflowStatus(workflowId);
+        if (response == null) {
+            return ResponseEntity.notFound().build();
+        }
+        if ("PENDING".equals(response.getStatus())) {
+            return ResponseEntity.accepted().body(response);
+        }
+        return ResponseEntity.ok(response);
     }
 
     // ========================================

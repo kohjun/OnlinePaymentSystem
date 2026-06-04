@@ -11,7 +11,7 @@ import java.util.List;  // ✅ 추가
 import lombok.extern.slf4j.Slf4j;
 
 import com.example.payment.application.service.OrderService;
-import com.example.payment.presentation.dto.response.OrderResponse;
+import com.example.payment.domain.model.order.Order;
 
 /**
  * 주문 관리 컨트롤러
@@ -35,7 +35,12 @@ public class OrderController {
 
         log.debug("Getting order status: orderId={}", orderId);
 
-        OrderResponse response = OrderResponse.from(orderService.getOrder(orderId));
+        Order order = orderService.getOrder(orderId);
+        if (order == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        OrderResponse response = OrderResponse.from(order);
 
         if (response != null) {
             if ("NOT_FOUND".equals(response.getStatus())) {

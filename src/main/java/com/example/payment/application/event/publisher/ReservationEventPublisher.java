@@ -1,143 +1,63 @@
 package com.example.payment.application.event.publisher;
 
 import com.example.payment.domain.model.reservation.InventoryReservation;
-import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.stereotype.Service;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.example.payment.infrastructure.messaging.outbox.OutboxEventService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
 
+import java.util.HashMap;
 import java.util.Map;
 
-/**
- * 예약 이벤트 퍼블리셔
- */
 @Service
 @Slf4j
 @RequiredArgsConstructor
 public class ReservationEventPublisher {
 
-    private final KafkaTemplate<String, String> kafkaTemplate;
-    private final ObjectMapper objectMapper;
-
     private static final String TOPIC = "reservation-events";
 
-    /**
-     * 예약 생성 이벤트
-     */
+    private final OutboxEventService outboxEventService;
+
     public void publishReservationCreated(InventoryReservation reservation) {
-        publishEvent("RESERVATION_CREATED", reservation);
+        Map<String, Object> payload = basePayload("RESERVATION_CREATED", reservation.getReservationId());
+        payload.put("productId", reservation.getProductId());
+        payload.put("quantity", reservation.getQuantity());
+        payload.put("status", reservation.getStatus());
+        record("RESERVATION_CREATED", reservation.getReservationId(), payload);
     }
 
-    /**
-     * 예약 확정 이벤트 ← 추가
-     */
     public void publishReservationConfirmed(String reservationId, String orderId, String paymentId) {
-        try {
-            Map<String, Object> eventData = Map.of(
-                    "eventType", "RESERVATION_CONFIRMED",
-                    "reservationId", reservationId,
-                    "orderId", orderId,
-                    "paymentId", paymentId,
-                    "timestamp", System.currentTimeMillis()
-            );
-
-            String eventJson = objectMapper.writeValueAsString(eventData);
-
-            kafkaTemplate.send(TOPIC, reservationId, eventJson)
-                    .whenComplete((result, ex) -> {
-                        if (ex == null) {
-                            log.debug("Reservation confirmed event published: {}", reservationId);
-                        } else {
-                            log.error("Failed to publish reservation confirmed event: {}", ex.getMessage());
-                        }
-                    });
-
-        } catch (Exception e) {
-            log.error("Error publishing reservation confirmed event: reservationId={}", reservationId, e);
-        }
+        Map<String, Object> payload = basePayload("RESERVATION_CONFIRMED", reservationId);
+        payload.put("orderId", orderId);
+        payload.put("paymentId", paymentId);
+        record("RESERVATION_CONFIRMED", reservationId, payload);
     }
 
-    /**
-     * 예약 취소 이벤트
-     */
     public void publishReservationCancelled(String reservationId, String reason) {
-        try {
-            Map<String, Object> eventData = Map.of(
-                    "eventType", "RESERVATION_CANCELLED",
-                    "reservationId", reservationId,
-                    "reason", reason,
-                    "timestamp", System.currentTimeMillis()
-            );
-
-            String eventJson = objectMapper.writeValueAsString(eventData);
-
-            kafkaTemplate.send(TOPIC, reservationId, eventJson)
-                    .whenComplete((result, ex) -> {
-                        if (ex == null) {
-                            log.debug("Reservation cancelled event published: {}", reservationId);
-                        } else {
-                            log.error("Failed to publish reservation cancelled event: {}", ex.getMessage());
-                        }
-                    });
-
-        } catch (Exception e) {
-            log.error("Error publishing reservation cancelled event: reservationId={}", reservationId, e);
-        }
+        Map<String, Object> payload = basePayload("RESERVATION_CANCELLED", reservationId);
+        payload.put("reason", reason);
+        record("RESERVATION_CANCELLED", reservationId, payload);
     }
 
-    /**
-     * 예약 만료 이벤트
-     */
     public void publishReservationExpired(String reservationId) {
+        Map<String, Object> payload = basePayload("RESERVATION_EXPIRED", reservationId);
+        record("RESERVATION_EXPIRED", reservationId, payload);
+    }
+
+    private void record(String eventType, String reservationId, Map<String, Object> payload) {
         try {
-            Map<String, Object> eventData = Map.of(
-                    "eventType", "RESERVATION_EXPIRED",
-                    "reservationId", reservationId,
-                    "timestamp", System.currentTimeMillis()
-            );
-
-            String eventJson = objectMapper.writeValueAsString(eventData);
-
-            kafkaTemplate.send(TOPIC, reservationId, eventJson);
-            log.info("Reservation expired event published: {}", reservationId);
-
+            outboxEventService.record("RESERVATION", reservationId, eventType, TOPIC, reservationId, payload);
+            log.debug("Reservation event recorded in outbox: type={}, reservationId={}", eventType, reservationId);
         } catch (Exception e) {
-            log.error("Error publishing reservation expired event: reservationId={}", reservationId, e);
+            log.error("Error recording reservation event: type={}, reservationId={}", eventType, reservationId, e);
         }
     }
 
-    /**
-     * 공통 이벤트 발행 메서드
-     */
-    private void publishEvent(String eventType, InventoryReservation reservation) {
-        try {
-            Map<String, Object> eventData = Map.of(
-                    "eventType", eventType,
-                    "reservationId", reservation.getReservationId(),
-                    "productId", reservation.getProductId(),
-                    "quantity", reservation.getQuantity(),
-                    "status", reservation.getStatus(),
-                    "timestamp", System.currentTimeMillis()
-            );
-
-            String eventJson = objectMapper.writeValueAsString(eventData);
-
-            kafkaTemplate.send(TOPIC, reservation.getReservationId(), eventJson)
-                    .whenComplete((result, ex) -> {
-                        if (ex == null) {
-                            log.debug("Reservation event published: type={}, id={}",
-                                    eventType, reservation.getReservationId());
-                        } else {
-                            log.error("Failed to publish reservation event: type={}, error={}",
-                                    eventType, ex.getMessage());
-                        }
-                    });
-
-        } catch (Exception e) {
-            log.error("Error publishing reservation event: type={}, reservationId={}",
-                    eventType, reservation.getReservationId(), e);
-        }
+    private Map<String, Object> basePayload(String eventType, String reservationId) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("eventType", eventType);
+        payload.put("reservationId", reservationId);
+        payload.put("timestamp", System.currentTimeMillis());
+        return payload;
     }
 }

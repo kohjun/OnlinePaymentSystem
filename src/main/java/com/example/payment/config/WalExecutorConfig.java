@@ -58,7 +58,7 @@ public class WalExecutorConfig {
         executor.setThreadFactory(r -> {
             Thread t = new Thread(r);
             t.setName(threadNamePrefix + t.getId());
-            t.setDaemon(false); // 데몬 스레드가 아니므로 JVM 종료 시 완료 대기
+            t.setDaemon(true);
             return t;
         });
 
