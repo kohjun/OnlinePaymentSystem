@@ -140,18 +140,18 @@ public class ResourceReservationService {
 
 
     /**
-     * 재고 초기화 (테스트용)
+     * 재고 초기화
      */
     public void initializeResource(String resourceKey, int total, int available) {
         try {
             Map<String, Object> resourceData = new HashMap<>();
             resourceData.put("total", total);
             resourceData.put("available", available);
-            resourceData.put("reserved", 0);
+            resourceData.put("reserved", total - available);
 
             redisTemplate.opsForHash().putAll(resourceKey, resourceData);
-            log.info("Resource initialized: key={}, total={}, available={}",
-                    resourceKey, total, available);
+            log.info("Resource initialized: key={}, total={}, available={}, reserved={}",
+                    resourceKey, total, available, total - available);
         } catch (Exception e) {
             log.error("Error initializing resource {}: {}", resourceKey, e.getMessage());
         }

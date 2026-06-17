@@ -14,7 +14,6 @@ import com.example.payment.domain.model.order.Order;
 import com.example.payment.domain.model.payment.Payment;
 import com.example.payment.domain.model.reservation.InventoryReservation;
 import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
-import com.example.payment.infrastructure.persistence.wal.WalService;
 import com.example.payment.infrastructure.util.IdGenerator;
 import com.example.payment.presentation.dto.request.CompleteReservationRequest;
 // [추가] 2. CompleteReservationResponse 임포트 (문제 2.A)
@@ -49,7 +48,6 @@ public class ReservationOrchestrator {
 
     // 인프라 서비스들
     private final CacheService cacheService;
-    private final WalService walService;
 
     // 이벤트 퍼블리셔들
     private final ReservationEventPublisher reservationEventPublisher;
@@ -65,8 +63,6 @@ public class ReservationOrchestrator {
 
         log.info("Starting complete reservation flow: txId={}, customerId={}, productId={}, quantity={}",
                 transactionId, request.getCustomerId(), request.getProductId(), request.getQuantity());
-
-        Map<String, String> walLogIds = new HashMap<>();
 
         // [수정] 3. try-catch 블록을 세분화하여 보상 트랜잭션이 명확히 실행되도록 함
         ReservationResult reservationResult = null;
@@ -97,13 +93,11 @@ public class ReservationOrchestrator {
                 return CompleteReservationResponse.failed("재고 선점 실패: 재고가 부족합니다");
             }
 
-            // [수정] 5. 객체 및 walLogId 추출
+            // [수정] 5. 객체 추출
             InventoryReservation reservation = reservationResult.getReservation();
-            String reservationPhase1LogId = reservationResult.getWalLogId();
-            walLogIds.put("RESERVATION_PHASE1", reservationPhase1LogId);
 
-            log.info("[Phase 1] Reservation succeeded: txId={}, reservationId={}, phase1LogId={}",
-                    transactionId, reservation.getReservationId(), reservationPhase1LogId);
+            log.info("[Phase 1] Reservation succeeded: txId={}, reservationId={}",
+                    transactionId, reservation.getReservationId());
             reservationEventPublisher.publishReservationCreated(reservation);
 
             // ===================================
@@ -125,14 +119,12 @@ public class ReservationOrchestrator {
                     request.getPaymentInfo().getAmount(),
                     request.getPaymentInfo().getCurrency(),
                     reservation.getReservationId()
-            );
+                );
 
             Order order = orderResult.getOrder();
-            String orderPhase1LogId = orderResult.getPhase1WalLogId();
-            walLogIds.put("ORDER_PHASE1", orderPhase1LogId);
 
-            log.info("[Phase 1] Order created: txId={}, orderId={}, phase1LogId={}",
-                    transactionId, order.getOrderId(), orderPhase1LogId);
+            log.info("[Phase 1] Order created: txId={}, orderId={}",
+                    transactionId, order.getOrderId());
 
             orderEventPublisher.publishOrderCreated(
                     order.getOrderId(),
@@ -187,7 +179,6 @@ public class ReservationOrchestrator {
 
             InventoryConfirmation confirmation = inventoryManagementService.confirmReservation(
                     transactionId,
-                    reservationPhase1LogId,           // [수정] 6. null 대신 실제 walLogId 전달
                     reservation.getReservationId(),
                     order.getOrderId(),
                     payment.getPaymentId()
@@ -214,7 +205,6 @@ public class ReservationOrchestrator {
 
             boolean orderUpdated = orderService.markOrderAsPaid(
                     transactionId,
-                    orderPhase1LogId,
                     order.getOrderId(),
                     payment.getPaymentId()
             );

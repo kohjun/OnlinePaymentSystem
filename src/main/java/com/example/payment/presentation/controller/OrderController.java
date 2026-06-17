@@ -1,22 +1,22 @@
 package com.example.payment.presentation.controller;
 
-import com.example.payment.infrastructure.util.IdGenerator;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.validation.annotation.Validated;
-import lombok.RequiredArgsConstructor;
-import com.example.payment.presentation.dto.response.OrderResponse;  // ✅ 추가
-import java.util.Collections;  // ✅ 추가
-import java.util.List;  // ✅ 추가
-import lombok.extern.slf4j.Slf4j;
-
 import com.example.payment.application.service.OrderService;
 import com.example.payment.domain.model.order.Order;
+import com.example.payment.infrastructure.util.IdGenerator;
+import com.example.payment.presentation.dto.response.OrderResponse;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 주문 관리 컨트롤러
- * - 결제 완료 후 생성된 주문의 조회 및 관리
- */
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/orders")
 @RequiredArgsConstructor
@@ -26,55 +26,30 @@ public class OrderController {
 
     private final OrderService orderService;
 
-    /**
-     * 주문 상태 조회
-     * GET /api/orders/{orderId}
-     */
     @GetMapping("/{orderId}")
     public ResponseEntity<OrderResponse> getOrderStatus(@PathVariable String orderId) {
-
         log.debug("Getting order status: orderId={}", orderId);
 
         Order order = orderService.getOrder(orderId);
         if (order == null) {
             return ResponseEntity.notFound().build();
         }
-
-        OrderResponse response = OrderResponse.from(order);
-
-        if (response != null) {
-            if ("NOT_FOUND".equals(response.getStatus())) {
-                return ResponseEntity.notFound().build();
-            } else if ("ERROR".equals(response.getStatus())) {
-                return ResponseEntity.internalServerError().body(response);
-            } else {
-                return ResponseEntity.ok(response);
-            }
-        } else {
-            return ResponseEntity.notFound().build();
-        }
+        return ResponseEntity.ok(OrderResponse.from(order));
     }
 
+    @GetMapping("/customer/{customerId}")
+    public ResponseEntity<List<OrderResponse>> getCustomerOrders(
+            @PathVariable String customerId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
 
-    /**
-     * ✅ 고객의 주문 목록 조회
-     */
-    public List<OrderResponse> getCustomerOrders(String customerId) {
-        try {
-            // 실제 구현에서는 Repository에서 조회
-            // 현재는 캐시만 사용하므로 빈 리스트 반환
-            log.warn("getCustomerOrders not fully implemented yet: customerId={}", customerId);
-            return Collections.emptyList();
-
-        } catch (Exception e) {
-            log.error("Error getting customer orders: customerId={}", customerId, e);
-            return Collections.emptyList();
-        }
+        List<OrderResponse> orders = orderService.getOrdersByCustomerId(customerId, page, size)
+                .stream()
+                .map(OrderResponse::from)
+                .toList();
+        return ResponseEntity.ok(orders);
     }
-    /**
-     * 주문 취소 (특정 조건에서만 가능)
-     * DELETE /api/orders/{orderId}
-     */
+
     @PostMapping("/{orderId}/cancel")
     public ResponseEntity<String> cancelOrder(@PathVariable String orderId,
                                               @RequestParam String customerId,
@@ -83,33 +58,23 @@ public class OrderController {
         log.info("Order cancellation requested: orderId={}, customerId={}", orderId, customerId);
 
         try {
-            String reason = cancelReason != null ? cancelReason : "고객 요청";
+            String reason = cancelReason != null ? cancelReason : "Customer requested cancellation";
+            String transactionId = IdGenerator.generateCorrelationId();
 
-            String transactionId = IdGenerator.generateCorrelationId();  // transactionId 생성
-
-            boolean cancelled = orderService.cancelOrder(
-                    transactionId,      // 1. transactionId
-                    orderId,            // 2. orderId
-                    customerId,         // 3. customerId
-                    reason              // 4. reason
-            );
-
+            boolean cancelled = orderService.cancelOrder(transactionId, orderId, customerId, reason);
             if (cancelled) {
                 log.info("Order cancelled successfully: orderId={}", orderId);
-                return ResponseEntity.ok("주문이 취소되었습니다.");
-            } else {
-                log.warn("Failed to cancel order: orderId={}", orderId);
-                return ResponseEntity.badRequest().body(
-                        "주문 취소에 실패했습니다. 이미 취소되었거나 취소할 수 없는 상태입니다.");
+                return ResponseEntity.ok("Order cancelled successfully.");
             }
+
+            log.warn("Failed to cancel order: orderId={}", orderId);
+            return ResponseEntity.badRequest().body(
+                    "Order cancellation failed. It may already be cancelled or cannot be cancelled."
+            );
 
         } catch (Exception e) {
             log.error("Error cancelling order: orderId={}", orderId, e);
-            return ResponseEntity.internalServerError().body("시스템 오류가 발생했습니다.");
+            return ResponseEntity.internalServerError().body("System error while cancelling order.");
         }
     }
-
-
-
-
 }

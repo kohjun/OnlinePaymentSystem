@@ -1,15 +1,13 @@
-/**
- * 통합 예약+결제 응답
- */
 package com.example.payment.presentation.dto.response;
 
 import com.example.payment.presentation.dto.common.BaseResponse;
+import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
-import com.fasterxml.jackson.annotation.JsonFormat;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
@@ -21,14 +19,8 @@ import java.time.LocalDateTime;
 public class CompleteReservationResponse extends BaseResponse {
 
     private String workflowId;
-
-    // 예약 정보
     private ReservationInfo reservation;
-
-    // 주문 정보
     private OrderInfo order;
-
-    // 결제 정보
     private PaymentInfo payment;
 
     @Data
@@ -73,7 +65,6 @@ public class CompleteReservationResponse extends BaseResponse {
         private LocalDateTime processedAt;
     }
 
-    // 헬퍼 메서드들
     public static CompleteReservationResponse success(String reservationId, String orderId,
                                                       String paymentId, String transactionId,
                                                       String productId, Integer quantity,
@@ -86,7 +77,7 @@ public class CompleteReservationResponse extends BaseResponse {
                         .build())
                 .order(OrderInfo.builder()
                         .orderId(orderId)
-                        .status("CREATED")
+                        .status("PAID")
                         .createdAt(LocalDateTime.now())
                         .build())
                 .payment(PaymentInfo.builder()
@@ -98,7 +89,8 @@ public class CompleteReservationResponse extends BaseResponse {
                         .processedAt(LocalDateTime.now())
                         .build())
                 .status("SUCCESS")
-                .message("통합 예약이 완료되었습니다")
+                .message("Complete reservation finished.")
+                .timestamp(LocalDateTime.now())
                 .build();
     }
 
@@ -106,6 +98,7 @@ public class CompleteReservationResponse extends BaseResponse {
         return CompleteReservationResponse.builder()
                 .status("FAILED")
                 .message(message)
+                .timestamp(LocalDateTime.now())
                 .build();
     }
 }

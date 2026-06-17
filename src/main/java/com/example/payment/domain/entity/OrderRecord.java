@@ -36,6 +36,9 @@ public class OrderRecord {
 
     private String paymentId;
 
+    @Column(name = "seat_id")
+    private String seatId;
+
     @Column(nullable = false)
     private Integer quantity;
 

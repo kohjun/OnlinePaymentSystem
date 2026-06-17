@@ -35,8 +35,18 @@ public class StartupDataInitializer implements ApplicationRunner {
                 new BigDecimal("129.99"), "ELECTRONICS", 50);
         seedProduct("SAGA-TEST-001", "Saga Test Product", "Temporal reservation test product",
                 new BigDecimal("100.00"), "TEST", 200);
+        seedProduct("CONCERT-VIP", "PSY Summer Swag - VIP Seat", "Concert VIP Ticket",
+                new BigDecimal("150000.00"), "CONCERT", 24);
+        seedProduct("CONCERT-R", "PSY Summer Swag - R Seat", "Concert R Ticket",
+                new BigDecimal("120000.00"), "CONCERT", 36);
+        seedProduct("CONCERT-S", "PSY Summer Swag - S Seat", "Concert S Ticket",
+                new BigDecimal("90000.00"), "CONCERT", 48);
+        seedProduct("DRAW-NIKE", "나이키 에어 조던 1 레트로 한정판 드로우", "Air Jordan 1 Retro High",
+                new BigDecimal("239000.00"), "DRAW", 10);
+        seedProduct("AUCTION-ROLEX", "빈티지 롤렉스 서브마리너 경매", "Vintage Rolex Submariner",
+                new BigDecimal("8500000.00"), "AUCTION", 1);
 
-        List.of("PROD-001", "PROD-002", "SAGA-TEST-001").forEach(productId ->
+        List.of("PROD-001", "PROD-002", "SAGA-TEST-001", "CONCERT-VIP", "CONCERT-R", "CONCERT-S", "DRAW-NIKE", "AUCTION-ROLEX").forEach(productId ->
                 inventoryRepository.findById(productId).ifPresent(inventory ->
                         initializeRedisInventoryIfMissing(
                                 productId,

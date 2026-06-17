@@ -11,7 +11,6 @@ import com.example.payment.domain.repository.PaymentRecordRepository;
 import com.example.payment.domain.service.PaymentGatewayService;
 import com.example.payment.infrastructure.gateway.PaymentGatewayFactory;
 import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
-import com.example.payment.infrastructure.persistence.wal.WalService;
 import com.example.payment.infrastructure.util.IdGenerator;
 import com.example.payment.presentation.dto.request.PaymentProcessRequest;
 import com.example.payment.presentation.dto.response.PaymentResponse;
@@ -23,7 +22,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
- * 결제 처리 서비스
+ * 결제 처리 서비스 (WAL 의존성 제거)
  */
 @Service
 @Slf4j
@@ -32,7 +31,6 @@ public class PaymentProcessingService {
 
     private final PaymentGatewayFactory gatewayFactory;
     private final CacheService cacheService;
-    private final WalService walService;
     private final PaymentRecordRepository paymentRecordRepository;
 
     private static final int PAYMENT_CACHE_TTL_SECONDS = 86400; // 24시간
@@ -54,17 +52,6 @@ public class PaymentProcessingService {
                 transactionId, paymentId, orderId, amount, method);
 
         try {
-            String entityIds = buildEntityIdsJson(paymentId, orderId, reservationId);
-            String afterData = buildPaymentJson(paymentId, orderId, customerId, amount, currency, "PROCESSING");
-
-            String walLogId = walService.logOperationStart(
-                    transactionId,
-                    "PAYMENT_PROCESS_START",
-                    "payments",
-                    entityIds,
-                    afterData
-            );
-
             Payment payment = Payment.builder()
                     .paymentId(paymentId)
                     .orderId(orderId)
@@ -76,7 +63,6 @@ public class PaymentProcessingService {
                     .build();
 
             String cacheKey = "payment:" + paymentId;
-            // cacheData는 cacheObject의 alias이며 String(JSON)으로 저장
             cacheService.cacheData(cacheKey, payment, PAYMENT_CACHE_TTL_SECONDS);
             paymentRecordRepository.save(PaymentRecord.builder()
                     .paymentId(paymentId)
@@ -110,24 +96,9 @@ public class PaymentProcessingService {
 
                 log.info("Payment completed: paymentId={}, transactionId={}",
                         paymentId, pgResult.getTransactionId());
-
-                String beforeData = buildPaymentJson(paymentId, orderId, customerId, amount, currency, "PROCESSING");
-                String completedData = buildPaymentJson(paymentId, orderId, customerId, amount, currency, "COMPLETED");
-
-                walService.logOperationComplete(
-                        transactionId,
-                        "PAYMENT_PROCESS_COMPLETE",
-                        "payments",
-                        entityIds,
-                        beforeData,
-                        completedData
-                );
-                walService.updateLogStatus(walLogId, "COMMITTED", "결제 완료");
-
             } else {
                 payment.markAsFailed(pgResult.getErrorMessage());
                 log.warn("Payment failed: paymentId={}, reason={}", paymentId, pgResult.getErrorMessage());
-                walService.updateLogStatus(walLogId, "FAILED", "결제 실패: " + pgResult.getErrorMessage());
             }
 
             cacheService.cacheData(cacheKey, payment, PAYMENT_CACHE_TTL_SECONDS);
@@ -136,15 +107,6 @@ public class PaymentProcessingService {
 
         } catch (Exception e) {
             log.error("Error processing payment: paymentId={}", paymentId, e);
-
-            String entityIds = buildEntityIdsJson(paymentId, orderId, reservationId);
-            walService.logOperationFailure(
-                    transactionId,
-                    "PAYMENT_PROCESS_ERROR",
-                    "payments",
-                    entityIds,
-                    e.getMessage()
-            );
 
             Payment failedPayment = Payment.builder()
                     .paymentId(paymentId)
@@ -186,17 +148,6 @@ public class PaymentProcessingService {
                 return false;
             }
 
-            String entityIds = buildEntityIdsJson(paymentId, payment.getOrderId(), payment.getReservationId());
-            String afterData = buildRefundJson(paymentId, payment.getStatus().name());
-
-            String walLogId = walService.logOperationStart(
-                    transactionId,
-                    "PAYMENT_REFUND_START",
-                    "payments",
-                    entityIds,
-                    afterData
-            );
-
             PaymentGatewayService gateway = gatewayFactory.getGateway(payment.getMethod().name());
             boolean refunded = gateway.refundPayment(payment.getTransactionId());
 
@@ -207,24 +158,9 @@ public class PaymentProcessingService {
                 cacheService.cacheData(cacheKey, payment, PAYMENT_CACHE_TTL_SECONDS);
                 paymentRecordRepository.save(toRecord(payment, payment.getMethod().name()));
 
-                String beforeData = buildRefundJson(paymentId, "COMPLETED");
-                String refundedData = buildRefundJson(paymentId, "REFUNDED");
-
-                walService.logOperationComplete(
-                        transactionId,
-                        "PAYMENT_REFUND_COMPLETE",
-                        "payments",
-                        entityIds,
-                        beforeData,
-                        refundedData
-                );
-                walService.updateLogStatus(walLogId, "COMMITTED", "환불 완료");
-
                 log.info("Payment refunded successfully: paymentId={}", paymentId);
                 return true;
-
             } else {
-                walService.updateLogStatus(walLogId, "FAILED", "PG 환불 실패");
                 log.warn("PG refund failed: paymentId={}", paymentId);
                 return false;
             }
@@ -324,6 +260,16 @@ public class PaymentProcessingService {
                     .orElse(null);
         } catch (Exception e) {
             log.error("Error getting payment by reservation: reservationId={}", reservationId, e);
+            return null;
+        }
+    }
+
+    public PaymentResponse getPaymentStatusByReservationId(String reservationId) {
+        try {
+            Payment payment = getPaymentByReservationId(reservationId);
+            return payment != null ? convertToResponse(payment) : null;
+        } catch (Exception e) {
+            log.error("Error getting payment status by reservation: reservationId={}", reservationId, e);
             return null;
         }
     }

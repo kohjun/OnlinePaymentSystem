@@ -77,3 +77,5 @@ dependencies {
 tasks.named('test') {
     useJUnitPlatform()
 }
+
+layout.buildDirectory.set(file('build_sim'))

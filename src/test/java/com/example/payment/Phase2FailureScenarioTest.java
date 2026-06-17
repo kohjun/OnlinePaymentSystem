@@ -3,11 +3,9 @@ package com.example.payment;
 import com.example.payment.application.dto.PaymentGatewayResult;
 import com.example.payment.application.service.InventoryManagementService;
 import com.example.payment.application.service.OrderService;
-import com.example.payment.domain.entity.WalLogEntry;
 import com.example.payment.domain.model.inventory.Reservation;
 import com.example.payment.domain.repository.ReservationRepository;
 import com.example.payment.infrastructure.gateway.MockPaymentGateway;
-import com.example.payment.infrastructure.persistence.jpa.WalLogJpaRepository;
 import com.example.payment.infrastructure.util.ResourceReservationService;
 import com.example.payment.presentation.dto.request.CompleteReservationRequest;
 import com.example.payment.presentation.dto.response.CompleteReservationResponse;
@@ -34,17 +32,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Phase 2 실패 시나리오 테스트
- *
- * 목적:
- * Phase 1 (예약, 주문, 결제)이 성공한 후, Phase 2 (재고 확정, 주문 업데이트) 단계에서
- * 실패가 발생했을 때 보상 트랜잭션이 올바르게 동작하는지 검증
- *
- * 검증 항목:
- * 1. Phase 2 재고 확정 실패 → 결제 취소, 주문 취소, 재고 롤백
- * 2. Phase 2 주문 업데이트 실패 → 결제 취소, 재고 롤백
- * 3. WAL 로그에 FAILED 상태가 기록되는지 확인
- * 4. Redis 재고가 정확히 롤백되는지 확인
+ * Phase 2 실패 시나리오 테스트 (WAL 제거)
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Transactional
@@ -62,9 +50,6 @@ class Phase2FailureScenarioTest {
 
     @Autowired
     private ReservationRepository reservationRepository;
-
-    @Autowired
-    private WalLogJpaRepository walLogRepository;
 
     @MockBean
     private MockPaymentGateway mockPaymentGateway;
@@ -147,22 +132,6 @@ class Phase2FailureScenarioTest {
                 "❌ Reserved 재고가 0이 아닙니다!");
 
         System.out.println("✅ Redis 재고 롤백 확인");
-
-        // [검증 2] WAL 로그에 FAILED 상태가 있는지 확인
-        List<WalLogEntry> logs = walLogRepository.findByTransactionIdOrderByLsnAsc(correlationId);
-        boolean hasFailedLog = logs.stream()
-                .anyMatch(log -> "FAILED".equals(log.getStatus()));
-
-        System.out.println("\n📝 WAL 로그 검증:");
-        System.out.println("  - 총 로그 개수: " + logs.size());
-        System.out.println("  - FAILED 로그 존재: " + hasFailedLog);
-
-        if (hasFailedLog) {
-            System.out.println("✅ FAILED 로그 발견");
-        } else {
-            System.out.println("ℹ️ FAILED 로그 없음 (보상 트랜잭션이 WAL 로그를 남기지 않을 수 있음)");
-        }
-
         System.out.println("\n✅✅✅ 결제 실패 시 보상 트랜잭션이 정상 작동했습니다!");
     }
 
@@ -173,7 +142,7 @@ class Phase2FailureScenarioTest {
 
         // [Given] 주문 업데이트를 실패하도록 Mock 설정
         doReturn(false).when(orderService).markOrderAsPaid(
-                anyString(), anyString(), anyString(), anyString()
+                anyString(), anyString(), anyString()
         );
 
         System.out.println("⚠️ [Mock] markOrderAsPaid가 false를 반환하도록 설정");
@@ -218,14 +187,14 @@ class Phase2FailureScenarioTest {
 
         // [Given] 재고 확정 실패 설정
         doAnswer(invocation -> {
-            String reservationId = invocation.getArgument(2);
-            String orderId = invocation.getArgument(3);
-            String paymentId = invocation.getArgument(4);
+            String reservationId = invocation.getArgument(1);
+            String orderId = invocation.getArgument(2);
+            String paymentId = invocation.getArgument(3);
             return com.example.payment.domain.model.inventory.InventoryConfirmation.failure(
                     reservationId, orderId, paymentId, "의도된 실패"
             );
         }).when(inventoryManagementService).confirmReservation(
-                anyString(), anyString(), anyString(), anyString(), anyString()
+                anyString(), anyString(), anyString(), anyString()
         );
 
         // [When] 예약 시도
@@ -242,10 +211,6 @@ class Phase2FailureScenarioTest {
         // [Then] DB에서 Reservation 조회
         // Phase 2 실패 시 Reservation이 생성되었을 수 있음 (Phase 1은 성공했으므로)
         // 이 경우 상태가 CANCELLED로 변경되어야 함
-
-        // 참고: 현재 구조에서는 Phase 1에서만 Reservation이 생성되고,
-        // Phase 2 실패 시 보상 트랜잭션에서 취소됨
-        // 따라서 DB에 Reservation이 있다면 CANCELLED 상태여야 함
 
         List<Reservation> allReservations = reservationRepository.findAll();
         System.out.println("\n📊 DB의 Reservation 개수: " + allReservations.size());
@@ -332,73 +297,6 @@ class Phase2FailureScenarioTest {
         System.out.println("\n✅✅✅ 여러 번의 시도에서 재고 일관성이 완벽히 유지되었습니다!");
     }
 
-    @Test
-    @DisplayName("[Phase 2 실패 5] 결제 실패 후 WAL 로그로 트랜잭션 추적 가능 여부 확인")
-    void test_walLogsTraceableAfterPaymentFailure() {
-        System.out.println("\n[테스트 5] 결제 실패 후 WAL 로그 추적성 검증");
-
-        // [Given] 결제 실패 설정
-        when(mockPaymentGateway.processPayment(any()))
-                .thenReturn(PaymentGatewayResult.failure("MOCK_FAILURE", "의도된 결제 실패"));
-
-        // [When] 예약 시도
-        String customerId = "PHASE2-CUSTOMER-005";
-        CompleteReservationRequest request = createReservationRequest(TEST_PRODUCT_ID, customerId);
-        String correlationId = request.getCorrelationId();
-        String url = "http://localhost:" + port + "/api/reservations/complete";
-
-        ResponseEntity<CompleteReservationResponse> response =
-                restTemplate.postForEntity(url, request, CompleteReservationResponse.class);
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-
-        System.out.println("✅ API 실패 확인");
-
-        // [Then] WAL 로그로 트랜잭션 흐름 추적
-        List<WalLogEntry> logs = walLogRepository.findByTransactionIdOrderByLsnAsc(correlationId);
-
-        System.out.println("\n📝 WAL 로그 분석 (총 " + logs.size() + "개):");
-        System.out.println("=".repeat(70));
-
-        int phase1SuccessCount = 0;
-        int failureCount = 0;
-        int compensationCount = 0;
-
-        for (WalLogEntry log : logs) {
-            System.out.println("\n  [" + log.getOperation() + "]");
-            System.out.println("    상태: " + log.getStatus());
-            System.out.println("    메시지: " + log.getMessage());
-
-            // Phase 1 성공 로그
-            if (log.getOperation().contains("RESERVE") && "COMMITTED".equals(log.getStatus())) {
-                phase1SuccessCount++;
-            }
-
-            // 실패 로그
-            if ("FAILED".equals(log.getStatus())) {
-                failureCount++;
-            }
-
-            // 보상 트랜잭션 로그
-            if (log.getOperation().contains("ROLLBACK") ||
-                    log.getOperation().contains("CANCEL") ||
-                    log.getMessage() != null && log.getMessage().contains("보상")) {
-                compensationCount++;
-            }
-        }
-
-        System.out.println("\n=".repeat(70));
-        System.out.println("📊 로그 분류:");
-        System.out.println("  - Phase 1 성공 로그: " + phase1SuccessCount);
-        System.out.println("  - 실패 로그: " + failureCount);
-        System.out.println("  - 보상 트랜잭션 로그: " + compensationCount);
-
-        // [검증] 최소한 실패 로그가 있는지 확인
-        assertTrue(logs.size() > 0, "❌ WAL 로그가 하나도 없습니다!");
-        assertTrue(failureCount > 0 || phase1SuccessCount > 0,
-                "❌ 유효한 WAL 로그가 없습니다!");
-
-        System.out.println("\n✅✅✅ WAL 로그로 실패 트랜잭션을 명확하게 추적할 수 있습니다!");
-    }
 
     // ====================================
     // Helper Methods

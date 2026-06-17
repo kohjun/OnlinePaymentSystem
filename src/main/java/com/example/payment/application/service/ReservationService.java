@@ -5,9 +5,7 @@ import com.example.payment.domain.entity.InventoryReservationRecord;
 import com.example.payment.domain.model.reservation.InventoryReservation;
 import com.example.payment.domain.model.reservation.ReservationStatus;
 import com.example.payment.domain.repository.InventoryReservationRecordRepository;
-import com.example.payment.infrastructure.lock.DistributedLockService;
 import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
-import com.example.payment.infrastructure.persistence.wal.WalService;
 import com.example.payment.infrastructure.util.IdGenerator;
 import com.example.payment.infrastructure.util.ResourceReservationService;
 
@@ -29,8 +27,6 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ReservationService {
 
-    private final DistributedLockService lockService;
-    private final WalService walService;
     private final CacheService cacheService;
     private final ResourceReservationService redisReservationService;
     private final InventoryReservationRecordRepository reservationRecordRepository;
@@ -41,7 +37,6 @@ public class ReservationService {
     @AllArgsConstructor
     public static class ReservationResult {
         private InventoryReservation reservation;
-        private String walLogId;
     }
 
     public ReservationResult reserveInventory(
@@ -57,126 +52,66 @@ public class ReservationService {
         String reservationId = IdGenerator.generateReservationId();
         String lockKey = "inventory:" + productId;
 
-        return lockService.executeWithLock(lockKey, () -> {
-            String walLogId = null;
-            try {
-                // ===================================
-                // 1. WAL Phase 1 시작 로그 기록
-                // ===================================
-                String entityIds = buildEntityIdsJson(reservationId, null, null);
-                String afterData = buildReservationJson(
-                        reservationId, productId, customerId, quantity, "RESERVED"
-                );
+        try {
+            // ===================================
+            // 1. Redis에서 재고 선점 (Lua 스크립트)
+            // ===================================
+            boolean success = redisReservationService.reserveResource(
+                    lockKey,
+                    quantity,
+                    Duration.ofSeconds(DEFAULT_RESERVATION_TTL_SECONDS),
+                    reservationId
+            );
 
-                walLogId = walService.logOperationStart(
-                        transactionId,
-                        "INVENTORY_RESERVE_START",
-                        "reservations",
-                        entityIds,
-                        afterData
-                );
-
-                log.debug("WAL Phase 1 logged: txId={}, walLogId={}, reservationId={}",
-                        transactionId, walLogId, reservationId);
-
-                // ===================================
-                // 2. Redis에서 재고 선점 (Lua 스크립트)
-                // ===================================
-                boolean success = redisReservationService.reserveResource(
-                        lockKey,
-                        quantity,
-                        Duration.ofSeconds(DEFAULT_RESERVATION_TTL_SECONDS),
-                        reservationId
-                );
-
-                if (!success) {
-                    String message = "Redis 재고 선점 실패";
-                    log.warn("Inventory reservation failed: txId={}, productId={}, reason={}",
-                            transactionId, productId, message);
-
-                    walService.updateLogStatus(walLogId, "FAILED", "재고 부족: " + message);
-
-                    walService.logOperationFailure(
-                            transactionId,
-                            "INVENTORY_RESERVE_FAILED",
-                            "reservations",
-                            entityIds,
-                            message
-                    );
-
-                    return null;
-                }
-
-                // ===================================
-                // 3. 도메인 객체 생성
-                // ===================================
-                InventoryReservation reservation = InventoryReservation.builder()
-                        .reservationId(reservationId)
-                        .productId(productId)
-                        .customerId(customerId)
-                        .quantity(quantity)
-                        .status(ReservationStatus.RESERVED)
-                        .createdAt(LocalDateTime.now())
-                        .expiresAt(LocalDateTime.now().plusMinutes(5))
-                        .build();
-
-                reservationRecordRepository.save(InventoryReservationRecord.builder()
-                        .reservationId(reservation.getReservationId())
-                        .productId(reservation.getProductId())
-                        .customerId(reservation.getCustomerId())
-                        .quantity(reservation.getQuantity())
-                        .status(reservation.getStatus().name())
-                        .expiresAt(reservation.getExpiresAt())
-                        .createdAt(reservation.getCreatedAt())
-                        .build());
-
-                // ===================================
-                // 4. 캐시에 저장 (메타데이터 포함)
-                // ===================================
-                String cacheKey = "reservation:" + reservationId;
-                // cacheData는 cacheObject의 alias이며 String(JSON)으로 저장
-                cacheService.cacheData(cacheKey, reservation, DEFAULT_RESERVATION_TTL_SECONDS);
-
-                String txMappingKey = "tx_reservation:" + transactionId;
-                cacheService.cacheData(txMappingKey, reservationId, DEFAULT_RESERVATION_TTL_SECONDS);
-
-                // ===================================
-                // 5. WAL Phase 1 완료 로그
-                // ===================================
-                walService.logOperationComplete(
-                        transactionId,
-                        "INVENTORY_RESERVE_COMPLETE",
-                        "reservations",
-                        entityIds,
-                        null,
-                        afterData
-                );
-                walService.updateLogStatus(walLogId, "COMMITTED", "예약 완료");
-
-                log.info("[Phase 1] Inventory reservation succeeded: txId={}, reservationId={}, productId={}",
-                        transactionId, reservationId, productId);
-
-                return new ReservationResult(reservation, walLogId);
-
-            } catch (Exception e) {
-                log.error("[Phase 1] Error during inventory reservation: txId={}, productId={}, customerId={}",
-                        transactionId, productId, customerId, e);
-
-                if (walLogId != null) {
-                    walService.updateLogStatus(walLogId, "FAILED", e.getMessage());
-                }
-                String entityIds = buildEntityIdsJson(reservationId, null, null);
-                walService.logOperationFailure(
-                        transactionId,
-                        "INVENTORY_RESERVE_ERROR",
-                        "reservations",
-                        entityIds,
-                        e.getMessage()
-                );
-
-                throw new ReservationException("재고 선점 실패", e);
+            if (!success) {
+                String message = "Redis 재고 선점 실패";
+                log.warn("Inventory reservation failed: txId={}, productId={}, reason={}",
+                        transactionId, productId, message);
+                return null;
             }
-        });
+
+            // ===================================
+            // 2. 도메인 객체 생성
+            // ===================================
+            InventoryReservation reservation = InventoryReservation.builder()
+                    .reservationId(reservationId)
+                    .productId(productId)
+                    .customerId(customerId)
+                    .quantity(quantity)
+                    .status(ReservationStatus.RESERVED)
+                    .createdAt(LocalDateTime.now())
+                    .expiresAt(LocalDateTime.now().plusMinutes(5))
+                    .build();
+
+            reservationRecordRepository.save(InventoryReservationRecord.builder()
+                    .reservationId(reservation.getReservationId())
+                    .productId(reservation.getProductId())
+                    .customerId(reservation.getCustomerId())
+                    .quantity(reservation.getQuantity())
+                    .status(reservation.getStatus().name())
+                    .expiresAt(reservation.getExpiresAt())
+                    .createdAt(reservation.getCreatedAt())
+                    .build());
+
+            // ===================================
+            // 3. 캐시에 저장 (메타데이터 포함)
+            // ===================================
+            String cacheKey = "reservation:" + reservationId;
+            cacheService.cacheData(cacheKey, reservation, DEFAULT_RESERVATION_TTL_SECONDS);
+
+            String txMappingKey = "tx_reservation:" + transactionId;
+            cacheService.cacheData(txMappingKey, reservationId, DEFAULT_RESERVATION_TTL_SECONDS);
+
+            log.info("[Phase 1] Inventory reservation succeeded: txId={}, reservationId={}, productId={}",
+                    transactionId, reservationId, productId);
+
+            return new ReservationResult(reservation);
+
+        } catch (Exception e) {
+            log.error("[Phase 1] Error during inventory reservation: txId={}, productId={}, customerId={}",
+                    transactionId, productId, customerId, e);
+            throw new ReservationException("재고 선점 실패", e);
+        }
     }
 
     /**
@@ -205,27 +140,10 @@ public class ReservationService {
                 return false;
             }
 
-            String entityIds = buildEntityIdsJson(reservationId, null, null);
-            String afterData = buildReservationJson(
-                    reservationId,
-                    reservation.getProductId(),
-                    customerId,
-                    reservation.getQuantity(),
-                    "CANCELLED"
-            );
-
-            String walLogId = walService.logOperationStart(
-                    transactionId,
-                    "RESERVATION_CANCEL_START",
-                    "reservations",
-                    entityIds,
-                    afterData
-            );
-
             String resourceKey = "inventory:" + reservation.getProductId();
             int quantityToRelease = reservation.getQuantity();
 
-            boolean cancelled = redisReservationService.releaseResource(resourceKey, quantityToRelease,reservation.getReservationId());
+            boolean cancelled = redisReservationService.releaseResource(resourceKey, quantityToRelease, reservation.getReservationId());
 
             if (cancelled) {
                 reservation.setStatus(ReservationStatus.CANCELLED);
@@ -237,39 +155,11 @@ public class ReservationService {
                 String cacheKey = "reservation:" + reservationId;
                 cacheService.cacheData(cacheKey, reservation, DEFAULT_RESERVATION_TTL_SECONDS);
 
-                String beforeData = buildReservationJson(
-                        reservationId,
-                        reservation.getProductId(),
-                        customerId,
-                        reservation.getQuantity(),
-                        "RESERVED"
-                );
-
-                walService.logOperationComplete(
-                        transactionId,
-                        "RESERVATION_CANCEL_COMPLETE",
-                        "reservations",
-                        entityIds,
-                        beforeData,
-                        afterData
-                );
-                walService.updateLogStatus(walLogId, "COMMITTED", "예약 취소 완료");
-
                 log.info("Reservation cancelled: txId={}, reservationId={}",
                         transactionId, reservationId);
                 return true;
 
             } else {
-                walService.updateLogStatus(walLogId, "FAILED", "Redis 취소 실패");
-
-                walService.logOperationFailure(
-                        transactionId,
-                        "RESERVATION_CANCEL_FAILED",
-                        "reservations",
-                        entityIds,
-                        "Redis 취소 실패"
-                );
-
                 log.warn("Failed to cancel reservation in Redis: reservationId={}", reservationId);
                 return false;
             }
@@ -277,16 +167,6 @@ public class ReservationService {
         } catch (Exception e) {
             log.error("Error cancelling reservation: txId={}, reservationId={}",
                     transactionId, reservationId, e);
-
-            String entityIds = buildEntityIdsJson(reservationId, null, null);
-            walService.logOperationFailure(
-                    transactionId,
-                    "RESERVATION_CANCEL_ERROR",
-                    "reservations",
-                    entityIds,
-                    e.getMessage()
-            );
-
             return false;
         }
     }
