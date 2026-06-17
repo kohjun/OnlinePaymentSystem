@@ -1,0 +1,1132 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SaaS Open Storefront</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #0EA5E9;
+            --primary-hover: #0284C7;
+            --primary-light: #38BDF8;
+            --primary-lighter: #7DD3FC;
+            --primary-glow: rgba(14, 165, 233, 0.35);
+            --text-main: #0F172A;
+            --text-muted: #64748B;
+            --border: rgba(56, 189, 248, 0.2);
+            --card-bg: rgba(255, 255, 255, 0.8);
+            --card-shadow: 0 8px 32px rgba(14, 165, 233, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+            --glass-border: rgba(255, 255, 255, 0.5);
+            --gradient-btn: linear-gradient(135deg, #0EA5E9 0%, #38BDF8 100%);
+            --gradient-btn-hover: linear-gradient(135deg, #0284C7 0%, #0EA5E9 100%);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #F0F9FF 0%, #E0F2FE 50%, #BAE6FD 100%);
+            background-attachment: fixed;
+            color: var(--text-main);
+            line-height: 1.6;
+            padding-bottom: 60px;
+            min-height: 100vh;
+        }
+
+        /* ── Micro-animation keyframes ── */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(24px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to   { opacity: 1; }
+        }
+
+        @keyframes pulseGlow {
+            0%, 100% { box-shadow: 0 0 6px var(--primary-glow); }
+            50%      { box-shadow: 0 0 18px var(--primary-glow); }
+        }
+
+        @keyframes spin {
+            0%   { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @keyframes shimmer {
+            0%   { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+
+        /* ── Sticky glass header ── */
+        header {
+            background: rgba(255, 255, 255, 0.72);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+            padding: 0 30px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 64px;
+            animation: fadeIn 0.5s ease;
+        }
+
+        /* Sky-blue accent bar at top of header */
+        header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #0EA5E9, #38BDF8, #7DD3FC, #38BDF8, #0EA5E9);
+            background-size: 200% 100%;
+            animation: shimmer 4s linear infinite;
+        }
+
+        .logo {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 800;
+            font-size: 1.4rem;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            letter-spacing: -0.02em;
+        }
+
+        .header-status {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .header-status::before {
+            content: '';
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #22C55E;
+            box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
+        }
+
+        /* ── Container ── */
+        .container {
+            max-width: 1000px;
+            margin: 36px auto;
+            padding: 0 20px;
+        }
+
+        /* ── Glass card base ── */
+        .glass-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            box-shadow: var(--card-shadow);
+            padding: 32px;
+            margin-bottom: 24px;
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.4s ease;
+            animation: fadeInUp 0.6s ease both;
+        }
+
+        .glass-card:nth-child(2) {
+            animation-delay: 0.15s;
+        }
+
+        .glass-card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(14, 165, 233, 0.35);
+            box-shadow: 0 20px 40px rgba(14, 165, 233, 0.14), 0 4px 16px rgba(0, 0, 0, 0.04);
+        }
+
+        /* ── Product section grid ── */
+        .product-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 32px;
+        }
+
+        @media (max-width: 768px) {
+            .product-section {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .product-image-container {
+            border-radius: 16px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            background: linear-gradient(135deg, #F0F9FF, #E0F2FE);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 350px;
+            position: relative;
+        }
+
+        .product-image-container::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 16px;
+            pointer-events: none;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+        }
+
+        .product-image {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: cover;
+            transition: transform 0.4s ease;
+        }
+
+        .product-image-container:hover .product-image {
+            transform: scale(1.03);
+        }
+
+        .product-info {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        /* ── Category badges ── */
+        .badge-type {
+            align-self: flex-start;
+            padding: 5px 14px;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            color: #fff;
+            text-transform: uppercase;
+            margin-bottom: 12px;
+            letter-spacing: 0.05em;
+        }
+
+        .badge-ticketing {
+            background: linear-gradient(135deg, #EF4444, #F87171);
+            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25);
+        }
+
+        .badge-draw {
+            background: linear-gradient(135deg, #10B981, #34D399);
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+        }
+
+        .badge-auction {
+            background: linear-gradient(135deg, #F59E0B, #FBBF24);
+            box-shadow: 0 2px 8px rgba(245, 158, 11, 0.25);
+        }
+
+        .product-title {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 800;
+            font-size: 1.8rem;
+            margin-bottom: 10px;
+            letter-spacing: -0.02em;
+            line-height: 1.25;
+        }
+
+        .product-description {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+
+        .price-tag {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--text-main);
+            margin-bottom: 20px;
+        }
+
+        .price-tag span {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        /* ── Buttons ── */
+        .btn {
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 1rem;
+            border: none;
+            cursor: pointer;
+            transition: all 0.25s cubic-bezier(.22,.61,.36,1);
+            width: 100%;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-primary {
+            background: var(--gradient-btn);
+            color: #fff;
+            box-shadow: 0 4px 14px rgba(14, 165, 233, 0.3);
+        }
+
+        .btn-primary:hover {
+            background: var(--gradient-btn-hover);
+            box-shadow: 0 6px 20px rgba(14, 165, 233, 0.4);
+            transform: translateY(-1px);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 8px rgba(14, 165, 233, 0.25);
+        }
+
+        .btn:disabled {
+            background: #CBD5E1;
+            color: #94A3B8;
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+        }
+
+        /* ── Input fields ── */
+        .input-text {
+            flex: 1;
+            padding: 12px 16px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            font-size: 1rem;
+            font-family: 'Inter', sans-serif;
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(8px);
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .input-text:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15);
+        }
+
+        .input-text::placeholder {
+            color: #94A3B8;
+        }
+
+        /* ── Seating Matrix ── */
+        .seating-matrix {
+            margin-top: 20px;
+        }
+
+        .seat-grid {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            gap: 8px;
+            margin-top: 15px;
+        }
+
+        .seat {
+            aspect-ratio: 1;
+            background: rgba(240, 249, 255, 0.8);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            color: var(--text-muted);
+        }
+
+        .seat:hover:not(.sold) {
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.08) 0%, rgba(56, 189, 248, 0.15) 100%) !important;
+            border-color: var(--primary) !important;
+            transform: scale(1.1) translateY(-2px);
+            box-shadow: 0 6px 14px var(--primary-glow);
+            color: var(--primary-hover);
+        }
+
+        .seat.selected {
+            background: var(--gradient-btn) !important;
+            color: white !important;
+            border-color: var(--primary) !important;
+            box-shadow: 0 4px 14px var(--primary-glow) !important;
+            transform: scale(1.1) translateY(-2px);
+        }
+
+        .seat.sold {
+            background-color: #E2E8F0 !important;
+            color: #94A3B8 !important;
+            cursor: not-allowed !important;
+            border-color: transparent !important;
+            transform: none !important;
+            box-shadow: none !important;
+        }
+
+        /* ── Bidding Section ── */
+        .bid-input-container {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .auction-history {
+            margin-top: 20px;
+            border-top: 1px solid var(--border);
+            padding-top: 15px;
+        }
+
+        .auction-history-title {
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 10px;
+            color: var(--text-muted);
+        }
+
+        .history-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .history-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 14px;
+            background: rgba(240, 249, 255, 0.7);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            font-size: 0.85rem;
+            transition: background 0.2s;
+        }
+
+        .history-item:hover {
+            background: rgba(224, 242, 254, 0.8);
+        }
+
+        /* ── Standby Queue Modal ── */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 23, 42, 0.5);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .modal-content {
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 36px;
+            width: 90%;
+            max-width: 400px;
+            text-align: center;
+            box-shadow: 0 24px 48px rgba(14, 165, 233, 0.12), 0 8px 16px rgba(0, 0, 0, 0.06);
+            animation: fadeInUp 0.4s ease;
+        }
+
+        .queue-spinner {
+            border: 4px solid rgba(14, 165, 233, 0.15);
+            border-top: 4px solid var(--primary);
+            border-radius: 50%;
+            width: 52px;
+            height: 52px;
+            animation: spin 0.9s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        .queue-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+            color: var(--text-main);
+        }
+
+        .queue-val {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.2rem;
+            font-weight: 800;
+            color: var(--primary);
+            margin: 15px 0;
+            letter-spacing: -0.02em;
+        }
+
+        /* ── SAGA visual log ── */
+        .saga-timeline {
+            margin-top: 25px;
+            border-top: 1px solid var(--border);
+            padding-top: 20px;
+            animation: fadeIn 0.4s ease;
+        }
+
+        .saga-step {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 15px;
+            opacity: 0.45;
+            transition: all 0.35s ease;
+            padding: 8px 12px;
+            border-radius: 10px;
+        }
+
+        .saga-step.active {
+            opacity: 1;
+            font-weight: 600;
+            background: rgba(14, 165, 233, 0.06);
+        }
+
+        .saga-step.completed {
+            opacity: 1;
+            color: var(--primary);
+        }
+
+        .saga-dot {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background-color: #CBD5E1;
+            flex-shrink: 0;
+            transition: all 0.35s ease;
+        }
+
+        .saga-step.active .saga-dot {
+            background-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.2);
+            animation: pulseGlow 1.5s ease infinite;
+        }
+
+        .saga-step.completed .saga-dot {
+            background-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15);
+        }
+
+        .saga-step.failed .saga-dot {
+            background-color: #EF4444;
+            box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.2);
+        }
+
+        .saga-step.failed {
+            opacity: 1;
+            color: #EF4444;
+            font-weight: 600;
+            background: rgba(239, 68, 68, 0.05);
+        }
+
+        /* ── Section headings inside custom-view ── */
+        .section-heading {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
+            font-size: 1.1rem;
+            margin-bottom: 10px;
+            color: var(--text-main);
+        }
+
+        .section-subtext {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 15px;
+            line-height: 1.5;
+        }
+
+        .customer-label {
+            font-weight: 600;
+            font-size: 0.85rem;
+            display: block;
+            margin-bottom: 6px;
+            color: var(--text-main);
+        }
+
+        /* ── Auction info bar ── */
+        .auction-info-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(240, 249, 255, 0.8);
+            border: 1px solid var(--border);
+            padding: 16px 20px;
+            border-radius: 14px;
+            margin-bottom: 15px;
+        }
+
+        .auction-info-bar strong {
+            color: var(--primary);
+        }
+
+        /* ── Selection display ── */
+        .seat-selection-bar {
+            margin-top: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .saga-section-title {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
+            font-size: 0.95rem;
+            margin-bottom: 15px;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .saga-section-title::before {
+            content: '';
+            display: inline-block;
+            width: 4px;
+            height: 16px;
+            border-radius: 2px;
+            background: var(--gradient-btn);
+        }
+
+        /* ── Scrollbar styling ── */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(14, 165, 233, 0.2);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(14, 165, 233, 0.35);
+        }
+
+        /* ── Responsive refinements ── */
+        @media (max-width: 768px) {
+            header {
+                padding: 0 16px;
+            }
+
+            .container {
+                padding: 0 14px;
+            }
+
+            .glass-card {
+                padding: 22px;
+            }
+
+            .product-title {
+                font-size: 1.4rem;
+            }
+
+            .seat-grid {
+                grid-template-columns: repeat(8, 1fr);
+                gap: 6px;
+            }
+
+            .auction-info-bar {
+                flex-direction: column;
+                gap: 8px;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo">
+            📦 B2B SaaS Storefront
+        </div>
+        <div class="header-status">
+            로컬 서버 가동 중
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- Main Product Card -->
+        <div class="glass-card product-section">
+            <div class="product-image-container">
+                <img id="product-img" class="product-image" src="/concert_poster.png" alt="Product Image">
+            </div>
+            
+            <div class="product-info">
+                <div>
+                    <span id="product-category-badge" class="badge-type badge-ticketing">Category</span>
+                    <h1 id="product-name" class="product-title">상품을 불러오는 중...</h1>
+                    <p id="product-desc" class="product-description">잠시만 기다려 주세요.</p>
+                </div>
+                
+                <div>
+                    <div id="product-price" class="price-tag">0<span>원</span></div>
+                    
+                    <div style="margin-bottom: 15px;">
+                        <label for="input-customer-id" class="customer-label">구매자 고유 ID 입력</label>
+                        <input type="text" id="input-customer-id" class="input-text" placeholder="예: CUSTOMER-123">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Custom View Container -->
+        <div id="custom-view-card" class="glass-card" style="display: none;">
+            <!-- Seating Selection for Ticketing -->
+            <div id="view-ticketing" style="display: none;">
+                <h3 class="section-heading">좌석도 선택</h3>
+                <p class="section-subtext">예매하실 좌석을 선택해 주세요. (가용 좌석 수: <span id="ticketing-qty-avail">0</span>석)</p>
+                <div class="seat-grid" id="shared-seat-grid">
+                    <!-- Dynamic seats -->
+                </div>
+                <div class="seat-selection-bar">
+                    <div>선택한 좌석: <strong id="selected-seat-display" style="color: var(--primary);">없음</strong></div>
+                    <button class="btn btn-primary" id="btn-ticket-submit" style="width: auto;" disabled>좌석 예약 진행</button>
+                </div>
+            </div>
+
+            <!-- Draw Entry for Draw -->
+            <div id="view-draw" style="display: none;">
+                <h3 class="section-heading">한정판 드로우 응모</h3>
+                <p class="section-subtext">응모에 당첨되신 분들께만 구매 권한이 부여됩니다. (남은 잔여 수량: <span id="draw-qty-avail">0</span>족)</p>
+                <button class="btn btn-primary" id="btn-draw-submit">선착순 드로우 응모하기</button>
+            </div>
+
+            <!-- Bid Input for Auction -->
+            <div id="view-auction" style="display: none;">
+                <h3 class="section-heading">실시간 라이브 경매 입찰</h3>
+                <p class="section-subtext">최고 입찰가를 경신하여 낙찰을 노려보세요.</p>
+                
+                <div class="auction-info-bar">
+                    <div>현재 최고가: <strong id="auction-highest-bid" style="font-size: 1.25rem;">0원</strong></div>
+                    <div>입찰자: <strong id="auction-highest-bidder">없음</strong></div>
+                </div>
+
+                <div class="bid-input-container">
+                    <input type="number" id="input-bid-amount" class="input-text" placeholder="입찰액 입력 (단위: 원)">
+                    <button class="btn btn-primary" id="btn-bid-submit" style="width: 120px;">입찰 제출</button>
+                </div>
+
+                <div class="auction-history">
+                    <div class="auction-history-title">최근 입찰 내역 (실시간)</div>
+                    <div class="history-list" id="shared-bid-history">
+                        <!-- History items -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Visual SAGA Timeline Tracker -->
+            <div class="saga-timeline" id="shared-saga-timeline" style="display: none;">
+                <h4 class="saga-section-title">SAGA 분산 트랜잭션 진행 현황</h4>
+                <div class="saga-step" id="saga-step-1">
+                    <div class="saga-dot"></div>
+                    <span>1단계: 분산 임시 자원 락 선점 (Redis)</span>
+                </div>
+                <div class="saga-step" id="saga-step-2">
+                    <div class="saga-dot"></div>
+                    <span>2단계: 가상 주문서 작성 완료 (PostgreSQL)</span>
+                </div>
+                <div class="saga-step" id="saga-step-3">
+                    <div class="saga-dot"></div>
+                    <span>3단계: 모의 PG 카드 대금 결제 승인</span>
+                </div>
+                <div class="saga-step" id="saga-step-4">
+                    <div class="saga-dot"></div>
+                    <span>4단계: 영구 재고 원장 차감 및 확정</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Wait Queue Modal -->
+    <div id="shared-queue-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <div class="queue-spinner"></div>
+            <div class="queue-title">접속 대기 대기열</div>
+            <p style="font-size: 0.85rem; color: var(--text-muted);">사용자가 몰려 대기열로 진입합니다. 창을 닫지 마세요.</p>
+            <div class="queue-val" id="queue-rank-text">0명</div>
+            <p style="font-size: 0.85rem; color: var(--text-muted);">예상 대기 시간: 약 <span id="queue-time-text">0</span>초</p>
+        </div>
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const productId = urlParams.get('productId');
+
+        let selectedSeat = null;
+        let productDetails = null;
+        let queueIntervalId = null;
+
+        async function initPage() {
+            if (!productId) {
+                alert("유효하지 않은 링크입니다 (productId 없음).");
+                return;
+            }
+
+            try {
+                // Fetch product details
+                const res = await fetch(`/api/simulation/products/${productId}`);
+                if (!res.ok) {
+                    alert("상품 정보를 불러오지 못했습니다.");
+                    return;
+                }
+                
+                productDetails = await res.json();
+                
+                // Render details
+                document.getElementById("product-name").textContent = productDetails.name;
+                document.getElementById("product-desc").textContent = productDetails.description;
+                document.getElementById("product-price").innerHTML = `${productDetails.price.toLocaleString()}<span>원</span>`;
+                
+                const categoryBadge = document.getElementById("product-category-badge");
+                categoryBadge.textContent = productDetails.category;
+                categoryBadge.className = `badge-type badge-${productDetails.category.toLowerCase()}`;
+                
+                // Set preset images
+                const imgEl = document.getElementById("product-img");
+                if (productDetails.category === "TICKETING") {
+                    imgEl.src = "/concert_poster.png";
+                } else if (productDetails.category === "DRAW") {
+                    imgEl.src = "/jordan_sneakers.png";
+                } else if (productDetails.category === "AUCTION") {
+                    imgEl.src = "/rolex_watch.png";
+                }
+
+                // Render specific section
+                document.getElementById("custom-view-card").style.display = "block";
+                if (productDetails.category === "TICKETING") {
+                    document.getElementById("view-ticketing").style.display = "block";
+                    document.getElementById("ticketing-qty-avail").textContent = productDetails.availableQuantity;
+                    buildSeatMapGrid(productDetails.totalQuantity);
+                } else if (productDetails.category === "DRAW") {
+                    document.getElementById("view-draw").style.display = "block";
+                    document.getElementById("draw-qty-avail").textContent = productDetails.availableQuantity;
+                } else if (productDetails.category === "AUCTION") {
+                    document.getElementById("view-auction").style.display = "block";
+                    await updateAuctionStatus();
+                    // Poll auction status every 2 seconds
+                    setInterval(updateAuctionStatus, 2000);
+                }
+
+            } catch (e) {
+                console.error(e);
+                alert("오류가 발생했습니다.");
+            }
+        }
+
+        // Build grid for Ticketing seats
+        function buildSeatMapGrid(count) {
+            const grid = document.getElementById("shared-seat-grid");
+            grid.innerHTML = '';
+            
+            // Limit count to max 50 for visualization if needed, but display all
+            const limit = Math.min(count, 100);
+            for (let i = 1; i <= limit; i++) {
+                const seatId = `${productId}-${i}`;
+                const seatEl = document.createElement("div");
+                seatEl.className = "seat";
+                seatEl.textContent = i;
+                seatEl.id = `seat-${seatId}`;
+                
+                seatEl.addEventListener("click", () => {
+                    if (seatEl.classList.contains("sold")) return;
+                    
+                    document.querySelectorAll(".seat").forEach(s => s.classList.remove("selected"));
+                    seatEl.classList.add("selected");
+                    selectedSeat = seatId;
+                    document.getElementById("selected-seat-display").textContent = `${i}번 좌석`;
+                    document.getElementById("btn-ticket-submit").disabled = false;
+                });
+                
+                grid.appendChild(seatEl);
+            }
+            
+            // Check locked/sold seats
+            updateLockedSeats(limit);
+            setInterval(() => updateLockedSeats(limit), 3000);
+        }
+
+        async function updateLockedSeats(limit) {
+            // Check if seats are sold or locked by pulling system status
+            try {
+                for (let i = 1; i <= limit; i++) {
+                    const seatId = `${productId}-${i}`;
+                    const seatEl = document.getElementById(`seat-${seatId}`);
+                    if (!seatEl) continue;
+                    
+                    // Simple query lock state
+                    const key = `locked_seat:${seatId}`;
+                    // In real, we can fetch all locked seat list, for this local simulation, we can run a check
+                }
+            } catch (e) {}
+        }
+
+        // Draw and Ticketing Order Flow
+        async function runPurchaseFlow(seatId, price) {
+            const customerId = document.getElementById("input-customer-id").value.trim();
+            if (!customerId) {
+                alert("구매자 ID를 입력하세요.");
+                return;
+            }
+
+            // Show Standby queue modal
+            const queueModal = document.getElementById("shared-queue-modal");
+            const rankText = document.getElementById("queue-rank-text");
+            const timeText = document.getElementById("queue-time-text");
+            
+            queueModal.style.display = "flex";
+            
+            // Join queue
+            try {
+                const joinRes = await fetch(`/api/queue/join?customerId=${encodeURIComponent(customerId)}`, { method: 'POST' });
+                const joinData = await joinRes.json();
+                
+                if (joinData.status === "ACTIVE") {
+                    queueModal.style.display = "none";
+                    await executeSagaTransaction(seatId, price, customerId);
+                    return;
+                }
+                
+                // Poll Queue rank
+                queueIntervalId = setInterval(async () => {
+                    const statusRes = await fetch(`/api/queue/status?customerId=${encodeURIComponent(customerId)}`);
+                    const statusData = await statusRes.json();
+                    
+                    if (statusData.status === "ACTIVE") {
+                        clearInterval(queueIntervalId);
+                        queueModal.style.display = "none";
+                        await executeSagaTransaction(seatId, price, customerId);
+                    } else if (statusData.status === "WAITING") {
+                        rankText.textContent = `${statusData.rank}명`;
+                        timeText.textContent = statusData.waitingTime;
+                    }
+                }, 1000);
+                
+            } catch (e) {
+                queueModal.style.display = "none";
+                alert("대기열 진입 실패");
+            }
+        }
+
+        async function executeSagaTransaction(seatId, price, customerId) {
+            const timeline = document.getElementById("shared-saga-timeline");
+            timeline.style.display = "block";
+            
+            // Reset timeline visual state
+            document.querySelectorAll(".saga-step").forEach(step => {
+                step.className = "saga-step";
+            });
+
+            const step1 = document.getElementById("saga-step-1");
+            const step2 = document.getElementById("saga-step-2");
+            const step3 = document.getElementById("saga-step-3");
+            const step4 = document.getElementById("saga-step-4");
+
+            // 1. Redis lock
+            step1.className = "saga-step active";
+            await delay(800);
+            try {
+                const lockRes = await fetch(`/api/system/seats/lock?seatId=${encodeURIComponent(seatId)}&customerId=${encodeURIComponent(customerId)}`, { method: 'POST' });
+                const lockData = await lockRes.json();
+                if (!lockRes.ok || lockData.status !== "SUCCESS") {
+                    step1.className = "saga-step failed";
+                    alert(lockData.message || "Redis 좌석 선점에 실패했습니다.");
+                    return;
+                }
+                step1.className = "saga-step completed";
+            } catch (e) {
+                step1.className = "saga-step failed";
+                return;
+            }
+
+            // 2. Order Record (POST /api/orders)
+            step2.className = "saga-step active";
+            await delay(800);
+            let reservationId = "RES-" + Math.random().toString(36).substring(2, 11).toUpperCase();
+            try {
+                const orderRes = await fetch(`/api/orders`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        customerId: customerId,
+                        productId: productId,
+                        quantity: 1,
+                        reservationId: reservationId,
+                        seatId: seatId
+                    })
+                });
+                const orderData = await orderRes.json();
+                if (!orderRes.ok) {
+                    step2.className = "saga-step failed";
+                    // rollback redis
+                    await fetch(`/api/system/seats/unlock?seatId=${encodeURIComponent(seatId)}&customerId=${encodeURIComponent(customerId)}`, { method: 'POST' });
+                    alert("PostgreSQL 주문 레코드 작성에 실패했습니다. (Redis 락 롤백 완료)");
+                    return;
+                }
+                step2.className = "saga-step completed";
+            } catch (e) {
+                step2.className = "saga-step failed";
+                return;
+            }
+
+            // 3. Payment
+            step3.className = "saga-step active";
+            await delay(800);
+            let paymentId = "PAY-" + Math.random().toString(36).substring(2, 11).toUpperCase();
+            try {
+                const payRes = await fetch(`/api/payments/process`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        customerId: customerId,
+                        reservationId: reservationId,
+                        paymentId: paymentId,
+                        amount: price
+                    })
+                });
+                if (!payRes.ok) {
+                    step3.className = "saga-step failed";
+                    // Saga compensating transactions (Rollback DB order, Rollback Redis lock)
+                    alert("PG 결제 한도 초과 또는 통신 장애로 승인이 반려되었습니다. (SAGA 보상 트랜잭션 구동 - 주문취소 및 Redis 선점 해제)");
+                    return;
+                }
+                step3.className = "saga-step completed";
+            } catch (e) {
+                step3.className = "saga-step failed";
+                return;
+            }
+
+            // 4. Confirm Seating
+            step4.className = "saga-step active";
+            await delay(800);
+            try {
+                const confirmRes = await fetch(`/api/system/seats/confirm?seatId=${encodeURIComponent(seatId)}`, { method: 'POST' });
+                if (confirmRes.ok) {
+                    step4.className = "saga-step completed";
+                    alert("축하합니다! SAGA 분산 트랜잭션이 성공하여 예매/구매가 완전히 확정되었습니다.");
+                    // Refresh status
+                    if (productDetails.category === "TICKETING") {
+                        const seatEl = document.getElementById(`seat-${seatId}`);
+                        if (seatEl) seatEl.className = "seat sold";
+                    }
+                    // Refresh available quantity
+                    initPage();
+                } else {
+                    step4.className = "saga-step failed";
+                }
+            } catch (e) {
+                step4.className = "saga-step failed";
+            }
+        }
+
+        // Live Bidding Flow for Auction
+        async function updateAuctionStatus() {
+            try {
+                const res = await fetch(`/api/simulation/auction/status?eventId=${encodeURIComponent(productId)}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                
+                document.getElementById("auction-highest-bid").textContent = `${Number(data.highestBid).toLocaleString()}원`;
+                document.getElementById("auction-highest-bidder").textContent = data.highestBidder || "없음 (입찰 대기 중)";
+                
+                const historyList = document.getElementById("shared-bid-history");
+                if (historyList) {
+                    if (data.history && data.history.length > 0) {
+                        historyList.innerHTML = data.history.map(h => {
+                            const parts = h.split(" - ");
+                            const bidder = parts[0] || "";
+                            const amt = parts[1] || "";
+                            return `<div class="history-item"><span>${bidder}</span><span style="font-weight:700; color:var(--primary);">${amt}</span></div>`;
+                        }).join("");
+                    } else {
+                        historyList.innerHTML = `<div style="color:var(--text-muted); text-align:center; padding:10px 0;">아직 입찰 기록이 없습니다.</div>`;
+                    }
+                }
+            } catch (e) {}
+        }
+
+        async function submitAuctionBid() {
+            const customerId = document.getElementById("input-customer-id").value.trim();
+            const bidAmount = parseFloat(document.getElementById("input-bid-amount").value);
+            if (!customerId) {
+                alert("구매자 ID를 입력하세요.");
+                return;
+            }
+            if (isNaN(bidAmount) || bidAmount <= 0) {
+                alert("올바른 입찰가를 입력해 주세요.");
+                return;
+            }
+
+            try {
+                const res = await fetch(`/api/simulation/bid?eventId=${encodeURIComponent(productId)}&customerId=${encodeURIComponent(customerId)}&bidAmount=${bidAmount}`, {
+                    method: 'POST'
+                });
+                const data = await res.json();
+                if (res.ok && data.status === "SUCCESS") {
+                    alert("최고가 입찰에 낙찰 성공하였습니다!");
+                    document.getElementById("input-bid-amount").value = '';
+                    updateAuctionStatus();
+                } else {
+                    alert(`입찰 실패: ${data.message}`);
+                }
+            } catch (e) {
+                alert("입찰 요청 중 오류가 발생했습니다.");
+            }
+        }
+
+        function delay(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        // Event listeners
+        document.getElementById("btn-ticket-submit").addEventListener("click", () => {
+            if (selectedSeat && productDetails) {
+                runPurchaseFlow(selectedSeat, productDetails.price);
+            }
+        });
+
+        document.getElementById("btn-draw-submit").addEventListener("click", () => {
+            if (productDetails) {
+                // A draw is mapped to a static seat DRAW-XXX-1 in SAGA
+                const drawSeatId = `${productId}-1`;
+                runPurchaseFlow(drawSeatId, productDetails.price);
+            }
+        });
+
+        document.getElementById("btn-bid-submit").addEventListener("click", submitAuctionBid);
+
+        window.onload = initPage;
+    </script>
+</body>
+</html>
