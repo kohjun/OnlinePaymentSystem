@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>STARLIGHT TICKETS - 스타라이트 예매센터</title>
+    <title>에브리세일 (EverySale) — B2B SaaS 엔터프라이즈 커머스 플랫폼</title>
     <!-- Google Fonts:Outfit & Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -53,107 +53,141 @@
             padding: 0;
         }
 
-        /* ── Custom Title Bar ─────────────────────────────────────── */
+        /* ══ 에브리세일 Custom Title Bar ════════════════════════════ */
         #custom-titlebar {
             position: fixed;
             top: 0;
             left: 0;
             right: 0;
-            height: 40px;
+            height: 42px;
             z-index: 99999;
-            display: flex;
+            display: flex;               /* always rendered */
             align-items: center;
             justify-content: space-between;
-            padding: 0 16px 0 14px;
-            background: linear-gradient(90deg, #0C1A2E 0%, #0D2240 50%, #0E2950 100%);
-            border-bottom: 1px solid rgba(56,189,248,0.25);
-            box-shadow: 0 2px 16px rgba(0,0,0,0.35);
-            -webkit-app-region: drag;  /* entire bar is draggable */
+            padding: 0 10px 0 14px;
+            background: linear-gradient(90deg, #050E1A 0%, #0A1929 45%, #0D2035 100%);
+            border-bottom: 1px solid rgba(56,189,248,0.2);
+            box-shadow: 0 2px 20px rgba(0,0,0,0.5), inset 0 1px 0 rgba(56,189,248,0.08);
+            -webkit-app-region: drag;
             user-select: none;
         }
 
-        /* Electron-only: hide title bar when not inside Electron */
-        body:not(.is-electron) #custom-titlebar {
+        /* Hide title bar in plain browser (no Electron API) */
+        #custom-titlebar.hide-in-browser {
             display: none;
         }
 
         .titlebar-left {
             display: flex;
             align-items: center;
-            gap: 9px;
+            gap: 10px;
         }
 
         .titlebar-icon {
-            width: 22px;
-            height: 22px;
-            background: linear-gradient(135deg, #0EA5E9, #38BDF8);
-            border-radius: 6px;
+            width: 24px;
+            height: 24px;
+            background: linear-gradient(135deg, #0EA5E9 0%, #6366F1 100%);
+            border-radius: 7px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 12px;
+            font-size: 13px;
             flex-shrink: 0;
+            box-shadow: 0 2px 8px rgba(14,165,233,0.4);
+        }
+
+        .titlebar-brand {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
         }
 
         .titlebar-appname {
             font-family: 'Outfit', sans-serif;
-            font-size: 0.82rem;
-            font-weight: 700;
-            color: #E0F2FE;
-            letter-spacing: 0.03em;
+            font-size: 0.8rem;
+            font-weight: 800;
+            color: #F1F5F9;
+            letter-spacing: 0.06em;
+            line-height: 1.1;
         }
 
-        .titlebar-appname span {
-            color: #38BDF8;
+        .titlebar-appname .accent {
+            background: linear-gradient(90deg, #38BDF8, #818CF8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .titlebar-subtitle {
+            font-size: 0.55rem;
+            color: #475569;
+            font-weight: 500;
+            letter-spacing: 0.04em;
+            line-height: 1;
+        }
+
+        .titlebar-divider {
+            width: 1px;
+            height: 18px;
+            background: rgba(255,255,255,0.08);
+            margin: 0 2px;
         }
 
         .titlebar-badge {
-            background: rgba(14,165,233,0.18);
-            border: 1px solid rgba(56,189,248,0.3);
+            background: rgba(14,165,233,0.12);
+            border: 1px solid rgba(56,189,248,0.25);
             color: #7DD3FC;
-            font-size: 0.6rem;
+            font-size: 0.58rem;
             font-weight: 700;
-            padding: 2px 7px;
+            padding: 2px 8px;
             border-radius: 99px;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.06em;
+        }
+
+        /* Center area: window title */
+        .titlebar-center {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.72rem;
+            color: #334155;
+            font-weight: 500;
+            pointer-events: none;
         }
 
         /* Window control buttons */
         .titlebar-controls {
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 2px;
             -webkit-app-region: no-drag;
         }
 
         .win-btn {
-            width: 32px;
-            height: 24px;
+            width: 46px;
+            height: 32px;
             border: none;
             background: transparent;
-            border-radius: 5px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: background 0.15s ease;
-            color: #94A3B8;
-            font-size: 11px;
-            line-height: 1;
+            transition: background 0.12s ease;
+            color: #64748B;
+            border-radius: 4px;
         }
 
-        .win-btn:hover       { background: rgba(255,255,255,0.1); color: #E2E8F0; }
-        .win-btn.close:hover { background: #EF4444; color: #ffffff; }
+        .win-btn:hover         { background: rgba(255,255,255,0.07); color: #CBD5E1; }
+        .win-btn.close:hover   { background: #C0392B; color: #ffffff; }
         .win-btn svg {
-            width: 10px; height: 10px;
+            width: 11px; height: 11px;
             stroke: currentColor;
-            stroke-width: 1.8;
+            stroke-width: 1.6;
             fill: none;
             stroke-linecap: round;
+            stroke-linejoin: round;
         }
-        .win-btn.maximize svg { stroke-width: 1.6; }
 
-        /* Body needs top offset equal to titlebar height */
+        /* Body: always account for title bar height */
         body {
             background: linear-gradient(135deg, #F0F9FF 0%, #E0F2FE 40%, #BAE6FD 100%);
             background-attachment: fixed;
@@ -161,12 +195,12 @@
             font-family: var(--font-sans);
             min-height: 100vh;
             padding: 20px;
-            /* Extra top padding only inside Electron */
-            padding-top: 20px;
+            padding-top: 62px; /* 42px titlebar + 20px gap */
         }
 
-        body.is-electron {
-            padding-top: 60px; /* 40px titlebar + 20px original */
+        /* When NOT in Electron: reset padding (titlebar is hidden) */
+        body.no-titlebar {
+            padding-top: 20px;
         }
 
 
@@ -215,36 +249,42 @@
 
         .logo-section h1 {
             font-family: var(--font-display);
-            font-weight: 800;
-            font-size: 1.4rem;
-            color: #1e1e1e;
+            font-weight: 900;
+            font-size: 1.35rem;
+            background: linear-gradient(135deg, #0EA5E9, #6366F1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
             display: flex;
             align-items: center;
             gap: 6px;
+            letter-spacing: -0.02em;
         }
 
         .logo-section h1::before {
-            content: '☁';
-            background: linear-gradient(135deg, #0EA5E9, #38BDF8);
+            content: '⚡';
+            background: linear-gradient(135deg, #0EA5E9, #6366F1);
             color: #ffffff;
-            font-size: 1rem;
-            font-weight: 900;
-            width: 28px;
-            height: 28px;
+            font-size: 0.95rem;
+            width: 30px;
+            height: 30px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            border-radius: 8px;
-            margin-right: 4px;
+            border-radius: 9px;
+            margin-right: 2px;
+            -webkit-text-fill-color: white;
+            flex-shrink: 0;
+            box-shadow: 0 2px 8px rgba(14,165,233,0.4);
         }
 
         .logo-section p {
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             color: var(--text-secondary);
             font-weight: 500;
             border-left: 1px solid #e2e8f0;
             padding-left: 10px;
             margin-left: 4px;
+            white-space: nowrap;
         }
 
         .nav-links {
@@ -1584,48 +1624,53 @@
 </head>
 <body>
 
-<!-- ══ Custom Title Bar (Electron-only) ══════════════════════════════════ -->
+<!-- ══ 에브리세일 Custom Title Bar ══════════════════════════════════════ -->
 <div id="custom-titlebar">
     <div class="titlebar-left">
-        <div class="titlebar-icon">☁</div>
-        <span class="titlebar-appname">STARLIGHT <span>TICKETS</span></span>
+        <div class="titlebar-icon">⚡</div>
+        <div class="titlebar-brand">
+            <span class="titlebar-appname">EVERY<span class="accent">SALE</span></span>
+            <span class="titlebar-subtitle">에브리세일 · Enterprise Commerce Platform</span>
+        </div>
+        <div class="titlebar-divider"></div>
         <span class="titlebar-badge">B2B SaaS</span>
     </div>
+    <div class="titlebar-center">에브리세일 플랫폼</div>
     <div class="titlebar-controls">
         <!-- Minimize -->
         <button class="win-btn minimize" id="btn-win-minimize" title="최소화">
-            <svg viewBox="0 0 10 10"><line x1="1" y1="5" x2="9" y2="5"/></svg>
+            <svg viewBox="0 0 12 12"><line x1="2" y1="6" x2="10" y2="6"/></svg>
         </button>
         <!-- Maximize / Restore -->
         <button class="win-btn maximize" id="btn-win-maximize" title="최대화">
-            <svg viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8" rx="1"/></svg>
+            <svg viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" rx="1.5"/></svg>
         </button>
         <!-- Close -->
         <button class="win-btn close" id="btn-win-close" title="닫기">
-            <svg viewBox="0 0 10 10"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>
+            <svg viewBox="0 0 12 12"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg>
         </button>
     </div>
 </div>
 
 <div class="app-container">
-    
-    <!-- Top Header / Navigation Bar -->
+
+    <!-- ══ 에브리세일 글로벌 내비게이션 바 ══ -->
     <header class="glass-card header-navigation">
         <div class="logo-section">
-            <h1>STARLIGHT TICKETS</h1>
-            <p>우주를 담은 특별한 순간, 스타라이트 예매센터</p>
+            <h1>에브리세일</h1>
+            <p>B2B SaaS 엔터프라이즈 커머스 플랫폼</p>
         </div>
         <nav class="nav-links">
-            <a href="#" class="nav-item active" id="btn-tab-storefront">실시간 예매/경매/드로우</a>
-            <a href="#" class="nav-item" id="btn-tab-partner">💼 B2B SaaS 파트너 센터</a>
-            <a href="#" class="nav-item" id="btn-tab-marketplace">🛒 마켓플레이스</a>
+            <a href="#" class="nav-item active" id="btn-tab-storefront">🛍️ 구매 센터</a>
+            <a href="#" class="nav-item" id="btn-tab-partner">💼 파트너 센터</a>
+            <a href="#" class="nav-item" id="btn-tab-marketplace">🏪 마켓플레이스</a>
         </nav>
         <div class="system-badges">
             <button id="btn-my-bookings" class="btn btn-outline btn-my-bookings-nav">
-                🎫 내 예매 내역 조회
+                📋 구매 내역
             </button>
             <button id="btn-toggle-dev" class="btn btn-dev-toggle">
-                🛠️ 개발자 디버깅 모드
+                🛠️ 개발자 모드
             </button>
         </div>
     </header>
@@ -4930,36 +4975,38 @@
     </div>
 
 <script>
-    // ── Custom Title Bar: Electron IPC wiring ──────────────────────────
-    (function initTitleBar() {
-        const isElectron = typeof window !== 'undefined' &&
-                           typeof window.electronAPI !== 'undefined';
+    // ══ 에브리세일 Title Bar: Electron IPC Bridge ══════════════════════
+    (function initEverySaleTitleBar() {
+        const titlebar = document.getElementById('custom-titlebar');
+        const api = window.electronAPI; // exposed by preload.js via contextBridge
 
-        if (!isElectron) return; // Running in plain browser – hide the bar
+        if (!api) {
+            // Running in a plain browser — hide the custom bar & reset body padding
+            if (titlebar) titlebar.classList.add('hide-in-browser');
+            document.body.classList.add('no-titlebar');
+            return;
+        }
 
-        document.body.classList.add('is-electron');
-
-        const btnMin = document.getElementById('btn-win-minimize');
-        const btnMax = document.getElementById('btn-win-maximize');
+        // ── Wire up window control buttons ─────────────────────────────
+        const btnMin   = document.getElementById('btn-win-minimize');
+        const btnMax   = document.getElementById('btn-win-maximize');
         const btnClose = document.getElementById('btn-win-close');
 
-        if (btnMin)   btnMin.addEventListener('click',  () => window.electronAPI.minimizeWindow());
-        if (btnMax)   btnMax.addEventListener('click',  () => window.electronAPI.maximizeWindow());
-        if (btnClose) btnClose.addEventListener('click', () => window.electronAPI.closeWindow());
+        if (btnMin)   btnMin.addEventListener('click',  () => api.minimizeWindow());
+        if (btnMax)   btnMax.addEventListener('click',  () => api.maximizeWindow());
+        if (btnClose) btnClose.addEventListener('click', () => api.closeWindow());
 
-        // Toggle maximize icon between □ and ❐
-        const maxIconPath = btnMax && btnMax.querySelector('rect');
-        window.electronAPI.onMaximizeChange((isMaximized) => {
+        // ── Maximize ↔ Restore icon toggle ─────────────────────────────
+        api.onMaximizeChange((isMaximized) => {
             if (!btnMax) return;
-            // When maximized show restore icon (two overlapping rects)
             if (isMaximized) {
                 btnMax.querySelector('svg').innerHTML =
-                    '<rect x="2" y="1" width="7" height="7" rx="1"/>' +
-                    '<rect x="1" y="2" width="7" height="7" rx="1" style="fill:rgba(0,0,0,0)" stroke-dasharray="1 0"/>';
-                btnMax.title = '이전 크기로';
+                    '<rect x="3" y="1.5" width="7.5" height="7.5" rx="1.5"/>' +
+                    '<rect x="1.5" y="3" width="7.5" height="7.5" rx="1.5" fill="rgba(0,0,0,0)"/>';
+                btnMax.title = '이전 크기로 복원';
             } else {
                 btnMax.querySelector('svg').innerHTML =
-                    '<rect x="1" y="1" width="8" height="8" rx="1"/>';
+                    '<rect x="1.5" y="1.5" width="9" height="9" rx="1.5"/>';
                 btnMax.title = '최대화';
             }
         });

@@ -96,15 +96,16 @@ function createSplashWindow() {
 
 function createMainWindow() {
     mainWindow = new BrowserWindow({
-        width: 1300,
-        height: 870,
-        minWidth: 900,
-        minHeight: 600,
+        width: 1400,
+        height: 900,
+        minWidth: 1024,
+        minHeight: 680,
         show: false,
+        title: '에브리세일 (EverySale) — B2B SaaS Enterprise Commerce Platform',
         // ─── Remove OS frame; we paint our own title bar ───
         frame: false,
         titleBarStyle: 'hidden',
-        backgroundColor: '#F0F9FF',
+        backgroundColor: '#050E1A',
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
