@@ -7,15 +7,17 @@ import com.example.payment.domain.model.order.Order;
 import com.example.payment.domain.model.order.OrderStatus;
 import com.example.payment.domain.repository.OrderRecordRepository;
 import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
-import com.example.payment.infrastructure.persistence.wal.WalService;
 import com.example.payment.infrastructure.util.IdGenerator;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 주문 서비스
@@ -25,7 +27,6 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class OrderService {
 
-    private final WalService walService;
     private final CacheService cacheService;
     private final OrderRecordRepository orderRecordRepository;
 
@@ -46,23 +47,6 @@ public class OrderService {
         String orderId = IdGenerator.generateOrderId();
 
         try {
-            String entityIds = buildEntityIdsJson(reservationId, orderId, null);
-            String afterData = buildOrderJson(
-                    orderId, customerId, productId, quantity,
-                    amount, currency, reservationId, "CREATED"
-            );
-
-            String walLogId = walService.logOperationStart(
-                    transactionId,
-                    "ORDER_CREATE_START",
-                    "orders",
-                    entityIds,
-                    afterData
-            );
-
-            log.debug("✅ WAL Phase 1 logged: txId={}, walLogId={}, orderId={}",
-                    transactionId, walLogId, orderId);
-
             Order order = Order.builder()
                     .orderId(orderId)
                     .customerId(customerId)
@@ -95,33 +79,14 @@ public class OrderService {
             String txMappingKey = "tx_order:" + transactionId;
             cacheService.cacheData(txMappingKey, orderId, ORDER_CACHE_TTL_SECONDS);
 
-            walService.logOperationComplete(
-                    transactionId,
-                    "ORDER_CREATE_COMPLETE",
-                    "orders",
-                    entityIds,
-                    null,
-                    afterData
-            );
-            walService.updateLogStatus(walLogId, "COMMITTED", "주문 생성 완료");
-
             log.info("[Phase 1] Order created successfully: txId={}, orderId={}",
                     transactionId, orderId);
 
-            return new OrderCreationResult(order, walLogId);
+            return new OrderCreationResult(order);
 
         } catch (Exception e) {
             log.error("[Phase 1] Error creating order: txId={}, customerId={}, reservationId={}",
                     transactionId, customerId, reservationId, e);
-
-            String entityIds = buildEntityIdsJson(reservationId, orderId, null);
-            walService.logOperationFailure(
-                    transactionId,
-                    "ORDER_CREATE_ERROR",
-                    "orders",
-                    entityIds,
-                    e.getMessage()
-            );
 
             throw new OrderException("주문 생성 실패", e);
         }
@@ -129,12 +94,11 @@ public class OrderService {
 
     public boolean markOrderAsPaid(
             String transactionId,
-            String phase1LogId,
             String orderId,
             String paymentId) {
 
-        log.info("[Phase 2] Marking order as paid: txId={}, orderId={}, paymentId={}, phase1LogId={}",
-                transactionId, orderId, paymentId, phase1LogId);
+        log.info("[Phase 2] Marking order as paid: txId={}, orderId={}, paymentId={}",
+                transactionId, orderId, paymentId);
 
         try {
             Order order = getOrder(orderId);
@@ -142,23 +106,6 @@ public class OrderService {
                 log.warn("Order not found: orderId={}", orderId);
                 return false;
             }
-
-            String entityIds = buildEntityIdsJson(order.getReservationId(), orderId, paymentId);
-            String beforeData = buildOrderStatusJson(orderId, order.getStatus().name());
-            String afterData = buildOrderStatusJson(orderId, "PAID");
-
-            String walLogId = walService.logPhase2Start(
-                    transactionId,
-                    phase1LogId,
-                    "ORDER_PAYMENT_START",
-                    "orders",
-                    entityIds,
-                    beforeData,
-                    afterData
-            );
-
-            log.debug(" WAL Phase 2 logged: txId={}, walLogId={}, phase1LogId={}",
-                    transactionId, walLogId, phase1LogId);
 
             order.markAsPaid(paymentId);
             orderRecordRepository.findById(orderId).ifPresent(record -> {
@@ -170,16 +117,6 @@ public class OrderService {
             String cacheKey = "order:" + orderId;
             cacheService.cacheData(cacheKey, order, ORDER_CACHE_TTL_SECONDS);
 
-            walService.logOperationComplete(
-                    transactionId,
-                    "ORDER_PAYMENT_COMPLETE",
-                    "orders",
-                    entityIds,
-                    beforeData,
-                    afterData
-            );
-            walService.updateLogStatus(walLogId, "COMMITTED", "주문 결제 완료");
-
             log.info(" [Phase 2] Order marked as paid: txId={}, orderId={}",
                     transactionId, orderId);
             return true;
@@ -187,15 +124,6 @@ public class OrderService {
         } catch (Exception e) {
             log.error(" [Phase 2] Error marking order as paid: txId={}, orderId={}",
                     transactionId, orderId, e);
-
-            String entityIds = buildEntityIdsJson(null, orderId, paymentId);
-            walService.logOperationFailure(
-                    transactionId,
-                    "ORDER_PAYMENT_ERROR",
-                    "orders",
-                    entityIds,
-                    e.getMessage()
-            );
 
             return false;
         }
@@ -216,18 +144,6 @@ public class OrderService {
                 return false;
             }
 
-            String oldStatus = order.getStatus().name();
-            String entityIds = buildEntityIdsJson(order.getReservationId(), orderId, order.getPaymentId());
-            String afterData = buildOrderStatusJson(orderId, newStatus);
-
-            String walLogId = walService.logOperationStart(
-                    transactionId,
-                    "ORDER_STATUS_CHANGE",
-                    "orders",
-                    entityIds,
-                    afterData
-            );
-
             order.setStatus(OrderStatus.valueOf(newStatus));
             order.setUpdatedAt(LocalDateTime.now());
             orderRecordRepository.findById(orderId).ifPresent(record -> {
@@ -238,33 +154,13 @@ public class OrderService {
             String cacheKey = "order:" + orderId;
             cacheService.cacheData(cacheKey, order, ORDER_CACHE_TTL_SECONDS);
 
-            String beforeData = buildOrderStatusJson(orderId, oldStatus);
-            walService.logOperationComplete(
-                    transactionId,
-                    "ORDER_STATUS_CHANGE_COMPLETE",
-                    "orders",
-                    entityIds,
-                    beforeData,
-                    afterData
-            );
-            walService.updateLogStatus(walLogId, "COMMITTED", "상태 변경 완료: " + reason);
-
             log.info(" Order status updated: txId={}, orderId={}, {} -> {}",
-                    transactionId, orderId, oldStatus, newStatus);
+                    transactionId, orderId, order.getStatus().name(), newStatus);
             return true;
 
         } catch (Exception e) {
             log.error(" Error updating order status: txId={}, orderId={}, newStatus={}",
                     transactionId, orderId, newStatus, e);
-
-            String entityIds = buildEntityIdsJson(null, orderId, null);
-            walService.logOperationFailure(
-                    transactionId,
-                    "ORDER_STATUS_CHANGE_ERROR",
-                    "orders",
-                    entityIds,
-                    e.getMessage()
-            );
 
             return false;
         }
@@ -293,18 +189,6 @@ public class OrderService {
                 return false;
             }
 
-            String entityIds = buildEntityIdsJson(order.getReservationId(), orderId, order.getPaymentId());
-            String afterData = buildOrderStatusJson(orderId, "CANCELLED");
-
-            String walLogId = walService.logOperationStart(
-                    transactionId,
-                    "ORDER_CANCEL_START",
-                    "orders",
-                    entityIds,
-                    afterData
-            );
-
-            String oldStatus = order.getStatus().name();
             order.setStatus(OrderStatus.CANCELLED);
             order.setUpdatedAt(LocalDateTime.now());
             orderRecordRepository.findById(orderId).ifPresent(record -> {
@@ -315,31 +199,11 @@ public class OrderService {
             String cacheKey = "order:" + orderId;
             cacheService.cacheData(cacheKey, order, ORDER_CACHE_TTL_SECONDS);
 
-            String beforeData = buildOrderStatusJson(orderId, oldStatus);
-            walService.logOperationComplete(
-                    transactionId,
-                    "ORDER_CANCEL_COMPLETE",
-                    "orders",
-                    entityIds,
-                    beforeData,
-                    afterData
-            );
-            walService.updateLogStatus(walLogId, "COMMITTED", "주문 취소 완료: " + reason);
-
             log.info("Order cancelled: txId={}, orderId={}", transactionId, orderId);
             return true;
 
         } catch (Exception e) {
             log.error("Error cancelling order: txId={}, orderId={}", transactionId, orderId, e);
-
-            String entityIds = buildEntityIdsJson(null, orderId, null);
-            walService.logOperationFailure(
-                    transactionId,
-                    "ORDER_CANCEL_ERROR",
-                    "orders",
-                    entityIds,
-                    e.getMessage()
-            );
 
             return false;
         }
@@ -389,37 +253,22 @@ public class OrderService {
         }
     }
 
+    public List<Order> getOrdersByCustomerId(String customerId, int page, int size) {
+        try {
+            Pageable pageable = PageRequest.of(Math.max(page, 0), normalizePageSize(size));
+            return orderRecordRepository.findByCustomerIdOrderByCreatedAtDesc(customerId, pageable)
+                    .stream()
+                    .map(this::toDomainOrder)
+                    .toList();
+        } catch (Exception e) {
+            log.error("Error getting orders by customer: customerId={}", customerId, e);
+            return List.of();
+        }
+    }
+
     // ===================================
     // Helper Methods
     // ===================================
-
-    private String buildEntityIdsJson(String reservationId, String orderId, String paymentId) {
-        return String.format(
-                "{\"reservationId\":\"%s\",\"orderId\":\"%s\",\"paymentId\":\"%s\"}",
-                reservationId != null ? reservationId : "null",
-                orderId != null ? orderId : "null",
-                paymentId != null ? paymentId : "null"
-        );
-    }
-
-    private String buildOrderJson(String orderId, String customerId, String productId,
-                                  Integer quantity, BigDecimal amount, String currency,
-                                  String reservationId, String status) {
-        return String.format(
-                "{\"orderId\":\"%s\",\"customerId\":\"%s\",\"productId\":\"%s\"," +
-                        "\"quantity\":%d,\"amount\":%s,\"currency\":\"%s\"," +
-                        "\"reservationId\":\"%s\",\"status\":\"%s\",\"timestamp\":\"%s\"}",
-                orderId, customerId, productId, quantity, amount, currency,
-                reservationId, status, LocalDateTime.now()
-        );
-    }
-
-    private String buildOrderStatusJson(String orderId, String status) {
-        return String.format(
-                "{\"orderId\":\"%s\",\"status\":\"%s\",\"timestamp\":\"%s\"}",
-                orderId, status, LocalDateTime.now()
-        );
-    }
 
     private Order toDomainOrder(OrderRecord record) {
         return Order.builder()
@@ -437,21 +286,22 @@ public class OrderService {
                 .build();
     }
 
+    private int normalizePageSize(int size) {
+        if (size <= 0) {
+            return 10;
+        }
+        return Math.min(size, 100);
+    }
+
     public static class OrderCreationResult {
         private final Order order;
-        private final String phase1WalLogId;
 
-        public OrderCreationResult(Order order, String phase1WalLogId) {
+        public OrderCreationResult(Order order) {
             this.order = order;
-            this.phase1WalLogId = phase1WalLogId;
         }
 
         public Order getOrder() {
             return order;
-        }
-
-        public String getPhase1WalLogId() {
-            return phase1WalLogId;
         }
     }
 }

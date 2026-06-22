@@ -39,4 +39,7 @@ public interface CompleteReservationActivities {
 
     @ActivityMethod
     CompleteReservationResponse buildFailureResponse(ReservationWorkflowCommand command, String message);
+
+    @ActivityMethod
+    ReservationWorkflowStepResult verifyPaymentStatus(ReservationWorkflowCommand command);
 }

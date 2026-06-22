@@ -30,6 +30,9 @@ public class Reservation {
     @Column(name = "payment_id")
     private String paymentId;
 
+    @Column(name = "seat_id")
+    private String seatId;
+
     @Column(nullable = false)
     private Integer quantity;
 

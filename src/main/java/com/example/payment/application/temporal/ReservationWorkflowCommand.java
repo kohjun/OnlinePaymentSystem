@@ -26,6 +26,7 @@ public class ReservationWorkflowCommand {
     private String currency;
     private String paymentMethod;
     private String clientId;
+    private String seatId;
 
     public static ReservationWorkflowCommand from(String workflowId,
                                                   String reservationId,
@@ -46,6 +47,7 @@ public class ReservationWorkflowCommand {
                 .currency(request.getPaymentInfo().getCurrency())
                 .paymentMethod(request.getPaymentInfo().getPaymentMethod())
                 .clientId(request.getClientId())
+                .seatId(request.getSeatId())
                 .build();
     }
 }

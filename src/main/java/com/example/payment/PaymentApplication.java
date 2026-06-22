@@ -13,6 +13,7 @@ import org.springframework.scheduling.annotation.EnableAsync;
 @EnableCaching
 @EnableAsync
 @EnableKafka
+@org.springframework.scheduling.annotation.EnableScheduling
 @RequiredArgsConstructor
 @Slf4j
 public class PaymentApplication {

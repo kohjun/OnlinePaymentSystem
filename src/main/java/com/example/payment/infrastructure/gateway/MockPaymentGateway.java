@@ -133,6 +133,23 @@ public class MockPaymentGateway implements PaymentGatewayService {
     }
 
     @Override
+    public PaymentGatewayResult getPaymentStatusByPaymentId(String paymentId) {
+        log.debug("Getting mock payment status by paymentId: {}", paymentId);
+
+        try {
+            PaymentGatewayResult result = processedPayments.get(paymentId);
+            if (result != null) {
+                return result;
+            }
+            return PaymentGatewayResult.failure("MOCK_STATUS_NOT_FOUND", "payment not found");
+
+        } catch (Exception e) {
+            log.error("Mock payment status check error: paymentId={}", paymentId, e);
+            return PaymentGatewayResult.failure("MOCK_STATUS_ERROR", "상태 조회 실패");
+        }
+    }
+
+    @Override
     public String getGatewayName() {
         return "MOCK_PAYMENT_GATEWAY";
     }

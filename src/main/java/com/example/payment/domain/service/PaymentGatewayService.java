@@ -27,6 +27,13 @@ public interface PaymentGatewayService {
     PaymentGatewayResult getPaymentStatus(String transactionId);
 
     /**
+     * 결제 ID(주문 식별 키) 기준 결제 상태 조회 (타임아웃 복구용)
+     */
+    default PaymentGatewayResult getPaymentStatusByPaymentId(String paymentId) {
+        return PaymentGatewayResult.failure("NOT_SUPPORTED", "이 PG사는 결제 ID 조회를 지원하지 않습니다.");
+    }
+
+    /**
      * PG사 이름 반환
      */
     String getGatewayName();

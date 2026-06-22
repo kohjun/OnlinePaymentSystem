@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS reservations (
     product_id VARCHAR(255) NOT NULL,
     order_id VARCHAR(255),
     payment_id VARCHAR(255),
+    seat_id VARCHAR(50),
     quantity INT NOT NULL,
     status VARCHAR(255) NOT NULL,
     expires_at TIMESTAMP NOT NULL,

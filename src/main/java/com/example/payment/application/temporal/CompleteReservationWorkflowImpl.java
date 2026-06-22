@@ -12,6 +12,8 @@ import java.util.UUID;
 
 public class CompleteReservationWorkflowImpl implements CompleteReservationWorkflow {
 
+    private static final org.slf4j.Logger log = Workflow.getLogger(CompleteReservationWorkflowImpl.class);
+
     private final CompleteReservationActivities activities = Workflow.newActivityStub(
             CompleteReservationActivities.class,
             ActivityOptions.newBuilder()
@@ -65,11 +67,25 @@ public class CompleteReservationWorkflowImpl implements CompleteReservationWorkf
             currentStep = "PROCESS_PAYMENT";
             ReservationWorkflowStepResult payment = activities.processPayment(command);
             if (!payment.isSuccess()) {
-                safeCompensate("cancelOrder", () -> activities.cancelOrder(command, "payment failed"));
-                safeCompensate("cancelReservation", () -> activities.cancelReservation(command, "payment failed"));
-                return fail(command, payment.getMessage());
+                // PG 검증 실행 (타임아웃 및 네트워크 오류 복구)
+                try {
+                    ReservationWorkflowStepResult verified = activities.verifyPaymentStatus(command);
+                    if (verified.isSuccess()) {
+                        log.info("SAGA: Payment was approved on PG despite initial failure. Continuing workflow.");
+                        paymentCompleted = true;
+                    } else {
+                        safeCompensate("cancelOrder", () -> activities.cancelOrder(command, "payment failed"));
+                        safeCompensate("cancelReservation", () -> activities.cancelReservation(command, "payment failed"));
+                        return fail(command, payment.getMessage());
+                    }
+                } catch (Exception verifyEx) {
+                    safeCompensate("cancelOrder", () -> activities.cancelOrder(command, "payment failed"));
+                    safeCompensate("cancelReservation", () -> activities.cancelReservation(command, "payment failed"));
+                    return fail(command, payment.getMessage());
+                }
+            } else {
+                paymentCompleted = true;
             }
-            paymentCompleted = true;
 
             currentStep = "CONFIRM_INVENTORY";
             ReservationWorkflowStepResult inventoryConfirm = activities.confirmInventory(command);
@@ -94,6 +110,16 @@ public class CompleteReservationWorkflowImpl implements CompleteReservationWorkf
             return result;
 
         } catch (Exception e) {
+            // 결제 상태 모호한 경우 검증
+            if (!paymentCompleted && orderCreated) {
+                try {
+                    ReservationWorkflowStepResult verified = activities.verifyPaymentStatus(command);
+                    if (verified.isSuccess()) {
+                        paymentCompleted = true;
+                    }
+                } catch (Exception ignored) {}
+            }
+
             if (paymentCompleted) {
                 safeCompensate("refundPayment", () -> activities.refundPayment(command, "workflow exception"));
             }

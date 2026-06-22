@@ -1,15 +1,13 @@
-/**
- * 결제 전용 응답
- */
 package com.example.payment.presentation.dto.response;
 
 import com.example.payment.presentation.dto.common.BaseResponse;
+import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
-import com.fasterxml.jackson.annotation.JsonFormat;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
@@ -25,8 +23,6 @@ public class PaymentResponse extends BaseResponse {
     private String reservationId;
     private BigDecimal amount;
     private String currency;
-
-    // PG 관련 정보
     private String transactionId;
     private String approvalNumber;
     private String gatewayName;
@@ -34,9 +30,8 @@ public class PaymentResponse extends BaseResponse {
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime processedAt;
 
-    // 헬퍼 메서드들
     public static PaymentResponse success(String paymentId, String orderId, String reservationId,
-                                          BigDecimal amount, String currency, String transactionId, String s) {
+                                          BigDecimal amount, String currency, String transactionId, String gatewayName) {
         return PaymentResponse.builder()
                 .paymentId(paymentId)
                 .orderId(orderId)
@@ -44,9 +39,11 @@ public class PaymentResponse extends BaseResponse {
                 .amount(amount)
                 .currency(currency)
                 .transactionId(transactionId)
+                .gatewayName(gatewayName)
                 .status("COMPLETED")
-                .message("결제가 완료되었습니다")
+                .message("Payment completed.")
                 .processedAt(LocalDateTime.now())
+                .timestamp(LocalDateTime.now())
                 .build();
     }
 
@@ -61,6 +58,7 @@ public class PaymentResponse extends BaseResponse {
                 .status("FAILED")
                 .errorCode(errorCode)
                 .message(message)
+                .timestamp(LocalDateTime.now())
                 .build();
     }
 }

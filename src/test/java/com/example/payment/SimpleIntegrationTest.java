@@ -94,7 +94,7 @@ class SimpleIntegrationTest {
         ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
         System.out.println("✅ 응답: " + response.getStatusCode());
         assertTrue(response.getStatusCode().is2xxSuccessful());
-        assertTrue(response.getBody().contains("HEALTHY"));
+        assertTrue(response.getBody().contains("UP"));
     }
 
     @Test
@@ -130,8 +130,22 @@ class SimpleIntegrationTest {
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("SUCCESS", response.getBody().getStatus());
-        assertNotNull(response.getBody().getReservation().getReservationId());
-        System.out.println("✅ 예약 성공: " + response.getBody().getReservation().getReservationId());
+        String reservationId = response.getBody().getReservation().getReservationId();
+        assertNotNull(reservationId);
+        System.out.println("✅ 예약 성공: " + reservationId);
+
+        // [Then] 고객 예매 내역 조회 API 검증
+        String bookingsUrl = "http://localhost:" + port + "/api/system/customer/TEST-001/bookings";
+        ResponseEntity<java.util.List> bookingsResponse = restTemplate.getForEntity(bookingsUrl, java.util.List.class);
+        assertEquals(HttpStatus.OK, bookingsResponse.getStatusCode());
+        assertNotNull(bookingsResponse.getBody());
+        assertFalse(bookingsResponse.getBody().isEmpty());
+
+        java.util.Map<String, Object> firstBooking = (java.util.Map<String, Object>) bookingsResponse.getBody().get(0);
+        assertEquals(reservationId, firstBooking.get("reservationId"));
+        assertEquals("PROD-001", firstBooking.get("productId"));
+        assertEquals("CONFIRMED", firstBooking.get("status"));
+        System.out.println("✅ 고객 예매 내역 조회 검증 완료: " + bookingsResponse.getBody());
     }
 
     // [수정] 요청에 따라 연속 예약 테스트(testSequentialReservations) 제거

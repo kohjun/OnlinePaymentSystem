@@ -3,7 +3,7 @@ spring:
     name: payment-service
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/payment
+    url: jdbc:postgresql://localhost:5434/payment
     username: payment
     password: payment
     driver-class-name: org.postgresql.Driver
@@ -45,6 +45,16 @@ spring:
       host: localhost
       port: 6379
       timeout: 5000
+      # [PRODUCTION HA CONFIGURATION - Redis Sentinel]
+      # For production high availability, configure Sentinel nodes:
+      # sentinel:
+      #   master: mymaster
+      #   nodes: 10.0.1.10:26379,10.0.1.11:26379,10.0.1.12:26379
+      #
+      # [PRODUCTION PERSISTENCE SETUP - AOF]
+      # Ensure AOF is enabled in redis.conf on all nodes to prevent inventory lock loss:
+      # appendonly yes
+      # appendfsync everysec
       lettuce:
         pool:
           max-active: 200
@@ -70,6 +80,13 @@ spring:
 
 server:
   port: 8080
+  tomcat:
+    threads:
+      max: 800
+      min-spare: 100
+    accept-count: 5000
+    max-connections: 20000
+    connection-timeout: 20000
 
 logging:
   level:
@@ -109,5 +126,7 @@ app:
     enabled: false
   inventory:
     reconciliation:
-      enabled: false
+      enabled: true
       fixed-delay-ms: 60000
+  queue:
+    enabled: false

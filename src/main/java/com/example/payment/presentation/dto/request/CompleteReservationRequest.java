@@ -30,6 +30,8 @@ public class CompleteReservationRequest extends BaseReservationDto {
 
     private String correlationId;
 
+    private String seatId;
+
     @Data
     @SuperBuilder
     @NoArgsConstructor

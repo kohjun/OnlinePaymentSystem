@@ -1,32 +1,63 @@
 # OnlinePaymentSystem
 
-Temporal 기반 한정 재고 예약/결제 PoC입니다. 통합 예약 플로우는 Temporal Workflow가 Saga 상태와 보상 순서를 관리하고, Activity가 Redis Lua, Postgres, PG Mock, Transactional Outbox를 실행합니다.
+OnlinePaymentSystem is a Spring Boot proof-of-concept for an online payment flow that combines inventory reservation, order creation, payment processing, compensation, and reliable event publication.
 
-## Architecture
+The primary path is the Temporal-based complete reservation API:
 
 ```text
-Reservation API
--> Temporal Workflow
--> Activity: Redis Lua inventory reservation
--> Activity: Postgres order/payment/reservation records
--> Activity: Mock PG payment
--> Activity: Outbox event recording
--> Outbox Publisher -> Kafka
+POST /api/reservations/complete
 ```
 
-기본 선택:
+This path orchestrates the Saga:
 
-- Application DB: Postgres
-- Inventory concurrency: Redis Lua atomic scripts
-- Saga orchestration: Temporal
-- Event reliability: Transactional Outbox
-- Legacy WAL path: retained for compatibility, no longer the default complete-reservation path
+```text
+Reserve inventory in Redis
+-> Create order/payment/reservation records in Postgres
+-> Process payment through MockPaymentGateway
+-> Confirm inventory
+-> Mark order as PAID
+-> Record outbox events
+-> Publish outbox events to Kafka
+```
 
-## Run
+Legacy WAL-based APIs are retained for compatibility, but the default configuration keeps the legacy scheduler disabled with `app.legacy-wal.enabled=false`.
+
+## Stack
+
+- Java 17 or newer
+- Spring Boot 3.2
+- Gradle wrapper
+- Postgres for application data
+- Redis Lua scripts for atomic inventory counters
+- Temporal for Saga orchestration
+- Kafka for event publication
+- Flyway for schema migration
+- JMeter and Python scripts for load-test analysis
+
+## Local Requirements
+
+Install a JDK and set `JAVA_HOME` before running Gradle.
+
+PowerShell example:
+
+```powershell
+$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+$env:Path = "$env:JAVA_HOME\bin;$env:Path"
+java -version
+```
+
+Any JDK 17+ is acceptable. The project compiles with the Gradle wrapper:
+
+```powershell
+.\gradlew.bat compileJava compileTestJava --no-daemon
+```
+
+## Run Locally
+
+Start the infrastructure:
 
 ```powershell
 docker compose up -d
-.\gradlew.bat bootRun
 ```
 
 Services:
@@ -38,7 +69,15 @@ Services:
 - Temporal gRPC: `localhost:7233`
 - Temporal UI: `http://localhost:8088`
 
-## Complete Reservation
+Start the application:
+
+```powershell
+.\gradlew.bat bootRun
+```
+
+## Complete Reservation API
+
+Recommended request:
 
 ```powershell
 $body = @{
@@ -62,35 +101,80 @@ Invoke-RestMethod `
   -Body $body
 ```
 
-If the workflow does not finish inside the configured synchronous wait window, the API returns `202 PENDING` with a `workflowId`.
+Expected responses:
+
+- `200 OK` with `status: SUCCESS` when the Temporal workflow completes within the synchronous wait window.
+- `202 Accepted` with `status: PENDING` and `workflowId` when the workflow is still running.
+- `400 Bad Request` with `status: FAILED` when the Saga fails and compensation is attempted.
+
+Check a pending workflow:
 
 ```powershell
 Invoke-RestMethod http://localhost:8080/api/reservations/workflows/{workflowId}
 ```
 
-## Test
+## Lookup APIs
 
-Fast compile checks:
+Useful read endpoints:
+
+```text
+GET /api/reservations/{reservationId}
+GET /api/reservations/{reservationId}/complete
+GET /api/reservations/customer/{customerId}/active?page=0&size=10
+GET /api/reservations/customer/{customerId}/complete?page=0&size=10
+GET /api/reservations/product/{productId}/stats
+GET /api/reservations/system/status
+GET /api/payments/{paymentId}
+GET /api/payments/reservation/{reservationId}
+GET /api/orders/{orderId}
+GET /api/orders/customer/{customerId}?page=0&size=10
+GET /api/system/health
+GET /api/payments/health
+```
+
+## Tests
+
+Fast compile check:
 
 ```powershell
 .\gradlew.bat compileJava compileTestJava --no-daemon
 ```
 
-Focused non-infrastructure tests:
+Focused unit tests:
 
 ```powershell
-.\gradlew.bat test --tests "*PaymentProcessingServiceTest" --tests "*CompleteReservationWorkflowTest" --tests "*ApplicationContextSmokeTest" --no-daemon
+.\gradlew.bat test `
+  --tests "*PaymentProcessingServiceTest" `
+  --tests "*CompleteReservationWorkflowTest" `
+  --tests "*OutboxPublisherTest" `
+  --tests "*InventoryReconciliationJobTest" `
+  --no-daemon
 ```
 
-The older integration tests still depend on local Redis/Kafka and run with `app.temporal.enabled=false` from `src/test/resources/application.yml`.
+Some older integration tests expect local Redis/Kafka and use `app.temporal.enabled=false` from `src/test/resources/application.yml`.
 
 ## Load Test
 
-The default JMeter scenario targets `POST /api/reservations/complete` and treats both `200 SUCCESS` and `202 PENDING` as accepted Temporal responses.
+The default JMeter scenario targets `POST /api/reservations/complete`.
+
+Accepted load-test outcomes:
+
+- `200 SUCCESS`
+- `202 PENDING`
+
+Run:
 
 ```powershell
 load-test\scripts\run-load-test.bat
 python analysis\analyze_temporal_performance.py load-test\results\{timestamp}\results.jtl
 ```
 
-Use Temporal UI to inspect workflow duration and Activity retries, and check `outbox_events` for publish latency or failed events.
+Use Temporal UI to inspect workflow duration and activity retries. Use the `outbox_events` table to inspect event publication latency, retry state, and failed events.
+
+## Operational Notes
+
+- `MockPaymentGateway` is the default payment gateway for this PoC.
+- Inventory counters are maintained in Redis and mirrored in Postgres.
+- `app.inventory.reconciliation.enabled=true` enables scheduled mismatch detection between Redis and Postgres.
+- `app.outbox.enabled=true` enables scheduled outbox publishing to Kafka.
+- `app.kafka.listeners.payment-events.enabled=false` keeps the sample payment-event listener disabled by default.

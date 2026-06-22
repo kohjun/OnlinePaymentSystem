@@ -71,6 +71,7 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
                 .productId(command.getProductId())
                 .customerId(command.getCustomerId())
                 .quantity(command.getQuantity())
+                .seatId(command.getSeatId())
                 .status("RESERVED")
                 .expiresAt(expiresAt)
                 .createdAt(LocalDateTime.now())
@@ -83,7 +84,7 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
         });
 
         outboxEventService.record("RESERVATION", command.getReservationId(), "RESERVATION_CREATED",
-                "reservation-events", command.getReservationId(), payload(command, "RESERVATION_CREATED"));
+                "reservation-events", command.getProductId(), payload(command, "RESERVATION_CREATED"));
 
         return ReservationWorkflowStepResult.builder()
                 .success(true)
@@ -115,6 +116,7 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
                 .quantity(command.getQuantity())
                 .amount(command.getAmount())
                 .currency(command.getCurrency())
+                .seatId(command.getSeatId())
                 .status("CREATED")
                 .createdAt(LocalDateTime.now())
                 .build());
@@ -125,7 +127,7 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
         });
 
         outboxEventService.record("ORDER", command.getOrderId(), "ORDER_CREATED",
-                "order-events", command.getOrderId(), payload(command, "ORDER_CREATED"));
+                "order-events", command.getProductId(), payload(command, "ORDER_CREATED"));
 
         return ReservationWorkflowStepResult.builder()
                 .success(true)
@@ -187,7 +189,7 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
         paymentRepository.save(payment);
 
         outboxEventService.record("PAYMENT", command.getPaymentId(), "PAYMENT_FAILED",
-                "payment-events", command.getPaymentId(), payload(command, "PAYMENT_FAILED"));
+                "payment-events", command.getProductId(), payload(command, "PAYMENT_FAILED"));
         return paymentResult(payment, false, "결제 실패: " + gatewayResult.getErrorMessage());
     }
 
@@ -223,7 +225,7 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
         });
 
         outboxEventService.record("RESERVATION", command.getReservationId(), "RESERVATION_CONFIRMED",
-                "reservation-events", command.getReservationId(), payload(command, "RESERVATION_CONFIRMED"));
+                "reservation-events", command.getProductId(), payload(command, "RESERVATION_CONFIRMED"));
         return ReservationWorkflowStepResult.success("inventory confirmed");
     }
 
@@ -243,7 +245,7 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
         orderRepository.save(order);
 
         outboxEventService.record("ORDER", command.getOrderId(), "ORDER_PAID",
-                "order-events", command.getOrderId(), payload(command, "ORDER_PAID"));
+                "order-events", command.getProductId(), payload(command, "ORDER_PAID"));
         return ReservationWorkflowStepResult.success("order paid");
     }
 
@@ -279,7 +281,7 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
         });
 
         outboxEventService.record("RESERVATION", command.getReservationId(), "RESERVATION_CANCELLED",
-                "reservation-events", command.getReservationId(), payload(command, "RESERVATION_CANCELLED", reason));
+                "reservation-events", command.getProductId(), payload(command, "RESERVATION_CANCELLED", reason));
     }
 
     @Override
@@ -290,7 +292,7 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
                 order.setStatus("CANCELLED");
                 orderRepository.save(order);
                 outboxEventService.record("ORDER", command.getOrderId(), "ORDER_CANCELLED",
-                        "order-events", command.getOrderId(), payload(command, "ORDER_CANCELLED", reason));
+                        "order-events", command.getProductId(), payload(command, "ORDER_CANCELLED", reason));
             }
         });
     }
@@ -310,7 +312,7 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
             payment.setProcessedAt(LocalDateTime.now());
             paymentRepository.save(payment);
             outboxEventService.record("PAYMENT", command.getPaymentId(), "PAYMENT_REFUNDED",
-                    "payment-events", command.getPaymentId(), payload(command, "PAYMENT_REFUNDED", reason));
+                    "payment-events", command.getProductId(), payload(command, "PAYMENT_REFUNDED", reason));
         }
     }
 
@@ -320,7 +322,7 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
         Map<String, Object> payload = payload(command, "COMPENSATION_FAILED", reason);
         payload.put("failedActivity", activityName);
         outboxEventService.record("WORKFLOW", command.getWorkflowId(), "COMPENSATION_FAILED_" + activityName,
-                "reservation-events", command.getWorkflowId(), payload);
+                "reservation-events", command.getProductId(), payload);
     }
 
     @Override
@@ -400,7 +402,35 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
         });
 
         outboxEventService.record("PAYMENT", command.getPaymentId(), "PAYMENT_PROCESSED",
-                "payment-events", command.getPaymentId(), payload(command, "PAYMENT_PROCESSED"));
+                "payment-events", command.getProductId(), payload(command, "PAYMENT_PROCESSED"));
+    }
+
+    @Override
+    public ReservationWorkflowStepResult verifyPaymentStatus(ReservationWorkflowCommand command) {
+        log.info("Verifying payment status: paymentId={}", command.getPaymentId());
+        try {
+            PaymentGatewayService gateway = paymentGatewayFactory.getGateway(command.getPaymentMethod());
+            PaymentGatewayResult gatewayResult = gateway.getPaymentStatusByPaymentId(command.getPaymentId());
+            
+            if (gatewayResult.isSuccess()) {
+                log.info("Payment was verified as APPROVED on gateway: paymentId={}, transactionId={}",
+                        command.getPaymentId(), gatewayResult.getTransactionId());
+                return ReservationWorkflowStepResult.builder()
+                        .success(true)
+                        .paymentId(command.getPaymentId())
+                        .transactionId(gatewayResult.getTransactionId())
+                        .status("COMPLETED")
+                        .message("verified as approved")
+                        .build();
+            } else {
+                log.info("Payment was verified as NOT_APPROVED on gateway: paymentId={}, code={}",
+                        command.getPaymentId(), gatewayResult.getErrorCode());
+                return ReservationWorkflowStepResult.failure("결제 승인 이력 없음: " + gatewayResult.getErrorMessage());
+            }
+        } catch (Exception e) {
+            log.error("Error verifying payment status for paymentId={}", command.getPaymentId(), e);
+            return ReservationWorkflowStepResult.failure("결제 상태 확인 실패: " + e.getMessage());
+        }
     }
 
     private Map<String, Object> payload(ReservationWorkflowCommand command, String eventType) {
