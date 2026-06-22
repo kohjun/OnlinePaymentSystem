@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -34,23 +35,42 @@ public class OutboxPublisher {
     @Value("${app.outbox.retry-backoff-seconds:5}")
     private long retryBackoffSeconds;
 
+    @Value("${app.outbox.stale-lock-seconds:60}")
+    private long staleLockSeconds;
+
     @Scheduled(fixedDelayString = "${app.outbox.publish-fixed-delay-ms:1000}")
     public void publishPendingEvents() {
+        restoreStaleInProgressEvents();
+
         List<OutboxEvent> events = transactionTemplate().execute(status ->
-                outboxEventRepository.findTop50ByStatusInOrderByCreatedAtAsc(List.of("PENDING")));
+                outboxEventRepository.findByStatusInOrderByCreatedAtAsc(
+                        List.of("PENDING"),
+                        PageRequest.of(0, Math.max(1, batchSize))
+                ));
         if (events == null || events.isEmpty()) {
             return;
         }
 
         events.stream()
                 .filter(this::isReadyToPublish)
-                .limit(batchSize)
                 .forEach(event -> {
                     OutboxEvent claimed = claim(event.getEventId());
                     if (claimed != null) {
                         publishClaimedEvent(claimed);
                     }
                 });
+    }
+
+    private void restoreStaleInProgressEvents() {
+        Integer restored = transactionTemplate().execute(status ->
+                outboxEventRepository.resetStaleInProgressEvents(
+                        LocalDateTime.now().minusSeconds(staleLockSeconds),
+                        LocalDateTime.now(),
+                        "Recovered stale IN_PROGRESS lock"
+                ));
+        if (restored != null && restored > 0) {
+            log.warn("Recovered stale outbox locks: count={}, staleLockSeconds={}", restored, staleLockSeconds);
+        }
     }
 
     private void publishClaimedEvent(OutboxEvent event) {

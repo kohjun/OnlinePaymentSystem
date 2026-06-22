@@ -162,11 +162,13 @@ public class PaymentProcessingService {
                 return true;
             } else {
                 log.warn("PG refund failed: paymentId={}", paymentId);
+                markRefundFailed(paymentId, "PG refund returned false");
                 return false;
             }
 
         } catch (Exception e) {
             log.error("Error refunding payment: paymentId={}", paymentId, e);
+            markRefundFailed(paymentId, e.getMessage());
             return false;
         }
     }
@@ -369,6 +371,15 @@ public class PaymentProcessingService {
                 .createdAt(payment.getCreatedAt())
                 .updatedAt(payment.getUpdatedAt())
                 .build();
+    }
+
+    private void markRefundFailed(String paymentId, String reason) {
+        paymentRecordRepository.findById(paymentId).ifPresent(record -> {
+            record.setStatus(PaymentStatus.REFUND_FAILED.name());
+            record.setFailureReason(reason);
+            record.setProcessedAt(LocalDateTime.now());
+            paymentRecordRepository.save(record);
+        });
     }
 
     private PaymentMethod toPaymentMethod(String method) {

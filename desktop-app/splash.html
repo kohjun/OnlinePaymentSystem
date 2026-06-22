@@ -2,9 +2,9 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>에브리세일 (EverySale) — 초기화 중</title>
+    <title>에브리세일 | 초기화 중</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -20,206 +20,163 @@
         .shell {
             width: 100%;
             height: 100%;
-            border-radius: 20px;
-            background: linear-gradient(150deg, #050E1A 0%, #0A1929 55%, #0D2340 100%);
-            border: 1px solid rgba(56, 189, 248, 0.15);
-            box-shadow:
-                0 32px 80px rgba(0,0,0,0.7),
-                0 8px 24px rgba(0,0,0,0.4),
-                inset 0 1px 0 rgba(56,189,248,0.1),
-                inset 0 -1px 0 rgba(0,0,0,0.3);
+            border-radius: 18px;
+            background: linear-gradient(145deg, #07111f 0%, #0b1728 58%, #102238 100%);
+            border: 1px solid rgba(125, 211, 252, 0.18);
+            box-shadow: 0 26px 70px rgba(0, 0, 0, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.06);
             display: flex;
             flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            justify-content: space-between;
             position: relative;
             overflow: hidden;
+            padding: 34px 38px 26px;
         }
 
-        /* Background grid */
         .shell::before {
             content: '';
             position: absolute;
             inset: 0;
-            background-image:
-                linear-gradient(rgba(56,189,248,0.04) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(56,189,248,0.04) 1px, transparent 1px);
-            background-size: 30px 30px;
+            background:
+                linear-gradient(rgba(125, 211, 252, 0.045) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(125, 211, 252, 0.045) 1px, transparent 1px);
+            background-size: 28px 28px;
             pointer-events: none;
         }
 
-        /* Decorative glow orbs */
-        .orb {
-            position: absolute;
-            border-radius: 50%;
-            filter: blur(50px);
-            opacity: 0.3;
-            pointer-events: none;
+        .top {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            gap: 14px;
         }
-        .orb-1 { width: 220px; height: 220px; background: #0EA5E9; top: -80px; left: -60px; }
-        .orb-2 { width: 180px; height: 180px; background: #6366F1; bottom: -60px; right: -40px; }
-        .orb-3 { width: 100px; height: 100px; background: #38BDF8; top: 40px; right: 60px; opacity: 0.15; }
 
-        /* Logo mark */
         .logo-mark {
-            width: 60px;
-            height: 60px;
-            background: linear-gradient(135deg, #0EA5E9 0%, #6366F1 100%);
-            border-radius: 18px;
+            width: 54px;
+            height: 54px;
+            border-radius: 14px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 28px;
-            margin-bottom: 18px;
-            box-shadow:
-                0 8px 32px rgba(14, 165, 233, 0.5),
-                0 0 0 1px rgba(56,189,248,0.3);
-            animation: float 3s ease-in-out infinite;
-            position: relative;
-            z-index: 1;
+            background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);
+            color: #ffffff;
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.45rem;
+            font-weight: 800;
+            box-shadow: 0 12px 30px rgba(14, 165, 233, 0.34);
         }
 
-        @keyframes float {
-            0%, 100% { transform: translateY(0); }
-            50%       { transform: translateY(-6px); }
-        }
-
-        /* Brand */
         .brand-name {
             font-family: 'Outfit', sans-serif;
-            font-size: 2rem;
-            font-weight: 900;
-            letter-spacing: -0.02em;
+            font-size: 1.58rem;
+            font-weight: 800;
+            color: #f8fafc;
             line-height: 1;
-            margin-bottom: 5px;
-            position: relative;
-            z-index: 1;
+            letter-spacing: 0;
         }
 
-        .brand-every { color: #F1F5F9; }
-        .brand-sale  {
-            background: linear-gradient(90deg, #38BDF8, #818CF8);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .brand-tagline {
+        .brand-subtitle {
+            margin-top: 7px;
+            color: #93a4b8;
             font-size: 0.78rem;
-            color: #475569;
-            font-weight: 500;
-            letter-spacing: 0.06em;
-            text-transform: uppercase;
-            margin-bottom: 28px;
+            font-weight: 600;
+        }
+
+        .center {
             position: relative;
             z-index: 1;
         }
 
-        /* Progress */
-        .progress-wrap {
-            width: 240px;
-            position: relative;
-            z-index: 1;
+        .headline {
+            color: #e2e8f0;
+            font-size: 0.92rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .supporting {
+            color: #94a3b8;
+            font-size: 0.76rem;
+            line-height: 1.55;
         }
 
         .progress-track {
             width: 100%;
-            height: 3px;
-            background: rgba(56, 189, 248, 0.1);
-            border-radius: 99px;
+            height: 4px;
+            margin-top: 18px;
+            background: rgba(148, 163, 184, 0.18);
+            border-radius: 999px;
             overflow: hidden;
-            margin-bottom: 14px;
         }
 
         .progress-fill {
             height: 100%;
             width: 100%;
-            background: linear-gradient(90deg, #0EA5E9, #818CF8, #0EA5E9);
+            background: linear-gradient(90deg, #38bdf8, #60a5fa, #38bdf8);
             background-size: 200% 100%;
-            animation: shimmer 1.6s linear infinite, progress 2.8s ease-in-out infinite;
-            border-radius: 99px;
+            border-radius: 999px;
             transform-origin: left;
+            animation: shimmer 1.5s linear infinite, progress 2.6s ease-in-out infinite;
         }
 
-        @keyframes shimmer  { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-        @keyframes progress { 0% { transform: scaleX(0.05); } 60% { transform: scaleX(0.85); } 100% { transform: scaleX(1); } }
+        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+        @keyframes progress { 0% { transform: scaleX(0.08); } 65% { transform: scaleX(0.78); } 100% { transform: scaleX(1); } }
 
-        /* Status */
-        .status-row {
+        .footer {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: #64748b;
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0;
+        }
+
+        .status {
             display: flex;
             align-items: center;
             gap: 8px;
+            color: #93c5fd;
         }
 
         .status-dot {
-            width: 6px; height: 6px;
-            background: #0EA5E9;
+            width: 7px;
+            height: 7px;
+            background: #38bdf8;
             border-radius: 50%;
+            box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.12);
             animation: blink 1.2s ease-in-out infinite;
         }
 
         @keyframes blink {
-            0%, 100% { opacity: 1;  transform: scale(1); }
-            50%       { opacity: 0.3; transform: scale(0.6); }
-        }
-
-        .status-text {
-            font-size: 0.75rem;
-            color: #475569;
-            font-weight: 600;
-            letter-spacing: 0.01em;
-        }
-
-        /* Corner badge */
-        .corner-badge {
-            position: absolute;
-            bottom: 16px;
-            right: 20px;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-
-        .corner-badge span {
-            font-size: 0.62rem;
-            color: #1E3A5F;
-            font-weight: 600;
-            letter-spacing: 0.04em;
-        }
-
-        .corner-dot {
-            width: 5px; height: 5px;
-            background: #38BDF8;
-            border-radius: 50%;
-            opacity: 0.5;
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.38; }
         }
     </style>
 </head>
 <body>
     <div class="shell">
-        <div class="orb orb-1"></div>
-        <div class="orb orb-2"></div>
-        <div class="orb orb-3"></div>
-
-        <div class="logo-mark">⚡</div>
-
-        <div class="brand-name">
-            <span class="brand-every">EVERY</span><span class="brand-sale">SALE</span>
+        <div class="top">
+            <div class="logo-mark">E</div>
+            <div>
+                <div class="brand-name">에브리세일</div>
+                <div class="brand-subtitle">EverySale Commerce Operations</div>
+            </div>
         </div>
-        <div class="brand-tagline">B2B SaaS Enterprise Commerce Platform</div>
 
-        <div class="progress-wrap">
+        <div class="center">
+            <div class="headline">대규모 판매·예약·결제 운영 시뮬레이션</div>
+            <div class="supporting">에브리세일 서비스 엔진과 로컬 데이터 저장소를 초기화 중입니다...</div>
             <div class="progress-track">
                 <div class="progress-fill"></div>
             </div>
-            <div class="status-row">
-                <div class="status-dot"></div>
-                <span class="status-text">플랫폼 서비스 및 데이터베이스 초기화 중...</span>
-            </div>
         </div>
 
-        <div class="corner-badge">
-            <div class="corner-dot"></div>
+        <div class="footer">
             <span>에브리세일 v1.0.0</span>
+            <span class="status"><span class="status-dot"></span>운영 콘솔 준비 중</span>
         </div>
     </div>
 </body>

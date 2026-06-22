@@ -9,6 +9,7 @@ import com.example.payment.domain.repository.PaymentRecordRepository;
 import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
 import com.example.payment.infrastructure.util.ResourceReservationService;
 import com.example.payment.scheduler.InventoryReconciliationJob;
+import com.example.payment.application.service.DistributionReadinessService;
 import com.example.payment.application.service.SimulationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +40,7 @@ public class SystemController {
     private final ResourceReservationService resourceReservationService;
     private final RedisTemplate<String, Object> redisTemplate;
     private final SimulationService simulationService;
+    private final DistributionReadinessService distributionReadinessService;
 
     @Autowired(required = false)
     private InventoryReconciliationJob inventoryReconciliationJob;
@@ -88,6 +90,15 @@ public class SystemController {
                     "timestamp", System.currentTimeMillis()
             ));
         }
+    }
+
+    @GetMapping("/readiness")
+    public ResponseEntity<DistributionReadinessService.ReadinessReport> checkDistributionReadiness() {
+        DistributionReadinessService.ReadinessReport report = distributionReadinessService.evaluate();
+        if (!report.releasable()) {
+            return ResponseEntity.status(503).body(report);
+        }
+        return ResponseEntity.ok(report);
     }
 
     @GetMapping("/dashboard/status")

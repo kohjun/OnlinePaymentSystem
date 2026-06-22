@@ -1,12 +1,13 @@
 package com.example.payment.application.dto;
 
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Positive;
+
 import java.math.BigDecimal;
 
 @Data
@@ -15,34 +16,37 @@ import java.math.BigDecimal;
 @NoArgsConstructor
 public class PaymentGatewayRequest {
 
-    @NotBlank(message = "결제 ID는 필수입니다")
+    @NotBlank(message = "paymentId is required")
     private String paymentId;
 
-    @NotBlank(message = "고객 ID는 필수입니다")
+    private String idempotencyKey;
+
+    @NotBlank(message = "customerId is required")
     private String customerId;
 
-    @NotNull(message = "금액은 필수입니다")
-    @Positive(message = "금액은 0보다 커야 합니다")
+    @NotNull(message = "amount is required")
+    @Positive(message = "amount must be greater than zero")
     private BigDecimal amount;
 
-    @NotBlank(message = "통화는 필수입니다")
+    @NotBlank(message = "currency is required")
     private String currency;
 
-    @NotBlank(message = "결제 수단은 필수입니다")
+    @NotBlank(message = "payment method is required")
     private String method;
 
-    // 추가 결제 정보
-    private String cardNumber; // 마스킹된 카드번호
+    private String cardNumber;
     private String cardHolderName;
     private String merchantId;
-    private String orderName; // PG사에 전달할 주문명
+    private String orderName;
 
-    // 콜백 URL들
+    private String tossPaymentKey;
+    private String tossOrderId;
+    private String tossIntentId;
+
     private String successUrl;
     private String failUrl;
     private String cancelUrl;
 
-    // 추가 메타데이터
     private String userAgent;
     private String clientIp;
 }

@@ -26,10 +26,17 @@ public class TemporalCompleteReservationGateway implements CompleteReservationGa
 
     private final WorkflowClient workflowClient;
     private final TemporalProperties temporalProperties;
+    private final CompleteReservationIdempotencyService idempotencyService;
 
     @Override
     public CompleteReservationResponse processCompleteReservation(CompleteReservationRequest request) {
         String workflowId = workflowId(request.getIdempotencyKey());
+        CompleteReservationIdempotencyService.IdempotencyDecision idempotency =
+                idempotencyService.prepare(request, workflowId);
+        if (idempotency.getReplayResponse() != null) {
+            return idempotency.getReplayResponse();
+        }
+
         CompleteReservationWorkflow workflow = workflowClient.newWorkflowStub(
                 CompleteReservationWorkflow.class,
                 WorkflowOptions.newBuilder()
@@ -39,28 +46,36 @@ public class TemporalCompleteReservationGateway implements CompleteReservationGa
         );
 
         try {
-            WorkflowClient.start(workflow::process, request);
+            if (idempotency.isStartWorkflow()) {
+                WorkflowClient.start(workflow::process, request);
+            }
         } catch (WorkflowExecutionAlreadyStarted alreadyStarted) {
             log.info("Workflow already started: workflowId={}", workflowId);
         }
 
         try {
-            return WorkflowStub.fromTyped(workflow).getResult(
+            CompleteReservationResponse response = WorkflowStub.fromTyped(workflow).getResult(
                     temporalProperties.getResultWaitTimeoutSeconds(),
                     TimeUnit.SECONDS,
                     CompleteReservationResponse.class
             );
+            idempotencyService.recordResponse(request, response);
+            return response;
         } catch (TimeoutException e) {
-            return pending(workflowId, request.getCorrelationId(), "workflow is still running");
+            CompleteReservationResponse response = pending(workflowId, request.getCorrelationId(), "workflow is still running");
+            idempotencyService.recordResponse(request, response);
+            return response;
         } catch (Exception e) {
             log.error("Failed to get workflow result: workflowId={}", workflowId, e);
             CompleteReservationResponse existing = getWorkflowStatus(workflowId);
-            return existing != null ? existing : CompleteReservationResponse.builder()
+            CompleteReservationResponse response = existing != null ? existing : CompleteReservationResponse.builder()
                     .workflowId(workflowId)
                     .status("FAILED")
                     .message(e.getMessage())
                     .correlationId(request.getCorrelationId())
                     .build();
+            idempotencyService.recordResponse(request, response);
+            return response;
         }
     }
 

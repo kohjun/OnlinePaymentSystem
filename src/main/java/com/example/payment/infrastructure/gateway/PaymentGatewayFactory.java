@@ -21,15 +21,18 @@ public class PaymentGatewayFactory {
 
     private final Map<String, PaymentGatewayService> gatewayMap;
     private final String defaultGateway;
+    private final boolean allowGatewayFallback;
 
     /**
      * 단일 생성자 - Spring이 자동으로 List<PaymentGatewayService> 주입
      */
     public PaymentGatewayFactory(
             List<PaymentGatewayService> gateways,
-            @Value("${payment.default-gateway:MOCK_PAYMENT_GATEWAY}") String defaultGateway) {
+            @Value("${payment.default-gateway:TOSS_PAYMENTS}") String defaultGateway,
+            @Value("${payment.allow-gateway-fallback:false}") boolean allowGatewayFallback) {
 
         this.defaultGateway = defaultGateway;
+        this.allowGatewayFallback = allowGatewayFallback;
         this.gatewayMap = gateways.stream()
                 .collect(Collectors.toMap(
                         PaymentGatewayService::getGatewayName,
@@ -40,7 +43,7 @@ public class PaymentGatewayFactory {
         log.info("Default gateway set to: {}", defaultGateway);
 
         // 기본 게이트웨이 존재 여부 확인
-        if (!gatewayMap.containsKey(defaultGateway) && !gatewayMap.isEmpty()) {
+        if (!gatewayMap.containsKey(defaultGateway) && !gatewayMap.isEmpty() && allowGatewayFallback) {
             String firstAvailable = gatewayMap.keySet().iterator().next();
             log.warn("Default gateway '{}' not found, using first available: '{}'",
                     defaultGateway, firstAvailable);
@@ -54,23 +57,33 @@ public class PaymentGatewayFactory {
         log.debug("Selecting gateway for payment method: {}", paymentMethod);
 
         String gatewayName = selectGatewayByMethod(paymentMethod);
+        if (gatewayName == null) {
+            throw new IllegalArgumentException("UNSUPPORTED_PAYMENT_METHOD: " + paymentMethod);
+        }
         PaymentGatewayService gateway = gatewayMap.get(gatewayName);
+        boolean usedFallback = false;
 
-        if (gateway == null) {
+        if (gateway == null && allowGatewayFallback) {
             log.warn("Gateway '{}' not found for method '{}', trying default", gatewayName, paymentMethod);
             gateway = gatewayMap.get(defaultGateway);
+            usedFallback = gateway != null;
         }
 
-        if (gateway == null && !gatewayMap.isEmpty()) {
+        if (gateway == null && allowGatewayFallback && !gatewayMap.isEmpty()) {
             // 기본 게이트웨이도 없으면 첫 번째 사용 가능한 게이트웨이 사용
             gateway = gatewayMap.values().iterator().next();
             log.warn("Default gateway not available, using fallback: {}", gateway.getGatewayName());
+            usedFallback = true;
         }
 
         if (gateway == null) {
             throw new IllegalStateException(
-                    String.format("No payment gateway available for method: %s. Available gateways: %s",
-                            paymentMethod, gatewayMap.keySet()));
+                    String.format("UNSUPPORTED_PAYMENT_METHOD: %s. Required gateway=%s, available gateways=%s",
+                            paymentMethod, gatewayName, gatewayMap.keySet()));
+        }
+
+        if (!usedFallback && !gateway.supports(paymentMethod)) {
+            throw new IllegalArgumentException("UNSUPPORTED_PAYMENT_METHOD: " + paymentMethod);
         }
 
         log.debug("Selected gateway: {} for payment method: {}", gateway.getGatewayName(), paymentMethod);
@@ -82,6 +95,9 @@ public class PaymentGatewayFactory {
      */
     private String selectGatewayByMethod(String paymentMethod) {
         if (paymentMethod == null) {
+            return defaultGateway;
+        }
+        if ("MOCK_PAYMENT_GATEWAY".equalsIgnoreCase(defaultGateway)) {
             return defaultGateway;
         }
 
@@ -107,11 +123,11 @@ public class PaymentGatewayFactory {
 
             case "MOCK":
             case "TEST":
-                return "MOCK_PAYMENT_GATEWAY";
+                return "TOSS_PAYMENTS";
 
             default:
-                log.debug("Unknown payment method '{}', using default gateway", paymentMethod);
-                return defaultGateway;
+                log.warn("Unknown payment method '{}'", paymentMethod);
+                return null;
         }
     }
 

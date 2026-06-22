@@ -1,8 +1,8 @@
 {
-  "name": "everysale-b2b-saas-platform",
+  "name": "everysale-commerce-operations",
   "productName": "에브리세일 (EverySale)",
   "version": "1.0.0",
-  "description": "에브리세일 — B2B SaaS 엔터프라이즈 커머스 플랫폼 (티켓팅 · 드로우 · 경매 동시성 시뮬레이터)",
+  "description": "에브리세일 — 엔터프라이즈 커머스 운영 플랫폼",
   "main": "main.js",
   "scripts": {
     "start": "electron .",

@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -39,6 +40,7 @@ public class OutboxEventService {
         }
 
         try {
+            LocalDateTime occurredAt = LocalDateTime.now();
             outboxEventRepository.save(OutboxEvent.builder()
                     .eventId(eventId)
                     .aggregateType(aggregateType)
@@ -46,15 +48,36 @@ public class OutboxEventService {
                     .eventType(eventType)
                     .topic(topic)
                     .eventKey(eventKey)
-                    .payload(objectMapper.writeValueAsString(payload))
+                    .payload(objectMapper.writeValueAsString(envelope(
+                            eventId,
+                            aggregateType,
+                            aggregateId,
+                            eventType,
+                            payload,
+                            occurredAt
+                    )))
                     .status("PENDING")
                     .retryCount(0)
-                    .createdAt(LocalDateTime.now())
-                    .nextAttemptAt(LocalDateTime.now())
+                    .createdAt(occurredAt)
+                    .nextAttemptAt(occurredAt)
                     .build());
         } catch (Exception e) {
             throw new IllegalStateException("Failed to record outbox event: " + eventId, e);
         }
+    }
+
+    private Map<String, Object> envelope(String eventId, String aggregateType, String aggregateId,
+                                         String eventType, Map<String, Object> payload,
+                                         LocalDateTime occurredAt) {
+        Map<String, Object> envelope = new LinkedHashMap<>();
+        envelope.put("eventId", eventId);
+        envelope.put("eventType", eventType);
+        envelope.put("schemaVersion", 1);
+        envelope.put("aggregateType", aggregateType);
+        envelope.put("aggregateId", aggregateId);
+        envelope.put("occurredAt", occurredAt.toString());
+        envelope.put("payload", payload);
+        return envelope;
     }
 
     private String deterministicEventId(String aggregateType, String aggregateId, String eventType) {

@@ -1,6 +1,7 @@
 package com.example.payment.infrastructure.util;
 
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import lombok.RequiredArgsConstructor;
@@ -24,6 +25,18 @@ public class RateLimiter {
     // 로컬 캐시를 통한 최적화 (Redis 부하 감소용)
     private final ConcurrentHashMap<String, TokenBucket> localBuckets = new ConcurrentHashMap<>();
 
+    @Value("${app.rate-limit.capacity:10}")
+    private int capacity;
+
+    @Value("${app.rate-limit.refill-rate:2}")
+    private int refillRate;
+
+    @Value("${app.rate-limit.client-window-seconds:60}")
+    private long clientWindowSeconds;
+
+    @Value("${app.rate-limit.client-max-requests:120}")
+    private long clientMaxRequests;
+
     // 기본 설정값
     private static final int DEFAULT_CAPACITY = 10; // 초당 최대 요청 수
     private static final int DEFAULT_REFILL_RATE = 2; // 초당 충전되는 토큰 수
@@ -36,7 +49,36 @@ public class RateLimiter {
      */
     public boolean allowRequest(String clientId) {
         // [수정된 부분] 스트레스 테스트를 위해 Rate Limiter 기능을 완전히 무력화합니다.
-        return true;
+        String normalizedClientId = clientId == null || clientId.isBlank() ? "anonymous" : clientId.trim();
+        TokenBucket bucket = localBuckets.computeIfAbsent(normalizedClientId,
+                key -> new TokenBucket(capacity, refillRate));
+        bucket.refill();
+        if (!bucket.tryConsume()) {
+            log.warn("Local rate limit exceeded for client: {}", normalizedClientId);
+            return false;
+        }
+
+        try {
+            if (!checkGlobalRateLimit("ratelimit:global")) {
+                log.warn("Global rate limit exceeded");
+                return false;
+            }
+
+            String redisKey = "ratelimit:client:" + normalizedClientId;
+            Long currentCount = redisTemplate.opsForValue().increment(redisKey, 1);
+            if (currentCount != null && currentCount == 1) {
+                redisTemplate.expire(redisKey, Duration.ofSeconds(clientWindowSeconds));
+            }
+            if (currentCount != null && currentCount > clientMaxRequests) {
+                log.warn("Redis rate limit exceeded for client: {}, count={}", normalizedClientId, currentCount);
+                return false;
+            }
+            return true;
+        } catch (Exception e) {
+            log.warn("Redis rate limiter unavailable; using local bucket only: client={}, reason={}",
+                    normalizedClientId, e.getMessage());
+            return true;
+        }
 
         /*
         // 클라이언트 등급에 따른 토큰 버킷 파라미터 선택

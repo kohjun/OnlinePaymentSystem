@@ -101,7 +101,7 @@ function createMainWindow() {
         minWidth: 1024,
         minHeight: 680,
         show: false,
-        title: '에브리세일 (EverySale) — B2B SaaS Enterprise Commerce Platform',
+        title: '에브리세일 | 엔터프라이즈 커머스 운영 플랫폼',
         // ─── Remove OS frame; we paint our own title bar ───
         frame: false,
         titleBarStyle: 'hidden',

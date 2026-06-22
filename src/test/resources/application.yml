@@ -69,17 +69,46 @@ logging:
     root: INFO
     com.example.payment: DEBUG
     org.springframework.kafka: WARN
+  pattern:
+    level: "%5p [tenant:%X{tenantId:-everysale-test}] [partner:%X{partnerId:-test-partner}] [corr:%X{correlationId:-n/a}]"
 
 payment:
   processing:
     retry-count: 3
     timeout-seconds: 60
   default-gateway: MOCK_PAYMENT_GATEWAY
+  allow-gateway-fallback: true
+  mock:
+    enabled: true
+  toss:
+    client-key: test_ck_placeholder
+    secret-key: test_sk_placeholder
+    base-url: https://api.tosspayments.com
+    mode: test
+    api-version: 2022-11-16
+    test-code:
   topics:
     payment-requests: payment-requests
     payment-events: payment-events
 
 app:
+  distribution:
+    brand-name: 에브리세일
+    mode: DEMO
+    release-channel: test
+    minimum-java-version: 17
+    fail-fast-on-blockers: false
+    require-real-payment-gateway: false
+    require-external-auth: false
+    require-tenant-isolation: false
+  tenancy:
+    default-tenant-id: everysale-test
+    default-partner-id: test-partner
+    require-tenant-header: false
+    response-headers-enabled: true
+  security:
+    external-auth:
+      enabled: false
   temporal:
     enabled: false
     worker-enabled: false

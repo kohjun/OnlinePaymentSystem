@@ -16,6 +16,7 @@ import java.math.BigDecimal;
 @NoArgsConstructor
 public class PaymentGatewayResult {
     private boolean success;
+    private String gatewayStatus;
     private String transactionId;
     private String approvalNumber;
     private String errorCode;
@@ -32,6 +33,7 @@ public class PaymentGatewayResult {
                                                BigDecimal amount, String currency) {
         return PaymentGatewayResult.builder()
                 .success(true)
+                .gatewayStatus("APPROVED")
                 .transactionId(transactionId)
                 .approvalNumber(approvalNumber)
                 .processedAmount(amount)
@@ -46,6 +48,7 @@ public class PaymentGatewayResult {
     public static PaymentGatewayResult failure(String errorCode, String errorMessage) {
         return PaymentGatewayResult.builder()
                 .success(false)
+                .gatewayStatus("FAILED")
                 .errorCode(errorCode)
                 .errorMessage(errorMessage)
                 .processedAt(LocalDateTime.now())

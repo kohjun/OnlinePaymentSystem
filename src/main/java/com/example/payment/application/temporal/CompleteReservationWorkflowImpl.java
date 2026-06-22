@@ -38,7 +38,7 @@ public class CompleteReservationWorkflowImpl implements CompleteReservationWorkf
         ReservationWorkflowCommand command = ReservationWorkflowCommand.from(
                 workflowId,
                 deterministicId("RES", request.getIdempotencyKey()),
-                deterministicId("ORD", request.getIdempotencyKey()),
+                orderId(request),
                 deterministicId("PAY", request.getIdempotencyKey()),
                 request
         );
@@ -100,6 +100,7 @@ public class CompleteReservationWorkflowImpl implements CompleteReservationWorkf
             ReservationWorkflowStepResult paid = activities.markOrderPaid(command);
             if (!paid.isSuccess()) {
                 safeCompensate("refundPayment", () -> activities.refundPayment(command, "order payment update failed"));
+                safeCompensate("cancelOrder", () -> activities.cancelOrder(command, "order payment update failed"));
                 safeCompensate("cancelReservation", () -> activities.cancelReservation(command, "order payment update failed"));
                 return fail(command, paid.getMessage());
             }
@@ -170,6 +171,15 @@ public class CompleteReservationWorkflowImpl implements CompleteReservationWorkf
     private String deterministicId(String prefix, String idempotencyKey) {
         UUID uuid = UUID.nameUUIDFromBytes((prefix + ":" + idempotencyKey).getBytes(StandardCharsets.UTF_8));
         return prefix + "-" + uuid.toString();
+    }
+
+    private String orderId(CompleteReservationRequest request) {
+        if (request.getPaymentInfo() != null
+                && request.getPaymentInfo().getTossOrderId() != null
+                && !request.getPaymentInfo().getTossOrderId().isBlank()) {
+            return request.getPaymentInfo().getTossOrderId();
+        }
+        return deterministicId("ORD", request.getIdempotencyKey());
     }
 
     @FunctionalInterface

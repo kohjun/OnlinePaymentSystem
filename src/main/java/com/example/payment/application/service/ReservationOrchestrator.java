@@ -13,6 +13,12 @@ import com.example.payment.domain.model.inventory.InventoryConfirmation;
 import com.example.payment.domain.model.order.Order;
 import com.example.payment.domain.model.payment.Payment;
 import com.example.payment.domain.model.reservation.InventoryReservation;
+import com.example.payment.domain.entity.InventoryReservationRecord;
+import com.example.payment.domain.entity.OrderRecord;
+import com.example.payment.domain.entity.PaymentRecord;
+import com.example.payment.domain.repository.InventoryReservationRecordRepository;
+import com.example.payment.domain.repository.OrderRecordRepository;
+import com.example.payment.domain.repository.PaymentRecordRepository;
 import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
 import com.example.payment.infrastructure.util.IdGenerator;
 import com.example.payment.presentation.dto.request.CompleteReservationRequest;
@@ -22,10 +28,11 @@ import com.example.payment.presentation.dto.response.ReservationResponse;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
-import java.util.Collections;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,6 +60,9 @@ public class ReservationOrchestrator {
     private final ReservationEventPublisher reservationEventPublisher;
     private final OrderEventPublisher orderEventPublisher;
     private final PaymentEventService paymentEventService;
+    private final InventoryReservationRecordRepository reservationRecordRepository;
+    private final OrderRecordRepository orderRecordRepository;
+    private final PaymentRecordRepository paymentRecordRepository;
 
     /**
      * 통합 예약 플로우 - 실제 프로젝트 구조 반영
@@ -617,21 +627,112 @@ public class ReservationOrchestrator {
 
     public List<ReservationResponse> getActiveReservationsByCustomer(String customerId, int page, int size) {
         log.debug("Getting active reservations for customer: customerId={}", customerId);
-        return Collections.emptyList();
+        return reservationRecordRepository.findByCustomerIdAndStatusInOrderByCreatedAtDesc(
+                        customerId,
+                        List.of("RESERVED", "CONFIRMED"),
+                        PageRequest.of(Math.max(0, page), Math.max(1, size))
+                )
+                .stream()
+                .map(this::toReservationResponse)
+                .toList();
     }
 
     public List<CompleteReservationResponse> getCompleteReservationsByCustomer(String customerId, int page, int size) {
         log.debug("Getting complete reservations for customer: customerId={}", customerId);
-        return Collections.emptyList();
+        return orderRecordRepository.findByCustomerIdOrderByCreatedAtDesc(
+                        customerId,
+                        PageRequest.of(Math.max(0, page), Math.max(1, size))
+                )
+                .stream()
+                .map(this::toCompleteReservationResponse)
+                .toList();
+    }
+
+    private ReservationResponse toReservationResponse(InventoryReservationRecord record) {
+        long remainingSeconds = record.getExpiresAt() == null
+                ? 0
+                : Math.max(0, Duration.between(LocalDateTime.now(), record.getExpiresAt()).getSeconds());
+        return ReservationResponse.success(
+                record.getReservationId(),
+                record.getProductId(),
+                record.getQuantity(),
+                record.getExpiresAt(),
+                remainingSeconds
+        );
+    }
+
+    private CompleteReservationResponse toCompleteReservationResponse(OrderRecord order) {
+        InventoryReservationRecord reservation = reservationRecordRepository.findByReservationId(order.getReservationId())
+                .orElse(null);
+        PaymentRecord payment = order.getPaymentId() != null
+                ? paymentRecordRepository.findById(order.getPaymentId()).orElse(null)
+                : paymentRecordRepository.findByReservationId(order.getReservationId()).orElse(null);
+
+        return CompleteReservationResponse.builder()
+                .status("SUCCESS")
+                .message("Complete reservation loaded.")
+                .timestamp(LocalDateTime.now())
+                .reservation(CompleteReservationResponse.ReservationInfo.builder()
+                        .reservationId(order.getReservationId())
+                        .productId(order.getProductId())
+                        .quantity(order.getQuantity())
+                        .expiresAt(reservation != null ? reservation.getExpiresAt() : null)
+                        .build())
+                .order(CompleteReservationResponse.OrderInfo.builder()
+                        .orderId(order.getOrderId())
+                        .customerId(order.getCustomerId())
+                        .status(order.getStatus())
+                        .createdAt(order.getCreatedAt())
+                        .build())
+                .payment(payment == null ? null : CompleteReservationResponse.PaymentInfo.builder()
+                        .paymentId(payment.getPaymentId())
+                        .transactionId(payment.getTransactionId())
+                        .approvalNumber(payment.getApprovalNumber())
+                        .amount(payment.getAmount())
+                        .currency(payment.getCurrency())
+                        .status(payment.getStatus())
+                        .processedAt(payment.getProcessedAt())
+                        .build())
+                .build();
     }
 
     public Map<String, Object> getReservationStatsByProduct(String productId) {
         log.debug("Getting reservation stats for product: productId={}", productId);
-        return Map.of("productId", productId, "message", "통계 조회 기능 구현 예정");
+        return Map.of(
+                    "productId", productId,
+                    "totalReservations", reservationRecordRepository.countByProductId(productId),
+                    "reservedReservations", reservationRecordRepository.countByProductIdAndStatus(productId, "RESERVED"),
+                    "confirmedReservations", reservationRecordRepository.countByProductIdAndStatus(productId, "CONFIRMED"),
+                    "cancelledReservations", reservationRecordRepository.countByProductIdAndStatus(productId, "CANCELLED"),
+                    "expiredReservations", reservationRecordRepository.countByProductIdAndStatus(productId, "EXPIRED")
+        );
     }
 
     public Map<String, Object> getSystemReservationStatus() {
         log.debug("Getting system reservation status");
-        return Map.of("status", "OK", "message", "시스템 상태 조회 기능 구현 예정");
+        return Map.of(
+                    "status", "OK",
+                    "reservations", Map.of(
+                            "reserved", reservationRecordRepository.countByStatus("RESERVED"),
+                            "confirmed", reservationRecordRepository.countByStatus("CONFIRMED"),
+                            "cancelled", reservationRecordRepository.countByStatus("CANCELLED"),
+                            "expired", reservationRecordRepository.countByStatus("EXPIRED")
+                    ),
+                    "orders", Map.of(
+                            "created", orderRecordRepository.countByStatus("CREATED"),
+                            "paid", orderRecordRepository.countByStatus("PAID"),
+                            "cancelled", orderRecordRepository.countByStatus("CANCELLED")
+                    ),
+                    "payments", Map.of(
+                            "processing", paymentRecordRepository.countByStatus("PROCESSING"),
+                            "approved", paymentRecordRepository.countByStatus("APPROVED"),
+                            "completed", paymentRecordRepository.countByStatus("COMPLETED"),
+                            "unknown", paymentRecordRepository.countByStatus("UNKNOWN"),
+                            "failed", paymentRecordRepository.countByStatus("FAILED"),
+                            "refunded", paymentRecordRepository.countByStatus("REFUNDED"),
+                            "refundFailed", paymentRecordRepository.countByStatus("REFUND_FAILED")
+                    ),
+                    "generatedAt", LocalDateTime.now()
+        );
     }
 }

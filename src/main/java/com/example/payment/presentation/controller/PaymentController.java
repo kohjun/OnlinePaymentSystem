@@ -1,6 +1,7 @@
 package com.example.payment.presentation.controller;
 
 import com.example.payment.application.service.PaymentProcessingService;
+import com.example.payment.infrastructure.gateway.TossPaymentsProperties;
 import com.example.payment.infrastructure.util.RateLimiter;
 import com.example.payment.presentation.dto.request.PaymentProcessRequest;
 import com.example.payment.presentation.dto.response.PaymentResponse;
@@ -26,6 +27,7 @@ public class PaymentController {
 
     private final PaymentProcessingService paymentProcessingService;
     private final RateLimiter rateLimiter;
+    private final TossPaymentsProperties tossPaymentsProperties;
 
     @PostMapping("/process")
     public ResponseEntity<PaymentResponse> processReservationPayment(
@@ -145,6 +147,10 @@ public class PaymentController {
                     "status", healthy ? "UP" : "DOWN",
                     "service", "PaymentProcessingService",
                     "gatewayHealthy", healthy,
+                    "gateway", "TOSS_PAYMENTS",
+                    "tossMode", tossPaymentsProperties.getMode(),
+                    "tossClientKeyConfigured", hasText(tossPaymentsProperties.getClientKey()),
+                    "tossSecretKeyConfigured", hasText(tossPaymentsProperties.getSecretKey()),
                     "timestamp", System.currentTimeMillis()
             ));
 
@@ -158,5 +164,9 @@ public class PaymentController {
                     )
             );
         }
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 }

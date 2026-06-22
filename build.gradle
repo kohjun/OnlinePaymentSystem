@@ -78,4 +78,14 @@ tasks.named('test') {
     useJUnitPlatform()
 }
 
+tasks.register('tossSandboxTest', Test) {
+    useJUnitPlatform {
+        includeTags 'toss-sandbox'
+    }
+    onlyIf {
+        System.getenv('TOSS_CLIENT_KEY') && System.getenv('TOSS_SECRET_KEY')
+    }
+    shouldRunAfter test
+}
+
 layout.buildDirectory.set(file('build_sim'))

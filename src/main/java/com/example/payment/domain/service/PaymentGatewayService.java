@@ -16,6 +16,10 @@ public interface PaymentGatewayService {
      */
     PaymentGatewayResult processPayment(PaymentGatewayRequest request);
 
+    default PaymentGatewayResult authorize(PaymentGatewayRequest request) {
+        return processPayment(request);
+    }
+
     /**
      * 결제 환불
      */
@@ -42,4 +46,8 @@ public interface PaymentGatewayService {
      * 연결 상태 확인
      */
     boolean isHealthy();
+
+    default boolean supports(String paymentMethod) {
+        return true;
+    }
 }

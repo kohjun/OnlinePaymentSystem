@@ -45,6 +45,15 @@ public class OrderRecord {
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal amount;
 
+    @Column(name = "unit_price", precision = 19, scale = 2)
+    private BigDecimal unitPrice;
+
+    @Column(name = "price_source")
+    private String priceSource;
+
+    @Column(name = "price_calculated_at")
+    private LocalDateTime priceCalculatedAt;
+
     @Column(nullable = false)
     private String currency;
 

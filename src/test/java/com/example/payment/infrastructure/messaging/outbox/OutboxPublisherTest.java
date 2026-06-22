@@ -19,6 +19,7 @@ import java.util.concurrent.CompletableFuture;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -34,7 +35,8 @@ class OutboxPublisherTest {
         OutboxEvent event = event(0);
         CompletableFuture<SendResult<String, String>> future = CompletableFuture.completedFuture(null);
 
-        when(repository.findTop50ByStatusInOrderByCreatedAtAsc(anyCollection())).thenReturn(List.of(event));
+        when(repository.resetStaleInProgressEvents(any(), any(), any())).thenReturn(0);
+        when(repository.findByStatusInOrderByCreatedAtAsc(anyCollection(), any())).thenReturn(List.of(event));
         when(repository.findForUpdateByEventId(event.getEventId())).thenReturn(Optional.of(event));
         when(repository.save(event)).thenReturn(event);
         when(kafkaTemplate.send(event.getTopic(), event.getEventKey(), event.getPayload())).thenReturn(future);
@@ -51,7 +53,8 @@ class OutboxPublisherTest {
     void publishPendingEvents_retriesFailedKafkaSend() {
         OutboxEvent event = event(0);
 
-        when(repository.findTop50ByStatusInOrderByCreatedAtAsc(anyCollection())).thenReturn(List.of(event));
+        when(repository.resetStaleInProgressEvents(any(), any(), any())).thenReturn(0);
+        when(repository.findByStatusInOrderByCreatedAtAsc(anyCollection(), any())).thenReturn(List.of(event));
         when(repository.findForUpdateByEventId(event.getEventId())).thenReturn(Optional.of(event));
         when(repository.save(event)).thenReturn(event);
         when(kafkaTemplate.send(event.getTopic(), event.getEventKey(), event.getPayload()))
@@ -70,7 +73,8 @@ class OutboxPublisherTest {
     void publishPendingEvents_marksFailedAtMaxRetry() {
         OutboxEvent event = event(4);
 
-        when(repository.findTop50ByStatusInOrderByCreatedAtAsc(anyCollection())).thenReturn(List.of(event));
+        when(repository.resetStaleInProgressEvents(any(), any(), any())).thenReturn(0);
+        when(repository.findByStatusInOrderByCreatedAtAsc(anyCollection(), any())).thenReturn(List.of(event));
         when(repository.findForUpdateByEventId(event.getEventId())).thenReturn(Optional.of(event));
         when(repository.save(event)).thenReturn(event);
         when(kafkaTemplate.send(event.getTopic(), event.getEventKey(), event.getPayload()))
@@ -87,6 +91,7 @@ class OutboxPublisherTest {
         ReflectionTestUtils.setField(publisher, "batchSize", 50);
         ReflectionTestUtils.setField(publisher, "maxRetry", 5);
         ReflectionTestUtils.setField(publisher, "retryBackoffSeconds", 5L);
+        ReflectionTestUtils.setField(publisher, "staleLockSeconds", 60L);
     }
 
     private OutboxEvent event(int retryCount) {
