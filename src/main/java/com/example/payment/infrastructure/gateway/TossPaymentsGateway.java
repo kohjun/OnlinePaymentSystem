@@ -172,8 +172,11 @@ public class TossPaymentsGateway implements PaymentGatewayService {
         if ("DONE".equals(tossStatus)) {
             return "APPROVED";
         }
-        if ("CANCELED".equals(tossStatus) || "PARTIAL_CANCELED".equals(tossStatus)) {
+        if ("CANCELED".equals(tossStatus)) {
             return "REFUNDED";
+        }
+        if ("PARTIAL_CANCELED".equals(tossStatus)) {
+            return "PARTIALLY_REFUNDED";
         }
         if ("ABORTED".equals(tossStatus) || "EXPIRED".equals(tossStatus)) {
             return "FAILED";

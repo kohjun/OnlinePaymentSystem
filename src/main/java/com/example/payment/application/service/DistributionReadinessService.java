@@ -50,6 +50,10 @@ public class DistributionReadinessService {
         ));
         checks.add(javaVersionCheck());
         checks.add(gatewayCheck());
+        checks.add(publicCompleteApiCheck(productionMode));
+        checks.add(legacyMarketplaceCheckoutCheck(productionMode));
+        checks.add(legacyPaymentApiCheck(productionMode));
+        checks.add(gatewayFallbackCheck(productionMode));
         checks.add(externalAuthCheck());
         checks.add(tenantIsolationCheck());
         checks.add(databaseEndpointCheck(productionMode));
@@ -163,6 +167,62 @@ public class DistributionReadinessService {
                 requireRealGateway
                         ? "MockPaymentGateway is not allowed in production distribution mode."
                         : "MockPaymentGateway is enabled for tests or local demos only."
+        );
+    }
+
+    private ReadinessCheck publicCompleteApiCheck(boolean productionMode) {
+        boolean enabled = boolProperty("app.checkout.public-complete-enabled", false);
+        boolean pass = !enabled;
+        return new ReadinessCheck(
+                "public-complete-api-disabled",
+                "Direct complete reservation API",
+                pass ? "PASS" : (productionMode ? "FAIL" : "WARN"),
+                productionMode && !pass,
+                pass
+                        ? "Direct /api/reservations/complete is disabled for public checkout."
+                        : "Direct /api/reservations/complete is exposed and can bypass Toss confirm."
+        );
+    }
+
+    private ReadinessCheck legacyPaymentApiCheck(boolean productionMode) {
+        boolean enabled = boolProperty("payment.legacy-api.enabled", false);
+        boolean pass = !enabled;
+        return new ReadinessCheck(
+                "legacy-payment-api-disabled",
+                "Legacy payment process/retry/refund API",
+                pass ? "PASS" : (productionMode ? "FAIL" : "WARN"),
+                productionMode && !pass,
+                pass
+                        ? "Legacy payment APIs are disabled."
+                        : "Legacy payment APIs are enabled and can confuse Toss checkout."
+        );
+    }
+
+    private ReadinessCheck legacyMarketplaceCheckoutCheck(boolean productionMode) {
+        boolean enabled = boolProperty("app.checkout.legacy-marketplace-enabled", false);
+        boolean pass = !enabled;
+        return new ReadinessCheck(
+                "legacy-marketplace-checkout-disabled",
+                "Legacy marketplace checkout API",
+                pass ? "PASS" : (productionMode ? "FAIL" : "WARN"),
+                productionMode && !pass,
+                pass
+                        ? "Legacy marketplace checkout APIs are disabled."
+                        : "Legacy marketplace checkout APIs are enabled and can bypass Toss confirm."
+        );
+    }
+
+    private ReadinessCheck gatewayFallbackCheck(boolean productionMode) {
+        boolean fallbackEnabled = boolProperty("payment.allow-gateway-fallback", false);
+        boolean pass = !fallbackEnabled;
+        return new ReadinessCheck(
+                "payment-gateway-fallback-disabled",
+                "Payment gateway fallback",
+                pass ? "PASS" : (productionMode ? "FAIL" : "WARN"),
+                productionMode && !pass,
+                pass
+                        ? "Payment gateway fallback is disabled."
+                        : "Payment gateway fallback is enabled."
         );
     }
 

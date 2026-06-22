@@ -7,6 +7,7 @@ import com.example.payment.domain.repository.InventoryReservationRecordRepositor
 import com.example.payment.domain.repository.OrderRecordRepository;
 import com.example.payment.domain.repository.PaymentRecordRepository;
 import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
+import com.example.payment.infrastructure.security.AuthorizationGuard;
 import com.example.payment.infrastructure.util.ResourceReservationService;
 import com.example.payment.scheduler.InventoryReconciliationJob;
 import com.example.payment.application.service.DistributionReadinessService;
@@ -41,6 +42,7 @@ public class SystemController {
     private final RedisTemplate<String, Object> redisTemplate;
     private final SimulationService simulationService;
     private final DistributionReadinessService distributionReadinessService;
+    private final AuthorizationGuard authorizationGuard;
 
     @Autowired(required = false)
     private InventoryReconciliationJob inventoryReconciliationJob;
@@ -103,6 +105,7 @@ public class SystemController {
 
     @GetMapping("/dashboard/status")
     public ResponseEntity<List<Map<String, Object>>> getDashboardStatus() {
+        authorizationGuard.requireAdmin();
         String activeId = simulationService.getActiveEventId();
         EventConfig activeEvent = simulationService.getEvent(activeId);
         
@@ -256,6 +259,7 @@ public class SystemController {
     @PostMapping("/dashboard/reset")
     @Transactional
     public ResponseEntity<Map<String, Object>> resetSystem() {
+        authorizationGuard.requireAdmin();
         try {
             log.info("System simulation reset requested.");
             // 예약, 주문, 결제 이력 모두 삭제
@@ -311,6 +315,7 @@ public class SystemController {
 
     @PostMapping("/inventory/reconcile")
     public ResponseEntity<Map<String, Object>> triggerReconciliation() {
+        authorizationGuard.requireAdmin();
         log.info("Manual inventory reconciliation requested.");
         if (inventoryReconciliationJob != null) {
             inventoryReconciliationJob.reconcileInventoryCounters();
@@ -353,6 +358,7 @@ public class SystemController {
     public ResponseEntity<Map<String, Object>> lockSeat(
             @org.springframework.web.bind.annotation.RequestParam String seatId,
             @org.springframework.web.bind.annotation.RequestParam String customerId) {
+        authorizationGuard.requireCustomerAccess(customerId);
         try {
             // 대기열 활성 상태(토큰) 확인 (시뮬레이터 가상 사용자는 대기열 체크를 우회)
             if (queueEnabled && !customerId.startsWith("SLA-CUST-")) {
@@ -419,6 +425,7 @@ public class SystemController {
     public ResponseEntity<Map<String, Object>> unlockSeat(
             @org.springframework.web.bind.annotation.RequestParam String seatId,
             @org.springframework.web.bind.annotation.RequestParam String customerId) {
+        authorizationGuard.requireCustomerAccess(customerId);
         try {
             String key = "locked_seat:" + seatId;
             Object owner = redisTemplate.opsForValue().get(key);
@@ -465,6 +472,7 @@ public class SystemController {
 
     @GetMapping("/customer/{customerId}/bookings")
     public ResponseEntity<List<Map<String, Object>>> getCustomerBookings(@org.springframework.web.bind.annotation.PathVariable String customerId) {
+        authorizationGuard.requireCustomerAccess(customerId);
         try {
             List<com.example.payment.domain.entity.InventoryReservationRecord> reservations = 
                     inventoryReservationRecordRepository.findByCustomerIdOrderByCreatedAtDesc(

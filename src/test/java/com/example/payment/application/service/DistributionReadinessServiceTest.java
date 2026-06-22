@@ -41,6 +41,10 @@ class DistributionReadinessServiceTest {
                 .withProperty("app.distribution.release-channel", "local-demo")
                 .withProperty("spring.datasource.url", "jdbc:postgresql://localhost:5434/payment")
                 .withProperty("payment.default-gateway", "MOCK_PAYMENT_GATEWAY")
+                .withProperty("app.checkout.public-complete-enabled", "true")
+                .withProperty("app.checkout.legacy-marketplace-enabled", "true")
+                .withProperty("payment.legacy-api.enabled", "true")
+                .withProperty("payment.allow-gateway-fallback", "true")
                 .withProperty("app.distribution.require-real-payment-gateway", "true")
                 .withProperty("app.distribution.require-external-auth", "true")
                 .withProperty("app.distribution.require-tenant-isolation", "true")
@@ -51,7 +55,7 @@ class DistributionReadinessServiceTest {
 
         assertEquals("BLOCKED", report.status());
         assertFalse(report.releasable());
-        assertTrue(report.blockingIssues().size() >= 4);
+        assertTrue(report.blockingIssues().size() >= 8);
     }
 
     private MockEnvironment baseEnvironment() {
@@ -62,6 +66,10 @@ class DistributionReadinessServiceTest {
                 .withProperty("app.temporal.enabled", "true")
                 .withProperty("app.outbox.enabled", "true")
                 .withProperty("app.legacy-wal.enabled", "false")
+                .withProperty("app.checkout.public-complete-enabled", "false")
+                .withProperty("app.checkout.legacy-marketplace-enabled", "false")
+                .withProperty("payment.legacy-api.enabled", "false")
+                .withProperty("payment.allow-gateway-fallback", "false")
                 .withProperty("spring.datasource.url", "jdbc:postgresql://db.example.com:5432/payment")
                 .withProperty("app.security.external-auth.enabled", "false")
                 .withProperty("app.tenancy.require-tenant-header", "true");

@@ -6,6 +6,8 @@ import org.springframework.validation.annotation.Validated;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 
 import com.example.payment.application.service.ReservationOrchestrator;
 import com.example.payment.application.service.CompleteReservationGateway;
@@ -16,6 +18,7 @@ import com.example.payment.presentation.dto.request.ReservationOnlyRequest;
 import com.example.payment.presentation.dto.request.CompleteReservationRequest;
 import com.example.payment.presentation.dto.response.ReservationResponse;
 import com.example.payment.presentation.dto.response.CompleteReservationResponse;
+import com.example.payment.infrastructure.security.AuthorizationGuard;
 import com.example.payment.infrastructure.util.RateLimiter;
 
 
@@ -30,6 +33,10 @@ public class ReservationController {
     private final CompleteReservationGateway completeReservationGateway;
     private final RateLimiter rateLimiter;
     private final CheckoutPricingService checkoutPricingService;
+    private final AuthorizationGuard authorizationGuard;
+
+    @Value("${app.checkout.public-complete-enabled:false}")
+    private boolean publicCompleteEnabled;
 
     // ========================================
     // 새로운 통합 API (권장 방식)
@@ -42,6 +49,17 @@ public class ReservationController {
     @PostMapping("/complete")
     public ResponseEntity<CompleteReservationResponse> createCompleteReservation(
             @Valid @RequestBody CompleteReservationRequest request) {  // 수정된 DTO 사용
+
+        if (!publicCompleteEnabled) {
+            log.warn("Blocked direct complete reservation API call: customerId={}, productId={}",
+                    request.getCustomerId(), request.getProductId());
+            return ResponseEntity.status(HttpStatus.GONE).body(CompleteReservationResponse.builder()
+                    .status("FAILED")
+                    .errorCode("DIRECT_COMPLETE_DISABLED")
+                    .message("Direct complete reservation API is disabled. Use Toss Payments intent/confirm checkout.")
+                    .correlationId(request.getCorrelationId())
+                    .build());
+        }
 
         log.info("Complete reservation request: customerId={}, productId={}, quantity={}, amount={}",
                 request.getCustomerId(), request.getProductId(), request.getQuantity(),
@@ -98,6 +116,7 @@ public class ReservationController {
 
     @GetMapping("/workflows/{workflowId}")
     public ResponseEntity<CompleteReservationResponse> getWorkflowStatus(@PathVariable String workflowId) {
+        authorizationGuard.requireWorkflowAccess(workflowId);
         CompleteReservationResponse response = completeReservationGateway.getWorkflowStatus(workflowId);
         if (response == null) {
             return ResponseEntity.notFound().build();
@@ -120,6 +139,7 @@ public class ReservationController {
     public ResponseEntity<ReservationResponse> reserveInventory(  // 변경된 Response 타입
                                                                   @Valid @RequestBody ReservationOnlyRequest request) {  // 변경된 Request 타입
 
+        authorizationGuard.requireCustomerAccess(request.getCustomerId());
         log.info("Inventory reservation request: productId={}, customerId={}, quantity={}",
                 request.getProductId(), request.getCustomerId(), request.getQuantity());
 
@@ -162,6 +182,7 @@ public class ReservationController {
     @GetMapping("/{reservationId}")
     public ResponseEntity<ReservationResponse> getReservationStatus(@PathVariable String reservationId) {  // 변경된 Response 타입
 
+        authorizationGuard.requireReservationAccess(reservationId);
         log.debug("Getting reservation status: reservationId={}", reservationId);
 
         // 오케스트레이터를 통해 통합된 상태 조회
@@ -182,6 +203,7 @@ public class ReservationController {
     @GetMapping("/{reservationId}/complete")
     public ResponseEntity<CompleteReservationResponse> getCompleteReservationStatus(@PathVariable String reservationId) {
 
+        authorizationGuard.requireReservationAccess(reservationId);
         log.debug("Getting complete reservation status: reservationId={}", reservationId);
 
         CompleteReservationResponse response = reservationOrchestrator.getCompleteReservationStatus(reservationId);
@@ -203,6 +225,7 @@ public class ReservationController {
                                                     @RequestParam String customerId,
                                                     @RequestParam(required = false) String reason) {
 
+        authorizationGuard.requireCustomerAccess(customerId);
         log.info("Reservation cancellation requested: reservationId={}, customerId={}, reason={}",
                 reservationId, customerId, reason);
 
@@ -243,6 +266,7 @@ public class ReservationController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
 
+        authorizationGuard.requireCustomerAccess(customerId);
         log.debug("Getting active reservations for customer: customerId={}, page={}, size={}",
                 customerId, page, size);
 
@@ -268,6 +292,7 @@ public class ReservationController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
 
+        authorizationGuard.requireCustomerAccess(customerId);
         log.debug("Getting complete reservations for customer: customerId={}, page={}, size={}",
                 customerId, page, size);
 
@@ -294,6 +319,7 @@ public class ReservationController {
     @GetMapping("/product/{productId}/stats")
     public ResponseEntity<java.util.Map<String, Object>> getReservationStats(@PathVariable String productId) {
 
+        authorizationGuard.requireAdmin();
         log.debug("Getting reservation stats for product: productId={}", productId);
 
         try {
@@ -315,6 +341,7 @@ public class ReservationController {
     @GetMapping("/system/status")
     public ResponseEntity<java.util.Map<String, Object>> getSystemReservationStatus() {
 
+        authorizationGuard.requireAdmin();
         log.debug("Getting system reservation status");
 
         try {

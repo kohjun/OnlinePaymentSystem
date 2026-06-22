@@ -1828,6 +1828,10 @@
                         <button id="btn-draw-submit" class="btn-ticketing-action" style="width: 100%;">
                             드로우 응모하기
                         </button>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px;">
+                            <button id="btn-raffle-status" class="btn btn-outline" style="height:36px; font-size:0.78rem; font-weight:700;">당첨 상태 확인</button>
+                            <button id="btn-raffle-winner-checkout" class="btn-ticketing-action" style="height:36px; font-size:0.78rem;">당첨자 결제</button>
+                        </div>
                     </div>
                 </div>
 
@@ -1865,6 +1869,11 @@
                                 <input type="number" id="input-auction-bid" class="form-control" style="flex:1; height:38px; font-size:0.9rem; font-weight:700;" placeholder="최소 입찰가 입력">
                                 <button id="btn-auction-bid-submit" class="btn btn-primary" style="height:38px; padding:0 16px; font-size:0.85rem; font-weight:700; background:var(--color-primary); border:none; color:white; border-radius:4px; cursor:pointer;">입찰하기</button>
                             </div>
+                        </div>
+
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                            <button id="btn-auction-close" class="btn btn-outline" style="height:36px; font-size:0.78rem; font-weight:700;">경매 마감</button>
+                            <button id="btn-auction-winner-checkout" class="btn-ticketing-action" style="height:36px; font-size:0.78rem;">낙찰자 결제</button>
                         </div>
 
                         <!-- Bid history ledger -->
@@ -2293,8 +2302,8 @@
         return new URL(path, window.location.origin).toString();
     }
 
-    async function createTossPaymentIntent(requestBody) {
-        const res = await fetch(API_TOSS_INTENTS, {
+    async function createTossPaymentIntent(requestBody, endpoint = API_TOSS_INTENTS) {
+        const res = await fetch(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(requestBody)
@@ -2307,7 +2316,7 @@
     }
 
     async function startTossPayment(requestBody, checkoutContext = {}) {
-        const intent = await createTossPaymentIntent(requestBody);
+        const intent = await createTossPaymentIntent(requestBody, checkoutContext.intentEndpoint || API_TOSS_INTENTS);
         if (!window.TossPayments) {
             throw new Error("Toss Payments SDK is not loaded.");
         }
@@ -2378,6 +2387,15 @@
                     await fetch(`/api/system/seats/confirm?seatId=${encodeURIComponent(seatId)}`, { method: "POST" });
                 } catch (e) {
                     console.warn("Failed to confirm seat after Toss checkout", e);
+                }
+            }
+            if (pending && pending.checkoutContext && pending.checkoutContext.marketplaceEventId) {
+                try {
+                    await renderMarketplaceProducts();
+                    await updateActiveEventView();
+                    await pollMerchantOrders();
+                } catch (e) {
+                    console.warn("Failed to refresh marketplace state after Toss checkout", e);
                 }
             }
 
@@ -2465,6 +2483,57 @@
         }
         if (!event) return null;
         return (event.saleType === "DROP" || event.saleType === "FIXED_PRICE") ? event : null;
+    }
+
+    function directMarketplaceIntentEndpoint(event) {
+        if (!event || !event.saleEventId) return null;
+        if (event.saleType !== "DROP" && event.saleType !== "FIXED_PRICE") return null;
+        return `/api/marketplace/events/${encodeURIComponent(event.saleEventId)}/checkout/toss/intents`;
+    }
+
+    function raffleWinnerIntentEndpoint(event) {
+        if (!event || !event.saleEventId || event.saleType !== "RAFFLE") return null;
+        return `/api/marketplace/events/${encodeURIComponent(event.saleEventId)}/raffle/winner-checkout/toss/intents`;
+    }
+
+    function auctionWinnerIntentEndpoint(event) {
+        if (!event || !event.saleEventId || event.saleType !== "AUCTION") return null;
+        return `/api/marketplace/events/${encodeURIComponent(event.saleEventId)}/auction/winner-checkout/toss/intents`;
+    }
+
+    function marketplaceCheckoutRequest(event, customerId, amount, idempotencyPrefix, clientId) {
+        return {
+            customerId,
+            quantity: 1,
+            idempotencyKey: `${idempotencyPrefix}-${crypto.randomUUID()}`,
+            correlationId: crypto.randomUUID(),
+            clientId,
+            paymentInfo: {
+                amount: Number(amount),
+                currency: event.currency || "KRW",
+                paymentMethod: "CREDIT_CARD",
+                merchantId: event.sellerId,
+                orderName: event.title || event.productId || "EverySale Marketplace"
+            }
+        };
+    }
+
+    async function fetchRaffleStatus(event, customerId) {
+        const res = await fetch(`/api/marketplace/events/${encodeURIComponent(event.saleEventId)}/raffle/status?customerId=${encodeURIComponent(customerId)}`);
+        const data = await res.json();
+        if (!res.ok) {
+            throw new Error(data.message || "Raffle status lookup failed");
+        }
+        return data;
+    }
+
+    async function fetchAuctionStatus(event) {
+        const res = await fetch(`/api/marketplace/events/${encodeURIComponent(event.saleEventId)}/auction/status`);
+        const data = await res.json();
+        if (!res.ok) {
+            throw new Error(data.message || "Auction status lookup failed");
+        }
+        return data;
     }
 
     async function getRaffleMarketplaceEvent(productId) {
@@ -2834,6 +2903,82 @@
             });
         }
 
+        const btnRaffleStatus = document.getElementById("btn-raffle-status");
+        if (btnRaffleStatus) {
+            btnRaffleStatus.addEventListener("click", async () => {
+                const customerId = inputCustomer.value.trim();
+                if (!customerId) {
+                    alert("고객 ID를 입력하세요.");
+                    return;
+                }
+                btnRaffleStatus.disabled = true;
+                try {
+                    const activeId = window.activeEventDetails ? window.activeEventDetails.productId : "DRAW-NIKE";
+                    const raffleEvent = marketplaceEventByProductId[activeId] || await getRaffleMarketplaceEvent(activeId);
+                    if (!raffleEvent) {
+                        throw new Error("진행 중인 래플 이벤트를 찾을 수 없습니다.");
+                    }
+                    const status = await fetchRaffleStatus(raffleEvent, customerId);
+                    const label = status.winner
+                        ? `당첨됨 (${status.checkoutStatus || "PENDING"})`
+                        : status.entered ? "응모 완료, 미당첨" : "미응모";
+                    addLog(`[래플 상태] ${customerId}: ${label}`, status.winner ? "success" : "info");
+                    alert(label);
+                } catch (e) {
+                    addLog(`[래플 상태 확인 실패] ${e.message}`, "error");
+                    alert(e.message);
+                } finally {
+                    btnRaffleStatus.disabled = false;
+                }
+            });
+        }
+
+        const btnRaffleWinnerCheckout = document.getElementById("btn-raffle-winner-checkout");
+        if (btnRaffleWinnerCheckout) {
+            btnRaffleWinnerCheckout.addEventListener("click", async () => {
+                const customerId = inputCustomer.value.trim();
+                if (!customerId) {
+                    alert("고객 ID를 입력하세요.");
+                    return;
+                }
+                btnRaffleWinnerCheckout.disabled = true;
+                try {
+                    const activeId = window.activeEventDetails ? window.activeEventDetails.productId : "DRAW-NIKE";
+                    const raffleEvent = marketplaceEventByProductId[activeId] || await getRaffleMarketplaceEvent(activeId);
+                    const endpoint = raffleWinnerIntentEndpoint(raffleEvent);
+                    if (!raffleEvent || !endpoint) {
+                        throw new Error("당첨자 결제가 가능한 래플 이벤트를 찾을 수 없습니다.");
+                    }
+                    const status = await fetchRaffleStatus(raffleEvent, customerId);
+                    if (!status.winner) {
+                        throw new Error("당첨자만 결제를 진행할 수 있습니다.");
+                    }
+                    if (status.checkoutStatus && status.checkoutStatus !== "PENDING") {
+                        throw new Error(`이미 처리된 당첨 결제 상태입니다: ${status.checkoutStatus}`);
+                    }
+                    const requestBody = marketplaceCheckoutRequest(
+                        raffleEvent,
+                        customerId,
+                        raffleEvent.price,
+                        "RAFFLE-WINNER",
+                        "marketplace-raffle"
+                    );
+                    addLog(`[Toss] 래플 당첨자 결제창 준비: ${raffleEvent.title}`, "info");
+                    await startTossPayment(requestBody, {
+                        productId: raffleEvent.productId,
+                        correlationId: requestBody.correlationId,
+                        intentEndpoint: endpoint,
+                        marketplaceEventId: raffleEvent.saleEventId,
+                        checkoutType: "RAFFLE_WINNER"
+                    });
+                } catch (e) {
+                    addLog(`[래플 당첨자 결제 실패] ${e.message}`, "error");
+                    alert(e.message);
+                    btnRaffleWinnerCheckout.disabled = false;
+                }
+            });
+        }
+
         const btnAuctionBidSubmit = document.getElementById("btn-auction-bid-submit");
         const inputAuctionBid = document.getElementById("input-auction-bid");
         if (btnAuctionBidSubmit && inputAuctionBid) {
@@ -2880,6 +3025,83 @@
                     alert("입찰 처리 중 오류가 발생했습니다.");
                 } finally {
                     btnAuctionBidSubmit.disabled = false;
+                }
+            });
+        }
+
+        const btnAuctionClose = document.getElementById("btn-auction-close");
+        if (btnAuctionClose) {
+            btnAuctionClose.addEventListener("click", async () => {
+                btnAuctionClose.disabled = true;
+                try {
+                    const activeEventId = selectSaaSEvent ? selectSaaSEvent.value : "AUCTION-ROLEX";
+                    const auctionEvent = await getAuctionMarketplaceEvent(activeEventId);
+                    if (!auctionEvent) {
+                        throw new Error("마감 가능한 경매 이벤트를 찾을 수 없습니다.");
+                    }
+                    const res = await fetch(`/api/marketplace/events/${encodeURIComponent(auctionEvent.saleEventId)}/auction/close`, {
+                        method: "POST"
+                    });
+                    const data = await res.json();
+                    if (!res.ok) {
+                        throw new Error(data.message || "Auction close failed");
+                    }
+                    addLog(`[경매 마감] 낙찰자 ${data.highestBidder || "-"}, 낙찰가 ${Number(data.highestBid || 0).toLocaleString()}원`, "success");
+                    await updateAuctionViewStatus(activeEventId);
+                } catch (e) {
+                    addLog(`[경매 마감 실패] ${e.message}`, "error");
+                    alert(e.message);
+                } finally {
+                    btnAuctionClose.disabled = false;
+                }
+            });
+        }
+
+        const btnAuctionWinnerCheckout = document.getElementById("btn-auction-winner-checkout");
+        if (btnAuctionWinnerCheckout) {
+            btnAuctionWinnerCheckout.addEventListener("click", async () => {
+                const customerId = inputCustomer.value.trim();
+                if (!customerId) {
+                    alert("고객 ID를 입력하세요.");
+                    return;
+                }
+                btnAuctionWinnerCheckout.disabled = true;
+                try {
+                    const activeEventId = selectSaaSEvent ? selectSaaSEvent.value : "AUCTION-ROLEX";
+                    const auctionEvent = await getAuctionMarketplaceEvent(activeEventId);
+                    const endpoint = auctionWinnerIntentEndpoint(auctionEvent);
+                    if (!auctionEvent || !endpoint) {
+                        throw new Error("낙찰자 결제가 가능한 경매 이벤트를 찾을 수 없습니다.");
+                    }
+                    const status = await fetchAuctionStatus(auctionEvent);
+                    if (status.highestBidder !== customerId) {
+                        throw new Error(`현재 낙찰자만 결제를 진행할 수 있습니다. 낙찰자: ${status.highestBidder || "-"}`);
+                    }
+                    if (status.settlementStatus && status.settlementStatus !== "AWAITING_PAYMENT") {
+                        throw new Error(`현재 결제 가능한 정산 상태가 아닙니다: ${status.settlementStatus}`);
+                    }
+                    if (!status.settlementStatus) {
+                        throw new Error("경매 마감 후 낙찰자 결제를 진행할 수 있습니다.");
+                    }
+                    const requestBody = marketplaceCheckoutRequest(
+                        auctionEvent,
+                        customerId,
+                        status.highestBid || auctionEvent.price,
+                        "AUCTION-WINNER",
+                        "marketplace-auction"
+                    );
+                    addLog(`[Toss] 경매 낙찰자 결제창 준비: ${auctionEvent.title}`, "info");
+                    await startTossPayment(requestBody, {
+                        productId: auctionEvent.productId,
+                        correlationId: requestBody.correlationId,
+                        intentEndpoint: endpoint,
+                        marketplaceEventId: auctionEvent.saleEventId,
+                        checkoutType: "AUCTION_WINNER"
+                    });
+                } catch (e) {
+                    addLog(`[경매 낙찰자 결제 실패] ${e.message}`, "error");
+                    alert(e.message);
+                    btnAuctionWinnerCheckout.disabled = false;
                 }
             });
         }
@@ -4387,13 +4609,27 @@
             }
         };
 
-        const checkoutUrl = API_RESERVATION;
+        const marketplaceEvent = await getDirectCheckoutMarketplaceEvent(productId);
+        const marketplaceIntentEndpoint = directMarketplaceIntentEndpoint(marketplaceEvent);
+        if (marketplaceEvent && marketplaceIntentEndpoint) {
+            requestBody.paymentInfo.amount = Number(marketplaceEvent.price);
+            requestBody.paymentInfo.merchantId = marketplaceEvent.sellerId || requestBody.paymentInfo.merchantId;
+            requestBody.paymentInfo.orderName = marketplaceEvent.title || requestBody.paymentInfo.orderName;
+        }
+
+        const checkoutUrl = marketplaceIntentEndpoint || API_RESERVATION;
 
         addLog(`API 요청 전송: POST ${checkoutUrl}`, "info");
-        if (checkoutUrl === API_RESERVATION) {
+        if (checkoutUrl === API_RESERVATION || marketplaceIntentEndpoint) {
             try {
                 addLog("[Toss] 결제창을 준비합니다.", "info");
-                await startTossPayment(requestBody, { seatId, productId, correlationId });
+                await startTossPayment(requestBody, {
+                    seatId,
+                    productId,
+                    correlationId,
+                    intentEndpoint: checkoutUrl,
+                    marketplaceEventId: marketplaceEvent ? marketplaceEvent.saleEventId : null
+                });
             } catch (e) {
                 addLog(`[Toss] 결제창 시작 실패: ${e.message}`, "error");
                 try {

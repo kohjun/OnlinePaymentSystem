@@ -1,0 +1,28 @@
+app:
+  checkout:
+    public-complete-enabled: false
+    legacy-marketplace-enabled: false
+  distribution:
+    mode: PRODUCTION
+    release-channel: production
+    fail-fast-on-blockers: true
+    require-real-payment-gateway: true
+    require-external-auth: true
+    require-tenant-isolation: true
+  security:
+    mock-auth:
+      enabled: false
+    external-auth:
+      enabled: true
+  tenancy:
+    require-tenant-header: true
+
+payment:
+  default-gateway: TOSS_PAYMENTS
+  allow-gateway-fallback: false
+  legacy-api:
+    enabled: false
+  mock:
+    enabled: false
+  toss:
+    mode: live

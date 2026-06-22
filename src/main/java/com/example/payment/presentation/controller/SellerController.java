@@ -5,6 +5,7 @@ import com.example.payment.application.service.SellerMarketplaceService;
 import com.example.payment.application.service.SellerPayoutService;
 import com.example.payment.domain.model.marketplace.ListingStatus;
 import com.example.payment.domain.model.marketplace.SellerPayoutStatus;
+import com.example.payment.infrastructure.security.AuthorizationGuard;
 import com.example.payment.presentation.dto.request.CreateSaleEventRequest;
 import com.example.payment.presentation.dto.request.CreateSellerListingRequest;
 import com.example.payment.presentation.dto.request.CreateSellerRequest;
@@ -40,6 +41,7 @@ public class SellerController {
     private final SellerMarketplaceService sellerMarketplaceService;
     private final MarketplaceOrderService marketplaceOrderService;
     private final SellerPayoutService sellerPayoutService;
+    private final AuthorizationGuard authorizationGuard;
 
     @PostMapping
     public ResponseEntity<?> createSeller(@Valid @RequestBody CreateSellerRequest request) {
@@ -50,6 +52,7 @@ public class SellerController {
     @GetMapping("/{sellerId}")
     public ResponseEntity<?> getSeller(@PathVariable String sellerId) {
         try {
+            authorizationGuard.requireSellerAccess(sellerId);
             return ResponseEntity.ok(sellerMarketplaceService.getSeller(sellerId));
         } catch (IllegalArgumentException e) {
             return error(HttpStatus.NOT_FOUND, e.getMessage());
@@ -61,6 +64,7 @@ public class SellerController {
             @PathVariable String sellerId,
             @Valid @RequestBody CreateSellerListingRequest request) {
         try {
+            authorizationGuard.requireSellerAccess(sellerId);
             SellerListingResponse response = sellerMarketplaceService.createListing(sellerId, request);
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
         } catch (IllegalArgumentException e) {
@@ -72,6 +76,7 @@ public class SellerController {
     @GetMapping("/{sellerId}/listings")
     public ResponseEntity<?> getListings(@PathVariable String sellerId) {
         try {
+            authorizationGuard.requireSellerAccess(sellerId);
             List<SellerListingResponse> response = sellerMarketplaceService.getListings(sellerId);
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException e) {
@@ -82,6 +87,7 @@ public class SellerController {
     @GetMapping("/{sellerId}/orders")
     public ResponseEntity<?> getOrders(@PathVariable String sellerId) {
         try {
+            authorizationGuard.requireSellerAccess(sellerId);
             sellerMarketplaceService.getSeller(sellerId);
             return ResponseEntity.ok(marketplaceOrderService.getSellerOrders(sellerId));
         } catch (IllegalArgumentException e) {
@@ -95,6 +101,7 @@ public class SellerController {
             @PathVariable String marketplaceOrderId,
             @Valid @RequestBody UpdateFulfillmentRequest request) {
         try {
+            authorizationGuard.requireSellerAccess(sellerId);
             return ResponseEntity.ok(marketplaceOrderService.updateFulfillment(
                     sellerId,
                     marketplaceOrderId,
@@ -111,6 +118,7 @@ public class SellerController {
             @PathVariable String sellerId,
             @RequestParam(required = false) String status) {
         try {
+            authorizationGuard.requireSellerAccess(sellerId);
             sellerMarketplaceService.getSeller(sellerId);
             SellerPayoutStatus payoutStatus = status == null || status.isBlank()
                     ? null
@@ -126,6 +134,7 @@ public class SellerController {
             @PathVariable String sellerId,
             @PathVariable String payoutId) {
         try {
+            authorizationGuard.requireAdmin();
             sellerMarketplaceService.getSeller(sellerId);
             return ResponseEntity.ok(sellerPayoutService.releasePayout(sellerId, payoutId));
         } catch (IllegalArgumentException e) {
@@ -140,6 +149,7 @@ public class SellerController {
             @PathVariable String listingId,
             @Valid @RequestBody CreateSaleEventRequest request) {
         try {
+            authorizationGuard.requireSellerAccess(sellerId);
             SellerListingResponse response = sellerMarketplaceService.createSaleEvent(sellerId, listingId, request);
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
         } catch (IllegalArgumentException e) {
@@ -151,6 +161,7 @@ public class SellerController {
     @GetMapping("/moderation/listings")
     public ResponseEntity<?> getListingsForReview(@RequestParam(required = false) String status) {
         try {
+            authorizationGuard.requireAdmin();
             ListingStatus listingStatus = status == null || status.isBlank()
                     ? ListingStatus.PENDING_REVIEW
                     : ListingStatus.valueOf(status.trim().toUpperCase());
@@ -165,6 +176,7 @@ public class SellerController {
             @PathVariable String listingId,
             @Valid @RequestBody ReviewListingRequest request) {
         try {
+            authorizationGuard.requireAdmin();
             return ResponseEntity.ok(sellerMarketplaceService.approveListing(listingId, request));
         } catch (IllegalArgumentException e) {
             log.warn("Listing approval rejected: {}", e.getMessage());
@@ -177,6 +189,7 @@ public class SellerController {
             @PathVariable String listingId,
             @Valid @RequestBody ReviewListingRequest request) {
         try {
+            authorizationGuard.requireAdmin();
             return ResponseEntity.ok(sellerMarketplaceService.rejectListing(listingId, request));
         } catch (IllegalArgumentException e) {
             log.warn("Listing rejection rejected: {}", e.getMessage());
@@ -189,6 +202,7 @@ public class SellerController {
             @PathVariable String sellerId,
             @PathVariable String eventId) {
         try {
+            authorizationGuard.requireSellerAccess(sellerId);
             return ResponseEntity.ok(sellerMarketplaceService.publishSaleEvent(sellerId, eventId));
         } catch (IllegalArgumentException e) {
             log.warn("Sale event publish rejected: {}", e.getMessage());

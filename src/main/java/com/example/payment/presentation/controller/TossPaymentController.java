@@ -3,6 +3,7 @@ package com.example.payment.presentation.controller;
 import com.example.payment.application.service.AmountMismatchException;
 import com.example.payment.application.service.IdempotencyConflictException;
 import com.example.payment.application.service.TossPaymentIntentService;
+import com.example.payment.infrastructure.security.AuthorizationGuard;
 import com.example.payment.presentation.dto.request.CompleteReservationRequest;
 import com.example.payment.presentation.dto.request.TossPaymentConfirmRequest;
 import com.example.payment.presentation.dto.response.CompleteReservationResponse;
@@ -25,10 +26,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class TossPaymentController {
 
     private final TossPaymentIntentService tossPaymentIntentService;
+    private final AuthorizationGuard authorizationGuard;
 
     @PostMapping("/intents")
     public ResponseEntity<?> createIntent(@Valid @RequestBody CompleteReservationRequest request) {
         try {
+            authorizationGuard.requireCustomerAccess(request.getCustomerId());
             TossPaymentIntentResponse response = tossPaymentIntentService.createIntent(request);
             return ResponseEntity.ok(response);
         } catch (AmountMismatchException e) {
@@ -43,6 +46,7 @@ public class TossPaymentController {
     @PostMapping("/confirm")
     public ResponseEntity<CompleteReservationResponse> confirm(@Valid @RequestBody TossPaymentConfirmRequest request) {
         try {
+            authorizationGuard.requireTossIntentAccess(request.getIntentId());
             CompleteReservationResponse response = tossPaymentIntentService.confirm(request);
             if ("PENDING".equals(response.getStatus())) {
                 return ResponseEntity.accepted().body(response);

@@ -109,4 +109,24 @@ class TossPaymentsGatewayTest {
         assertTrue(gateway.refundPayment("pay_test_key"));
         server.verify();
     }
+
+    @Test
+    void statusMapsPartialCanceledToPartiallyRefunded() {
+        server.expect(requestTo("https://api.tosspayments.com/v1/payments/pay_test_key"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        {
+                          "paymentKey": "pay_test_key",
+                          "orderId": "ORD-1",
+                          "status": "PARTIAL_CANCELED",
+                          "totalAmount": 15000,
+                          "currency": "KRW"
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        PaymentGatewayResult result = gateway.getPaymentStatus("pay_test_key");
+
+        assertEquals("PARTIALLY_REFUNDED", result.getGatewayStatus());
+        server.verify();
+    }
 }

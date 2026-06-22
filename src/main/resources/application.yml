@@ -45,14 +45,11 @@ spring:
       host: localhost
       port: 6379
       timeout: 5000
-      # [PRODUCTION HA CONFIGURATION - Redis Sentinel]
-      # For production high availability, configure Sentinel nodes:
+      # Production HA option: configure Redis Sentinel nodes when deploying outside local Docker.
       # sentinel:
       #   master: mymaster
       #   nodes: 10.0.1.10:26379,10.0.1.11:26379,10.0.1.12:26379
-      #
-      # [PRODUCTION PERSISTENCE SETUP - AOF]
-      # Ensure AOF is enabled in redis.conf on all nodes to prevent inventory lock loss:
+      # Production persistence option: enable AOF to reduce inventory lock loss after node failure.
       # appendonly yes
       # appendfsync everysec
       lettuce:
@@ -102,6 +99,8 @@ payment:
     timeout-seconds: 60
   default-gateway: TOSS_PAYMENTS
   allow-gateway-fallback: false
+  legacy-api:
+    enabled: false
   mock:
     enabled: false
   toss:
@@ -111,11 +110,18 @@ payment:
     mode: ${TOSS_MODE:test}
     api-version: ${TOSS_API_VERSION:2022-11-16}
     test-code: ${TOSS_TEST_CODE:}
+    reconciliation:
+      enabled: true
+      fixed-delay-ms: 60000
+      stale-seconds: 300
   topics:
     payment-requests: payment-requests
     payment-events: payment-events
 
 app:
+  checkout:
+    public-complete-enabled: false
+    legacy-marketplace-enabled: false
   distribution:
     brand-name: 에브리세일
     mode: DEMO
@@ -131,6 +137,10 @@ app:
     require-tenant-header: false
     response-headers-enabled: true
   security:
+    mock-auth:
+      enabled: true
+      default-customer-id: CUST-1049
+      default-roles: CUSTOMER,ADMIN
     external-auth:
       enabled: false
   temporal:

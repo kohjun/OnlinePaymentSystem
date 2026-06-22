@@ -81,6 +81,12 @@ public class Payment extends BaseEntity {
         this.onUpdate();
     }
 
+    public void markAsPartiallyRefunded() {
+        this.status = PaymentStatus.PARTIALLY_REFUNDED;
+        this.processedAt = LocalDateTime.now();
+        this.onUpdate();
+    }
+
     public void markRefundFailed(String reason) {
         this.failureReason = reason;
         this.status = PaymentStatus.REFUND_FAILED;
@@ -126,6 +132,7 @@ public class Payment extends BaseEntity {
         return status == PaymentStatus.APPROVED
                 || status == PaymentStatus.COMPLETED
                 || status == PaymentStatus.REFUNDED
+                || status == PaymentStatus.PARTIALLY_REFUNDED
                 || status == PaymentStatus.REFUND_FAILED
                 || status == PaymentStatus.CANCELLED;
     }

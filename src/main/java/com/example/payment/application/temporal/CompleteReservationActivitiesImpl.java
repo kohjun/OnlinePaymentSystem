@@ -349,7 +349,7 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
                         .build()));
 
         if ("SUCCEEDED".equals(refund.getStatus())) {
-            payment.setStatus("REFUNDED");
+            payment.setStatus(refundCompletionStatus(payment));
             payment.setProcessedAt(LocalDateTime.now());
             paymentRepository.save(payment);
             return;
@@ -375,7 +375,7 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
             refund.setFailureReason(null);
             refundRepository.save(refund);
 
-            payment.setStatus("REFUNDED");
+            payment.setStatus(refundCompletionStatus(payment));
             payment.setProcessedAt(LocalDateTime.now());
             payment.setFailureReason(null);
             paymentRepository.save(payment);
@@ -465,6 +465,14 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
 
     private boolean isApprovedPayment(String status) {
         return "APPROVED".equals(status) || "COMPLETED".equals(status);
+    }
+
+    private String refundCompletionStatus(PaymentRecord payment) {
+        java.math.BigDecimal refundedAmount = refundRepository.sumSucceededAmountByPaymentId(payment.getPaymentId());
+        if (refundedAmount.compareTo(payment.getAmount()) >= 0) {
+            return "REFUNDED";
+        }
+        return "PARTIALLY_REFUNDED";
     }
 
     private void markRefundFailed(ReservationWorkflowCommand command, PaymentRecord payment,

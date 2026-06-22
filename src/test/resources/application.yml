@@ -76,6 +76,8 @@ payment:
   processing:
     retry-count: 3
     timeout-seconds: 60
+  legacy-api:
+    enabled: true
   default-gateway: MOCK_PAYMENT_GATEWAY
   allow-gateway-fallback: true
   mock:
@@ -92,6 +94,9 @@ payment:
     payment-events: payment-events
 
 app:
+  checkout:
+    public-complete-enabled: true
+    legacy-marketplace-enabled: true
   distribution:
     brand-name: 에브리세일
     mode: DEMO
@@ -107,6 +112,10 @@ app:
     require-tenant-header: false
     response-headers-enabled: true
   security:
+    mock-auth:
+      enabled: true
+      default-customer-id: CUST-1049
+      default-roles: CUSTOMER,ADMIN
     external-auth:
       enabled: false
   temporal:

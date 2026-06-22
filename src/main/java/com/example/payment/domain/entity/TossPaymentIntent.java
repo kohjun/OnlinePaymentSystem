@@ -68,6 +68,18 @@ public class TossPaymentIntent {
     @Column(name = "seat_id")
     private String seatId;
 
+    @Column(name = "sale_event_id")
+    private String saleEventId;
+
+    @Column(name = "listing_id")
+    private String listingId;
+
+    @Column(name = "marketplace_checkout_type")
+    private String marketplaceCheckoutType;
+
+    @Column(name = "marketplace_source_id")
+    private String marketplaceSourceId;
+
     @Column(nullable = false)
     private String status;
 
