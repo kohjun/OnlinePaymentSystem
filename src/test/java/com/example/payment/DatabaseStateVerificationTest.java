@@ -353,7 +353,7 @@ class DatabaseStateVerificationTest {
                 .quantity(quantity)
                 .clientId("db-test-client")
                 .paymentInfo(CompleteReservationRequest.PaymentInfo.builder()
-                        .amount(new BigDecimal("100.00"))
+                        .amount(new BigDecimal("100.00").multiply(BigDecimal.valueOf(quantity)))
                         .currency("KRW")
                         .paymentMethod("CREDIT_CARD")
                         .build())

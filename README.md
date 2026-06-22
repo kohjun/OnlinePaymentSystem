@@ -132,6 +132,91 @@ GET /api/system/health
 GET /api/payments/health
 ```
 
+## Marketplace APIs
+
+EverySale marketplace read APIs expose public sale events backed by sellers, listings, products, and inventory:
+
+```text
+GET /api/marketplace/events?status=LIVE&saleType=RAFFLE&keyword=조던&sort=startsAt
+GET /api/marketplace/events/{eventId}
+POST /api/marketplace/events/{eventId}/checkout
+```
+
+Supported sale types:
+
+- `FIXED_PRICE`
+- `DROP`
+- `RAFFLE`
+- `AUCTION`
+
+The current seed data publishes limited-goods events for raffle, auction, and drop flows so the consumer marketplace can render real catalog data without using `/api/simulation/*`.
+Direct checkout is enabled for `FIXED_PRICE` and `DROP` events and reuses the Temporal complete reservation Saga. `RAFFLE` and `AUCTION` use dedicated winner checkout flows after draw or settlement.
+
+Raffle flow:
+
+```text
+POST /api/marketplace/events/{eventId}/raffle/entries
+GET /api/marketplace/events/{eventId}/raffle/status?customerId={customerId}
+POST /api/marketplace/events/{eventId}/raffle/draw
+POST /api/marketplace/events/{eventId}/raffle/winner-checkout
+```
+
+Raffle entry is free and idempotency is enforced by `(saleEventId, customerId)`. Payment is only allowed for selected winners through winner checkout.
+
+Auction flow:
+
+```text
+POST /api/marketplace/events/{eventId}/bids
+GET /api/marketplace/events/{eventId}/auction/status
+GET /api/marketplace/events/{eventId}/auction/stream
+POST /api/marketplace/events/{eventId}/auction/close
+POST /api/marketplace/events/{eventId}/auction/winner-checkout
+```
+
+Auction bids are persisted in Postgres. Closing an auction creates an awaiting-payment settlement for the highest bidder, and successful winner checkout creates a `HELD` seller payout.
+
+Marketplace order ledger and fulfillment APIs:
+
+```text
+GET /api/marketplace/customers/{customerId}/orders
+GET /api/sellers/{sellerId}/orders
+PATCH /api/sellers/{sellerId}/orders/{marketplaceOrderId}/fulfillment
+```
+
+Successful or pending direct, raffle winner, and auction winner checkout responses create `marketplace_orders` rows. Paid orders become `READY_TO_FULFILL`; sellers can move them through `PROCESSING`, `SHIPPED`, and `DELIVERED`.
+
+Seller payout APIs:
+
+```text
+GET /api/sellers/{sellerId}/payouts?status=HELD
+POST /api/sellers/{sellerId}/payouts/{payoutId}/release
+```
+
+Every paid marketplace order creates one idempotent `HELD` seller payout using `MARKETPLACE_ORDER + marketplaceOrderId` as the source key. The current platform fee policy is 10%.
+
+Seller console APIs create marketplace-ready inventory, listings, and sale events:
+
+```text
+POST /api/sellers
+GET /api/sellers/{sellerId}
+POST /api/sellers/{sellerId}/listings
+GET /api/sellers/{sellerId}/listings
+POST /api/sellers/{sellerId}/listings/{listingId}/sale-events
+POST /api/sellers/{sellerId}/sale-events/{eventId}/publish
+```
+
+New listings start as `PENDING_REVIEW`. They are visible in the seller console but are not exposed in the public marketplace feed until approved.
+
+Marketplace moderation APIs:
+
+```text
+GET /api/sellers/moderation/listings?status=PENDING_REVIEW
+POST /api/sellers/moderation/listings/{listingId}/approve
+POST /api/sellers/moderation/listings/{listingId}/reject
+```
+
+The desktop partner console uses the seeded seller `SELLER-EVERYSALE-CURATED` until full seller authentication is connected.
+
 ## Tests
 
 Fast compile check:
@@ -146,12 +231,44 @@ Focused unit tests:
 .\gradlew.bat test `
   --tests "*PaymentProcessingServiceTest" `
   --tests "*CompleteReservationWorkflowTest" `
+  --tests "*MarketplaceOrderServiceTest" `
+  --tests "*MarketplaceCheckoutServiceTest" `
+  --tests "*RaffleServiceTest" `
+  --tests "*AuctionServiceTest" `
   --tests "*OutboxPublisherTest" `
   --tests "*InventoryReconciliationJobTest" `
   --no-daemon
 ```
 
 Some older integration tests expect local Redis/Kafka and use `app.temporal.enabled=false` from `src/test/resources/application.yml`.
+
+## Distribution Quality Gate
+
+EverySale release candidates should pass the local distribution gate before packaging or handoff:
+
+```powershell
+.\scripts\verify-distribution.ps1
+```
+
+If Windows execution policy blocks direct script execution:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-distribution.ps1
+```
+
+This gate verifies Java 17+, Gradle compile, focused quality tests, EverySale branding/encoding regressions, and the Electron Windows package output at:
+
+```text
+desktop-app\dist\EverySale-win32-x64\EverySale.exe
+```
+
+Operational readiness is also exposed by:
+
+```text
+GET /api/system/readiness
+```
+
+See [docs/distribution-readiness.md](docs/distribution-readiness.md) for B2B SaaS release criteria, tenant headers, production mode settings, and manual QA.
 
 ## Load Test
 

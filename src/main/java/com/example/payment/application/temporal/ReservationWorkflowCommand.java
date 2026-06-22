@@ -7,6 +7,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
 
 @Data
 @Builder
@@ -23,8 +25,14 @@ public class ReservationWorkflowCommand {
     private String customerId;
     private Integer quantity;
     private BigDecimal amount;
+    private BigDecimal unitPrice;
+    private String priceSource;
+    private LocalDateTime priceCalculatedAt;
     private String currency;
     private String paymentMethod;
+    private String tossPaymentKey;
+    private String tossOrderId;
+    private String tossIntentId;
     private String clientId;
     private String seatId;
 
@@ -44,10 +52,24 @@ public class ReservationWorkflowCommand {
                 .customerId(request.getCustomerId())
                 .quantity(request.getQuantity())
                 .amount(request.getPaymentInfo().getAmount())
+                .unitPrice(unitPrice(request))
+                .priceSource("SERVER_PRODUCT_PRICE")
+                .priceCalculatedAt(LocalDateTime.now())
                 .currency(request.getPaymentInfo().getCurrency())
                 .paymentMethod(request.getPaymentInfo().getPaymentMethod())
+                .tossPaymentKey(request.getPaymentInfo().getTossPaymentKey())
+                .tossOrderId(request.getPaymentInfo().getTossOrderId())
+                .tossIntentId(request.getPaymentInfo().getTossIntentId())
                 .clientId(request.getClientId())
                 .seatId(request.getSeatId())
                 .build();
+    }
+
+    private static BigDecimal unitPrice(CompleteReservationRequest request) {
+        if (request.getPaymentInfo().getAmount() == null || request.getQuantity() == null || request.getQuantity() <= 0) {
+            return null;
+        }
+        return request.getPaymentInfo().getAmount()
+                .divide(BigDecimal.valueOf(request.getQuantity()), 2, RoundingMode.HALF_UP);
     }
 }

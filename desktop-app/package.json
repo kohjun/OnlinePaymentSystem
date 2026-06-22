@@ -1,0 +1,16 @@
+{
+  "name": "everysale-commerce-operations",
+  "productName": "에브리세일 (EverySale)",
+  "version": "1.0.0",
+  "description": "에브리세일 — 엔터프라이즈 커머스 운영 플랫폼",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "package": "electron-packager . EverySale --platform=win32 --arch=x64 --out=dist --overwrite --ignore=\"node_modules/electron-packager\""
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-packager": "^17.1.2"
+  }
+}

@@ -9,6 +9,9 @@ import lombok.extern.slf4j.Slf4j;
 
 import com.example.payment.application.service.ReservationOrchestrator;
 import com.example.payment.application.service.CompleteReservationGateway;
+import com.example.payment.application.service.AmountMismatchException;
+import com.example.payment.application.service.CheckoutPricingService;
+import com.example.payment.application.service.IdempotencyConflictException;
 import com.example.payment.presentation.dto.request.ReservationOnlyRequest;
 import com.example.payment.presentation.dto.request.CompleteReservationRequest;
 import com.example.payment.presentation.dto.response.ReservationResponse;
@@ -26,6 +29,7 @@ public class ReservationController {
     private final ReservationOrchestrator reservationOrchestrator;
     private final CompleteReservationGateway completeReservationGateway;
     private final RateLimiter rateLimiter;
+    private final CheckoutPricingService checkoutPricingService;
 
     // ========================================
     // 새로운 통합 API (권장 방식)
@@ -55,7 +59,25 @@ public class ReservationController {
         }
 
         // 오케스트레이터에 전체 플로우 위임
-        CompleteReservationResponse result = completeReservationGateway.processCompleteReservation(request);
+        CompleteReservationResponse result;
+        try {
+            checkoutPricingService.applyProductPrice(request, true);
+            result = completeReservationGateway.processCompleteReservation(request);
+        } catch (AmountMismatchException e) {
+            return ResponseEntity.status(409).body(CompleteReservationResponse.builder()
+                    .status("FAILED")
+                    .errorCode("AMOUNT_MISMATCH")
+                    .message(e.getMessage())
+                    .correlationId(request.getCorrelationId())
+                    .build());
+        } catch (IdempotencyConflictException e) {
+            return ResponseEntity.status(409).body(CompleteReservationResponse.builder()
+                    .status("FAILED")
+                    .errorCode("IDEMPOTENCY_KEY_CONFLICT")
+                    .message(e.getMessage())
+                    .correlationId(request.getCorrelationId())
+                    .build());
+        }
 
         // 응답 처리
         if ("SUCCESS".equals(result.getStatus())) {

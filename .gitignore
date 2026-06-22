@@ -35,3 +35,13 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### Desktop App (Electron) ###
+desktop-app/node_modules/
+desktop-app/dist/
+desktop-app/*.jar
+
+### Build Artifacts ###
+build_sim/
+*.zip
+.gitignore-desktop

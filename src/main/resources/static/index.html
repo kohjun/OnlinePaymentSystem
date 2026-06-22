@@ -3,11 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>STARLIGHT TICKETS - 스타라이트 예매센터</title>
+    <title>에브리세일 | 엔터프라이즈 커머스 운영 플랫폼</title>
     <!-- Google Fonts:Outfit & Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://js.tosspayments.com/v2/standard"></script>
     <style>
         :root {
             --bg-base: #F0F9FF;
@@ -53,107 +54,161 @@
             padding: 0;
         }
 
-        /* ── Custom Title Bar ─────────────────────────────────────── */
+        /* ══ 에브리세일 Custom Title Bar ════════════════════════════ */
         #custom-titlebar {
             position: fixed;
             top: 0;
             left: 0;
             right: 0;
-            height: 40px;
+            height: 42px;
             z-index: 99999;
-            display: flex;
+            display: flex;               /* always rendered */
             align-items: center;
             justify-content: space-between;
-            padding: 0 16px 0 14px;
-            background: linear-gradient(90deg, #0C1A2E 0%, #0D2240 50%, #0E2950 100%);
-            border-bottom: 1px solid rgba(56,189,248,0.25);
-            box-shadow: 0 2px 16px rgba(0,0,0,0.35);
-            -webkit-app-region: drag;  /* entire bar is draggable */
+            padding: 0 10px 0 14px;
+            background: linear-gradient(90deg, #07111F 0%, #0B1728 48%, #102238 100%);
+            border-bottom: 1px solid rgba(125, 211, 252, 0.24);
+            box-shadow: 0 2px 18px rgba(2, 8, 23, 0.42), inset 0 1px 0 rgba(255,255,255,0.06);
+            -webkit-app-region: drag;
             user-select: none;
         }
 
-        /* Electron-only: hide title bar when not inside Electron */
-        body:not(.is-electron) #custom-titlebar {
+        /* Hide title bar in plain browser (no Electron API) */
+        #custom-titlebar.hide-in-browser {
             display: none;
         }
 
         .titlebar-left {
             display: flex;
             align-items: center;
-            gap: 9px;
+            gap: 10px;
+            min-width: 0;
+            max-width: calc(100% - 180px);
         }
 
         .titlebar-icon {
-            width: 22px;
-            height: 22px;
-            background: linear-gradient(135deg, #0EA5E9, #38BDF8);
-            border-radius: 6px;
+            width: 24px;
+            height: 24px;
+            background: linear-gradient(135deg, #0EA5E9 0%, #2563EB 100%);
+            border-radius: 7px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 12px;
+            font-size: 13px;
+            font-family: var(--font-display);
+            font-weight: 800;
+            color: #FFFFFF;
             flex-shrink: 0;
+            box-shadow: 0 2px 8px rgba(14,165,233,0.4);
+        }
+
+        .titlebar-brand {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            min-width: 0;
         }
 
         .titlebar-appname {
             font-family: 'Outfit', sans-serif;
-            font-size: 0.82rem;
-            font-weight: 700;
-            color: #E0F2FE;
-            letter-spacing: 0.03em;
+            font-size: 0.8rem;
+            font-weight: 800;
+            color: #F1F5F9;
+            letter-spacing: 0;
+            line-height: 1.1;
+            white-space: nowrap;
         }
 
-        .titlebar-appname span {
-            color: #38BDF8;
+        .titlebar-appname .accent {
+            background: linear-gradient(90deg, #38BDF8, #60A5FA);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .titlebar-subtitle {
+            font-size: 0.55rem;
+            color: #93A4B8;
+            font-weight: 500;
+            letter-spacing: 0;
+            line-height: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .titlebar-divider {
+            width: 1px;
+            height: 18px;
+            background: rgba(255,255,255,0.08);
+            margin: 0 2px;
         }
 
         .titlebar-badge {
-            background: rgba(14,165,233,0.18);
-            border: 1px solid rgba(56,189,248,0.3);
-            color: #7DD3FC;
-            font-size: 0.6rem;
+            background: rgba(14,165,233,0.14);
+            border: 1px solid rgba(125,211,252,0.28);
+            color: #BAE6FD;
+            font-size: 0.58rem;
             font-weight: 700;
-            padding: 2px 7px;
+            padding: 2px 8px;
             border-radius: 99px;
-            letter-spacing: 0.05em;
+            letter-spacing: 0;
+        }
+
+        /* Center area: window title */
+        .titlebar-center {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.72rem;
+            color: #CBD5E1;
+            font-weight: 700;
+            pointer-events: none;
+            max-width: 42vw;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         /* Window control buttons */
         .titlebar-controls {
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 2px;
             -webkit-app-region: no-drag;
         }
 
         .win-btn {
-            width: 32px;
-            height: 24px;
+            width: 46px;
+            height: 32px;
             border: none;
             background: transparent;
-            border-radius: 5px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: background 0.15s ease;
-            color: #94A3B8;
-            font-size: 11px;
-            line-height: 1;
+            transition: background 0.12s ease;
+            color: #CBD5E1;
+            border-radius: 4px;
         }
 
-        .win-btn:hover       { background: rgba(255,255,255,0.1); color: #E2E8F0; }
-        .win-btn.close:hover { background: #EF4444; color: #ffffff; }
+        .win-btn:hover         { background: rgba(255,255,255,0.07); color: #CBD5E1; }
+        .win-btn.close:hover   { background: #C0392B; color: #ffffff; }
         .win-btn svg {
-            width: 10px; height: 10px;
+            width: 11px; height: 11px;
             stroke: currentColor;
-            stroke-width: 1.8;
+            stroke-width: 1.6;
             fill: none;
             stroke-linecap: round;
+            stroke-linejoin: round;
         }
-        .win-btn.maximize svg { stroke-width: 1.6; }
 
-        /* Body needs top offset equal to titlebar height */
+        @media (max-width: 1120px) {
+            .titlebar-center {
+                display: none;
+            }
+        }
+
+        /* Body: always account for title bar height */
         body {
             background: linear-gradient(135deg, #F0F9FF 0%, #E0F2FE 40%, #BAE6FD 100%);
             background-attachment: fixed;
@@ -161,12 +216,12 @@
             font-family: var(--font-sans);
             min-height: 100vh;
             padding: 20px;
-            /* Extra top padding only inside Electron */
-            padding-top: 20px;
+            padding-top: 62px; /* 42px titlebar + 20px gap */
         }
 
-        body.is-electron {
-            padding-top: 60px; /* 40px titlebar + 20px original */
+        /* When NOT in Electron: reset padding (titlebar is hidden) */
+        body.no-titlebar {
+            padding-top: 20px;
         }
 
 
@@ -215,36 +270,42 @@
 
         .logo-section h1 {
             font-family: var(--font-display);
-            font-weight: 800;
-            font-size: 1.4rem;
-            color: #1e1e1e;
+            font-weight: 900;
+            font-size: 1.35rem;
+            background: linear-gradient(135deg, #0EA5E9, #6366F1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
             display: flex;
             align-items: center;
             gap: 6px;
+            letter-spacing: -0.02em;
         }
 
         .logo-section h1::before {
-            content: '☁';
-            background: linear-gradient(135deg, #0EA5E9, #38BDF8);
+            content: '⚡';
+            background: linear-gradient(135deg, #0EA5E9, #6366F1);
             color: #ffffff;
-            font-size: 1rem;
-            font-weight: 900;
-            width: 28px;
-            height: 28px;
+            font-size: 0.95rem;
+            width: 30px;
+            height: 30px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            border-radius: 8px;
-            margin-right: 4px;
+            border-radius: 9px;
+            margin-right: 2px;
+            -webkit-text-fill-color: white;
+            flex-shrink: 0;
+            box-shadow: 0 2px 8px rgba(14,165,233,0.4);
         }
 
         .logo-section p {
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             color: var(--text-secondary);
             font-weight: 500;
             border-left: 1px solid #e2e8f0;
             padding-left: 10px;
             margin-left: 4px;
+            white-space: nowrap;
         }
 
         .nav-links {
@@ -1584,48 +1645,53 @@
 </head>
 <body>
 
-<!-- ══ Custom Title Bar (Electron-only) ══════════════════════════════════ -->
+<!-- ══ 에브리세일 Custom Title Bar ══════════════════════════════════════ -->
 <div id="custom-titlebar">
     <div class="titlebar-left">
-        <div class="titlebar-icon">☁</div>
-        <span class="titlebar-appname">STARLIGHT <span>TICKETS</span></span>
-        <span class="titlebar-badge">B2B SaaS</span>
+        <div class="titlebar-icon">E</div>
+        <div class="titlebar-brand">
+            <span class="titlebar-appname">EVERY<span class="accent">SALE</span></span>
+            <span class="titlebar-subtitle">에브리세일 · Enterprise Commerce Operations</span>
+        </div>
+        <div class="titlebar-divider"></div>
+        <span class="titlebar-badge">B2B Commerce</span>
     </div>
+    <div class="titlebar-center">에브리세일 | 엔터프라이즈 커머스 운영 플랫폼</div>
     <div class="titlebar-controls">
         <!-- Minimize -->
-        <button class="win-btn minimize" id="btn-win-minimize" title="최소화">
-            <svg viewBox="0 0 10 10"><line x1="1" y1="5" x2="9" y2="5"/></svg>
+        <button class="win-btn minimize" id="btn-win-minimize" title="최소화" type="button">
+            <svg viewBox="0 0 12 12"><line x1="2" y1="6" x2="10" y2="6"/></svg>
         </button>
         <!-- Maximize / Restore -->
-        <button class="win-btn maximize" id="btn-win-maximize" title="최대화">
-            <svg viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8" rx="1"/></svg>
+        <button class="win-btn maximize" id="btn-win-maximize" title="최대화" type="button">
+            <svg viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" rx="1.5"/></svg>
         </button>
         <!-- Close -->
-        <button class="win-btn close" id="btn-win-close" title="닫기">
-            <svg viewBox="0 0 10 10"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>
+        <button class="win-btn close" id="btn-win-close" title="닫기" type="button">
+            <svg viewBox="0 0 12 12"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg>
         </button>
     </div>
 </div>
 
 <div class="app-container">
-    
-    <!-- Top Header / Navigation Bar -->
+
+    <!-- ══ 에브리세일 글로벌 내비게이션 바 ══ -->
     <header class="glass-card header-navigation">
         <div class="logo-section">
-            <h1>STARLIGHT TICKETS</h1>
-            <p>우주를 담은 특별한 순간, 스타라이트 예매센터</p>
+            <h1>에브리세일</h1>
+            <p>엔터프라이즈 커머스 운영 플랫폼</p>
         </div>
         <nav class="nav-links">
-            <a href="#" class="nav-item active" id="btn-tab-storefront">실시간 예매/경매/드로우</a>
-            <a href="#" class="nav-item" id="btn-tab-partner">💼 B2B SaaS 파트너 센터</a>
-            <a href="#" class="nav-item" id="btn-tab-marketplace">🛒 마켓플레이스</a>
+            <a href="#" class="nav-item active" id="btn-tab-storefront">판매 채널</a>
+            <a href="#" class="nav-item" id="btn-tab-partner">파트너 콘솔</a>
+            <a href="#" class="nav-item" id="btn-tab-marketplace">마켓플레이스</a>
         </nav>
         <div class="system-badges">
             <button id="btn-my-bookings" class="btn btn-outline btn-my-bookings-nav">
-                🎫 내 예매 내역 조회
+                구매 내역
             </button>
             <button id="btn-toggle-dev" class="btn btn-dev-toggle">
-                🛠️ 개발자 디버깅 모드
+                운영 진단
             </button>
         </div>
     </header>
@@ -1815,24 +1881,24 @@
         </div>
     </div>
 
-    <!-- Tab 2: B2B SaaS 파트너 센터 (Partner Center) -->
+    <!-- Tab 2: 파트너 콘솔 (Partner Console) -->
     <div id="tab-content-partner" class="main-tab-content" style="display: none;">
-        <!-- B2B SaaS Partner Center Card -->
+        <!-- Partner Operations Console Card -->
         <section class="glass-card saas-partner-panel" style="padding: 20px; width: 100%; box-sizing: border-box;">
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--color-primary); padding-bottom: 8px; margin-bottom: 15px;">
                 <h2 style="font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 1.1rem; color: #1e293b; margin: 0; display:flex; align-items:center; gap:6px;">
-                    💼 B2B SaaS 파트너 센터
+                    파트너 운영 콘솔
                 </h2>
                 <!-- Link Copy Button -->
                 <button type="button" id="btn-copy-share-link" class="btn" style="width: auto; font-size: 0.72rem; padding: 4px 10px; background: var(--color-primary); color: white; border: none; border-radius: 4px; display:flex; align-items:center; gap:4px; font-weight:700;">
-                    🔗 현재 상품 홍보 링크 복사
+                    현재 상품 운영 링크 복사
                 </button>
             </div>
 
             <!-- Tab Switcher -->
             <div style="display: flex; border-bottom: 1px solid #dee2e6; margin-bottom: 15px; gap:8px;">
-                <button type="button" id="tab-saas-register" style="flex: 1; padding: 8px; font-size: 0.8rem; font-weight: 700; border: none; background: none; cursor: pointer; border-bottom: 2px solid var(--color-primary); color: var(--color-primary);">📦 신규 상품 등록</button>
-                <button type="button" id="tab-saas-orders" style="flex: 1; padding: 8px; font-size: 0.8rem; font-weight: 700; border: none; background: none; cursor: pointer; color: #64748b;">📊 실시간 구매자 모니터링</button>
+                <button type="button" id="tab-saas-register" style="flex: 1; padding: 8px; font-size: 0.8rem; font-weight: 700; border: none; background: none; cursor: pointer; border-bottom: 2px solid var(--color-primary); color: var(--color-primary);">신규 상품 등록</button>
+                <button type="button" id="tab-saas-orders" style="flex: 1; padding: 8px; font-size: 0.8rem; font-weight: 700; border: none; background: none; cursor: pointer; color: #64748b;">실시간 주문 모니터링</button>
             </div>
 
             <!-- Tab 1: Product Registration Form -->
@@ -1867,11 +1933,11 @@
                         <input type="text" id="reg-desc" class="form-control" style="font-size: 0.75rem; height: 28px; padding: 2px 6px;" placeholder="예: 한정 래플 드로우입니다.">
                     </div>
                     <button type="button" id="btn-register-submit" class="btn" style="background: var(--color-primary); color: white; border: none; height: 32px; font-size: 0.8rem; font-weight: 700; margin-top: 5px; border-radius: 6px; cursor:pointer; width:100%;">
-                        🚀 신규 상품 등록 완료
+                        신규 상품 등록 완료
                     </button>
                 </form>
                 <div style="margin-top: 15px; border-top: 1px dashed #dee2e6; padding-top: 12px;">
-                    <label style="font-size: 0.72rem; font-weight: 700; color: #475569; display:block; margin-bottom:5px;">📋 등록된 상품 현황</label>
+                    <label style="font-size: 0.72rem; font-weight: 700; color: #475569; display:block; margin-bottom:5px;">등록된 상품 현황</label>
                     <div style="max-height: 120px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 6px; background: #ffffff;">
                         <table class="inventory-table" style="margin: 0; font-size: 0.7rem; width: 100%;">
                             <thead>
@@ -1881,7 +1947,7 @@
                                     <th style="padding: 4px 6px; text-align:left;">유형</th>
                                     <th style="padding: 4px 6px; text-align:left;">가격</th>
                                     <th style="padding: 4px 6px; text-align:left;">재고</th>
-                                    <th style="padding: 4px 6px; text-align:center;">링크 복사</th>
+                                    <th style="padding: 4px 6px; text-align:center;">검수/공유</th>
                                 </tr>
                             </thead>
                             <tbody id="saas-product-rows">
@@ -1922,13 +1988,13 @@
         </section>
     </div>
 
-    <!-- Tab 3: 🛒 마켓플레이스 -->
+    <!-- Tab 3: 마켓플레이스 -->
     <div id="tab-content-marketplace" class="main-tab-content" style="display: none;">
         <section class="glass-card" style="padding: 24px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <div>
-                    <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.3rem; font-weight: 800; color: var(--text-primary); margin-bottom: 4px;">🛒 마켓플레이스</h2>
-                    <p style="color: var(--text-secondary); font-size: 0.85rem;">구독 사업자가 등록한 모든 상품을 검색하고, 클릭하여 예매·드로우·경매창으로 이동하세요.</p>
+                    <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.3rem; font-weight: 800; color: var(--text-primary); margin-bottom: 4px;">마켓플레이스</h2>
+                    <p style="color: var(--text-secondary); font-size: 0.85rem;">파트너가 등록한 판매 이벤트를 검색하고, 운영 중인 예매·드로우·경매 채널로 전환합니다.</p>
                 </div>
             </div>
 
@@ -1938,7 +2004,7 @@
                     type="text"
                     id="marketplace-search"
                     class="form-control"
-                    placeholder="🔍 상품명으로 검색..."
+                    placeholder="상품명으로 검색..."
                     style="flex: 1; min-width: 200px; height: 40px; font-size: 0.9rem; border: 1.5px solid var(--border-color); border-radius: 10px; padding: 0 14px;"
                 >
                 <select
@@ -1973,7 +2039,7 @@
                         <tr>
                             <td colspan="6" style="text-align: center; color: #94a3b8; padding: 40px; font-size:0.9rem;">
                                 <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
-                                    <span style="font-size:2rem;">🛒</span>
+                                    <span style="font-size:2rem;">EverySale</span>
                                     <span>상품을 불러오는 중입니다...</span>
                                 </div>
                             </td>
@@ -1988,7 +2054,7 @@
     <div id="developer-drawer" class="dev-drawer collapsed">
         <div class="drawer-header">
             <div class="drawer-title">
-                <span>🛠️ 개발자 디버깅 패널 (분산 트랜잭션 SAGA 시뮬레이터)</span>
+                <span>운영 진단 패널 (분산 트랜잭션 SAGA 흐름)</span>
             </div>
             <div class="drawer-badges">
                 <div id="badge-redis" class="badge">
@@ -2057,9 +2123,9 @@
                 <h3>시뮬레이션 설정 및 제어</h3>
                 
                 <div class="simulation-controls" style="background:none; border:none; padding:0; margin:0;">
-                    <!-- B2B SaaS Product Configurator -->
+                    <!-- Product Operations Configurator -->
                     <div class="form-group" style="background:var(--color-primary-glow); border:1px solid rgba(14,165,233,0.15); padding:10px; border-radius:8px; margin-bottom:12px;">
-                        <label for="select-saas-event" style="color:var(--color-primary); font-weight:800; font-size:0.82rem; margin-bottom:4px; display:block;">📦 SaaS B2B 판매 상품 전환</label>
+                        <label for="select-saas-event" style="color:var(--color-primary); font-weight:800; font-size:0.82rem; margin-bottom:4px; display:block;">판매 이벤트 전환</label>
                         <select id="select-saas-event" class="form-control" style="font-size:0.8rem; height:32px; padding:2px 8px; border-color:var(--color-primary);">
                             <option value="CONCERT-IU">아이유 콘서트 (티켓 예매)</option>
                             <option value="DRAW-NIKE">나이키 조던 드로우 (선착순 래플)</option>
@@ -2069,7 +2135,7 @@
 
                     <!-- Programmatic No-Code Load Generator -->
                     <div class="form-group" style="background:#f8f9fa; border:1px solid #dee2e6; padding:10px; border-radius:8px; margin-bottom:12px;">
-                        <label style="color:#1e293b; font-weight:800; font-size:0.8rem; margin-bottom:4px; display:block;">⚡ SaaS 가상 동시 접속 테스트</label>
+                        <label style="color:#1e293b; font-weight:800; font-size:0.8rem; margin-bottom:4px; display:block;">가상 동시 접속 테스트</label>
                         <div style="font-size:0.7rem; color:#666666; margin-bottom:6px; line-height:1.3;">k6 설치 및 기동 없이 즉시 동시성 유저 부하를 실행합니다.</div>
                         <div style="display:flex; justify-content:space-between; font-size:0.7rem; margin-bottom:4px; font-weight:600;">
                             <span>가상 유저(VUs): <strong id="sim-vus-val" style="color:var(--color-primary);">50명</strong></span>
@@ -2080,7 +2146,7 @@
                             <input type="range" id="slider-duration" min="5" max="60" step="5" value="15" style="flex:1; accent-color:var(--color-primary); height:18px;">
                         </div>
                         <div style="display:flex; gap:6px;">
-                            <button type="button" id="btn-start-saas-sim" class="btn btn-primary" style="font-size:0.75rem; padding:6px; height:28px;">🔥 부하 발생 시작</button>
+                            <button type="button" id="btn-start-saas-sim" class="btn btn-primary" style="font-size:0.75rem; padding:6px; height:28px;">부하 발생 시작</button>
                             <button type="button" id="btn-stop-saas-sim" class="btn btn-outline" style="border-color:#fa5252; color:#fa5252; font-size:0.75rem; padding:6px; height:28px; display:none;">⏹️ 부하 중지</button>
                         </div>
                         <!-- Canvas Real-time Chart -->
@@ -2191,7 +2257,7 @@
                 </table>
 
                 <div class="console-log-header">
-                    <h3>시뮬레이터 콘솔 로그</h3>
+                    <h3>운영 콘솔 로그</h3>
                     <button type="button" id="btn-clear-logs" class="btn btn-outline" style="width:auto; padding:2px 8px; font-size:0.7rem; height:24px;">초기화</button>
                 </div>
                 <div class="console-log-container">
@@ -2211,12 +2277,233 @@
     const API_RESET = "/api/system/dashboard/reset";
     const API_RECONCILE = "/api/system/inventory/reconcile";
     const API_HEALTH = "/api/system/health";
+    const API_TOSS_INTENTS = "/api/payments/toss/intents";
+    const API_TOSS_CONFIRM = "/api/payments/toss/confirm";
+    const TOSS_PENDING_CHECKOUT_KEY = "everysale_toss_pending_checkout";
+    const DEFAULT_SELLER_ID = "SELLER-EVERYSALE-CURATED";
 
     // App State
     let selectedSeat = null;
     let productsData = {};
+    let marketplaceEventByProductId = {};
     let isUnlocked = false;
     let userBookedSeats = JSON.parse(localStorage.getItem("booked_seats") || "{}");
+
+    function absoluteAppUrl(path) {
+        return new URL(path, window.location.origin).toString();
+    }
+
+    async function createTossPaymentIntent(requestBody) {
+        const res = await fetch(API_TOSS_INTENTS, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody)
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            throw new Error(data.message || "Toss payment intent creation failed");
+        }
+        return data;
+    }
+
+    async function startTossPayment(requestBody, checkoutContext = {}) {
+        const intent = await createTossPaymentIntent(requestBody);
+        if (!window.TossPayments) {
+            throw new Error("Toss Payments SDK is not loaded.");
+        }
+
+        localStorage.setItem(TOSS_PENDING_CHECKOUT_KEY, JSON.stringify({
+            requestBody,
+            checkoutContext,
+            intentId: intent.intentId,
+            orderId: intent.orderId,
+            createdAt: new Date().toISOString()
+        }));
+
+        const tossPayments = TossPayments(intent.clientKey);
+        const payment = tossPayments.payment({ customerKey: intent.customerKey });
+        await payment.requestPayment({
+            method: "CARD",
+            amount: {
+                currency: intent.currency || "KRW",
+                value: Number(intent.amount)
+            },
+            orderId: intent.orderId,
+            orderName: intent.orderName,
+            successUrl: absoluteAppUrl(intent.successUrl),
+            failUrl: absoluteAppUrl(intent.failUrl)
+        });
+    }
+
+    async function confirmTossPaymentFromRedirect(params) {
+        const intentId = params.get("intentId");
+        const paymentKey = params.get("paymentKey");
+        const orderId = params.get("orderId");
+        const amount = params.get("amount");
+        if (!intentId || !paymentKey || !orderId || !amount) {
+            throw new Error("Toss redirect result is missing required payment fields.");
+        }
+        const res = await fetch(API_TOSS_CONFIRM, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ intentId, paymentKey, orderId, amount })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            throw new Error(data.message || "Toss payment confirmation failed");
+        }
+        return data;
+    }
+
+    async function handleTossRedirectResult() {
+        const params = new URLSearchParams(window.location.search);
+        const tossResult = params.get("tossResult");
+        if (!tossResult) return;
+
+        const pending = JSON.parse(localStorage.getItem(TOSS_PENDING_CHECKOUT_KEY) || "null");
+        try {
+            if (tossResult === "fail") {
+                throw new Error(params.get("message") || params.get("code") || "Toss payment was cancelled or failed.");
+            }
+
+            const response = await confirmTossPaymentFromRedirect(params);
+            localStorage.removeItem(TOSS_PENDING_CHECKOUT_KEY);
+            addLog("[Toss] 결제 승인 및 에브리세일 예약 확정 완료", "success");
+
+            const seatId = pending && pending.checkoutContext ? pending.checkoutContext.seatId : null;
+            if (seatId) {
+                userBookedSeats[seatId] = true;
+                localStorage.setItem("booked_seats", JSON.stringify(userBookedSeats));
+                try {
+                    await fetch(`/api/system/seats/confirm?seatId=${encodeURIComponent(seatId)}`, { method: "POST" });
+                } catch (e) {
+                    console.warn("Failed to confirm seat after Toss checkout", e);
+                }
+            }
+
+            modalTitle.textContent = "결제 및 예약 확정";
+            modalBody.innerHTML = buildReceiptHtml({
+                reservationId: response.reservation ? response.reservation.reservationId : "-",
+                seatId: seatId || "-",
+                approvalNumber: response.payment ? response.payment.approvalNumber : "-",
+                amount: response.payment ? response.payment.amount : Number(params.get("amount") || 0),
+                createdAt: new Date().toISOString(),
+                transactionId: response.payment ? response.payment.transactionId : params.get("paymentKey")
+            });
+            openModal();
+        } catch (e) {
+            addLog(`[Toss] 결제 처리 실패: ${e.message}`, "error");
+            alert(e.message);
+            if (pending && pending.checkoutContext && pending.checkoutContext.seatId && pending.requestBody) {
+                try {
+                    await fetch(`/api/system/seats/unlock?seatId=${encodeURIComponent(pending.checkoutContext.seatId)}&customerId=${encodeURIComponent(pending.requestBody.customerId)}`, {
+                        method: "POST"
+                    });
+                } catch (unlockErr) {
+                    console.warn("Failed to unlock seat after Toss failure", unlockErr);
+                }
+            }
+        } finally {
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+    }
+
+    function mapMarketplaceSaleTypeToLabel(saleType) {
+        if (saleType === "DROP") return "드롭";
+        if (saleType === "RAFFLE") return "드로우";
+        if (saleType === "AUCTION") return "경매";
+        return "즉시구매";
+    }
+
+    function mapFulfillmentStatusToLabel(status) {
+        if (status === "READY_TO_FULFILL") return "출고 준비";
+        if (status === "PROCESSING") return "처리 중";
+        if (status === "SHIPPED") return "배송 중";
+        if (status === "DELIVERED") return "배송 완료";
+        if (status === "CANCELLED") return "취소됨";
+        return "결제 대기";
+    }
+
+    function mapListingStatusToLabel(status) {
+        if (status === "PENDING_REVIEW") return "검수 대기";
+        if (status === "ACTIVE") return "승인 완료";
+        if (status === "REJECTED") return "반려";
+        if (status === "PAUSED") return "일시 중지";
+        if (status === "ENDED") return "종료";
+        return "초안";
+    }
+
+    function mapMarketplaceSaleTypeToLegacyType(saleType) {
+        if (saleType === "RAFFLE") return "DRAW";
+        if (saleType === "AUCTION") return "AUCTION";
+        return "TICKETING";
+    }
+
+    function mapLegacyCategoryToSaleType(category) {
+        if (category === "DRAW") return "RAFFLE";
+        if (category === "AUCTION") return "AUCTION";
+        if (category === "TICKETING") return "DROP";
+        return "FIXED_PRICE";
+    }
+
+    async function getDirectCheckoutMarketplaceEvent(productId) {
+        let event = marketplaceEventByProductId[productId];
+        if (!event) {
+            try {
+                const res = await fetch("/api/marketplace/events?status=LIVE");
+                if (res.ok) {
+                    const events = await res.json();
+                    marketplaceEventByProductId = {};
+                    events.forEach(item => {
+                        marketplaceEventByProductId[item.productId] = item;
+                    });
+                    event = marketplaceEventByProductId[productId];
+                }
+            } catch (e) {
+                console.warn("Marketplace checkout event lookup failed", e);
+            }
+        }
+        if (!event) return null;
+        return (event.saleType === "DROP" || event.saleType === "FIXED_PRICE") ? event : null;
+    }
+
+    async function getRaffleMarketplaceEvent(productId) {
+        let event = marketplaceEventByProductId[productId];
+        if (!event) {
+            try {
+                const res = await fetch("/api/marketplace/events?status=LIVE&saleType=RAFFLE");
+                if (res.ok) {
+                    const events = await res.json();
+                    events.forEach(item => {
+                        marketplaceEventByProductId[item.productId] = item;
+                    });
+                    event = marketplaceEventByProductId[productId];
+                }
+            } catch (e) {
+                console.warn("Raffle event lookup failed", e);
+            }
+        }
+        return event && event.saleType === "RAFFLE" ? event : null;
+    }
+
+    async function getAuctionMarketplaceEvent(productId) {
+        let event = marketplaceEventByProductId[productId];
+        if (!event) {
+            try {
+                const res = await fetch("/api/marketplace/events?status=LIVE&saleType=AUCTION");
+                if (res.ok) {
+                    const events = await res.json();
+                    events.forEach(item => {
+                        marketplaceEventByProductId[item.productId] = item;
+                    });
+                    event = marketplaceEventByProductId[productId];
+                }
+            } catch (e) {
+                console.warn("Auction event lookup failed", e);
+            }
+        }
+        return event && event.saleType === "AUCTION" ? event : null;
+    }
 
     // Manual Stepper State
     let simMode = 'auto'; // 'auto' | 'manual'
@@ -2338,6 +2625,7 @@
         btnCloseModal = document.getElementById("btn-close-modal");
         modalTitle = document.getElementById("modal-title");
         modalBody = document.getElementById("modal-body");
+        await handleTossRedirectResult();
         // Initialize Auth check
         await checkAuthAndInit();
         
@@ -2404,7 +2692,7 @@
             });
         }
 
-        // B2B SaaS bindings
+        // Partner operations bindings
         const selectSaaSEvent = document.getElementById("select-saas-event");
         if (selectSaaSEvent) {
             selectSaaSEvent.addEventListener("change", async () => {
@@ -2513,11 +2801,32 @@
                 btnDrawSubmit.disabled = true;
                 
                 const activeId = window.activeEventDetails ? window.activeEventDetails.productId : "DRAW-NIKE";
-                const price = window.activeEventDetails ? window.activeEventDetails.price : 239000;
-                const seatId = `${activeId}-1`;
+                const raffleEvent = marketplaceEventByProductId[activeId] || await getRaffleMarketplaceEvent(activeId);
+                if (!raffleEvent) {
+                    alert("응모 가능한 드로우 이벤트를 찾을 수 없습니다.");
+                    btnDrawSubmit.disabled = false;
+                    return;
+                }
 
                 await enterQueueAndPoll(customerId, async () => {
-                    await proceedWithBooking(seatId, activeId, price, selectScenario.value, customerId);
+                    try {
+                        const res = await fetch(`/api/marketplace/events/${encodeURIComponent(raffleEvent.saleEventId)}/raffle/entries`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ customerId })
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                            addLog(`[드로우 응모 완료] ${customerId}님이 ${raffleEvent.title}에 응모했습니다.`, "success");
+                            alert("드로우 응모가 완료되었습니다. 추첨 결과를 기다려 주세요.");
+                        } else {
+                            addLog(`[드로우 응모 실패] ${data.message || '응모 처리 실패'}`, "error");
+                            alert(data.message || "응모 처리에 실패했습니다.");
+                        }
+                    } catch (e) {
+                        addLog(`[드로우 응모 오류] ${e.message}`, "error");
+                        alert("드로우 응모 중 통신 오류가 발생했습니다.");
+                    }
                     btnDrawSubmit.disabled = false;
                 }, () => {
                     btnDrawSubmit.disabled = false;
@@ -2543,14 +2852,25 @@
                 addLog(`[경매 입찰 제안] 고객 ${customerId}님이 ${bidAmount.toLocaleString()}원 입찰 시도 중...`, "info");
                 try {
                     const activeEventId = selectSaaSEvent ? selectSaaSEvent.value : "AUCTION-ROLEX";
-                    const res = await fetch(`/api/simulation/bid?eventId=${encodeURIComponent(activeEventId)}&customerId=${encodeURIComponent(customerId)}&bidAmount=${bidAmount}`, {
-                        method: 'POST'
-                    });
+                    const auctionEvent = await getAuctionMarketplaceEvent(activeEventId);
+                    const res = auctionEvent
+                        ? await fetch(`/api/marketplace/events/${encodeURIComponent(auctionEvent.saleEventId)}/bids`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ customerId, bidAmount })
+                        })
+                        : await fetch(`/api/simulation/bid?eventId=${encodeURIComponent(activeEventId)}&customerId=${encodeURIComponent(customerId)}&bidAmount=${bidAmount}`, {
+                            method: 'POST'
+                        });
                     const data = await res.json();
                     if (res.ok && data.status === "SUCCESS") {
                         addLog(`[입찰 낙찰 성공] 최고 입찰가 경신! 현재 최고가: ${Number(data.highestBid).toLocaleString()}원 (입찰자: ${data.highestBidder})`, "success");
                         inputAuctionBid.value = "";
                         await updateActiveEventView();
+                    } else if (res.ok && data.bidAmount) {
+                        addLog(`[경매 입찰 성공] 현재 최고가: ${Number(data.bidAmount).toLocaleString()}원`, "success");
+                        inputAuctionBid.value = "";
+                        await updateAuctionViewStatus(activeEventId);
                     } else {
                         addLog(`[입찰 거절] ${data.message}`, "error");
                         alert(data.message);
@@ -2564,7 +2884,7 @@
             });
         }
 
-        // --- B2B SaaS Event Listeners ---
+        // --- Partner operations event listeners ---
 
         // 1. Auth Page Listeners
         const btnLoginSubmit = document.getElementById("btn-login-submit");
@@ -2676,15 +2996,23 @@
                 }
                 
                 try {
-                    const res = await fetch("/api/simulation/products/register", {
+                    const res = await fetch(`/api/sellers/${encodeURIComponent(DEFAULT_SELLER_ID)}/listings`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ name, category, price, quantity: qty, description: desc })
+                        body: JSON.stringify({
+                            name,
+                            category,
+                            price,
+                            quantity: qty,
+                            description: desc,
+                            saleType: mapLegacyCategoryToSaleType(category),
+                            publishImmediately: true
+                        })
                     });
                     
                     if (res.ok) {
                         const data = await res.json();
-                        alert(`상품 등록 성공!\n등록된 상품 ID: ${data.productId}`);
+                        alert(`상품 등록 성공!\n등록된 상품 ID: ${data.productId}\n현재 상태: 검수 대기`);
                         document.getElementById("reg-name").value = '';
                         document.getElementById("reg-price").value = '';
                         document.getElementById("reg-qty").value = '50';
@@ -3238,6 +3566,14 @@
                     orderName: `콘서트 아레나 좌석 예매 [${selectedSeat.seatId}]`
                 }
             };
+
+            addLog("[Toss] 수동 SAGA 4단계 결제창을 시작합니다.", "info");
+            await startTossPayment(requestBody, {
+                seatId: selectedSeat.seatId,
+                productId: selectedSeat.productId,
+                correlationId: tempCorrelationId
+            });
+            return;
 
             const res = await fetch(API_RESERVATION, {
                 method: 'POST',
@@ -4051,11 +4387,31 @@
             }
         };
 
-        addLog(`API 요청 전송: POST ${API_RESERVATION}`, "info");
-        
+        const checkoutUrl = API_RESERVATION;
+
+        addLog(`API 요청 전송: POST ${checkoutUrl}`, "info");
+        if (checkoutUrl === API_RESERVATION) {
+            try {
+                addLog("[Toss] 결제창을 준비합니다.", "info");
+                await startTossPayment(requestBody, { seatId, productId, correlationId });
+            } catch (e) {
+                addLog(`[Toss] 결제창 시작 실패: ${e.message}`, "error");
+                try {
+                    await fetch(`/api/system/seats/unlock?seatId=${encodeURIComponent(seatId)}&customerId=${encodeURIComponent(customerId)}`, {
+                        method: 'POST'
+                    });
+                } catch (unlockErr) {
+                    console.error("Failed to unlock seat after Toss start failure:", unlockErr);
+                }
+                document.querySelectorAll(".seat").forEach(s => s.style.pointerEvents = '');
+                btnSubmit.disabled = false;
+            }
+            return;
+        }
+
         let isSuccess = false;
         try {
-            const res = await fetch(API_RESERVATION, {
+            const res = await fetch(checkoutUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestBody)
@@ -4294,7 +4650,7 @@
 
             // Update common fields
             if (leftTitle) leftTitle.textContent = prod.name;
-            if (leftSubtitle) leftSubtitle.textContent = prod.description || "B2B SaaS 파트너 제공 상품";
+            if (leftSubtitle) leftSubtitle.textContent = prod.description || "에브리세일 파트너 등록 상품";
 
             // Set category and colors, and adjust panels
             if (prod.category === "TICKETING") {
@@ -4472,14 +4828,18 @@
 
     async function renderMarketplaceProducts() {
         try {
-            const res = await fetch("/api/simulation/events");
+            const res = await fetch("/api/marketplace/events");
             if (!res.ok) return;
             let events = await res.json();
             
             // Get search filter value
             const searchVal = document.getElementById("marketplace-search").value.trim().toLowerCase();
             if (searchVal) {
-                events = events.filter(e => e.title.toLowerCase().includes(searchVal));
+                events = events.filter(e =>
+                    (e.title || "").toLowerCase().includes(searchVal) ||
+                    (e.description || "").toLowerCase().includes(searchVal) ||
+                    (e.sellerName || "").toLowerCase().includes(searchVal)
+                );
             }
             
             // Get sort option
@@ -4491,12 +4851,17 @@
             } else if (sortVal === "price-desc") {
                 events.sort((a, b) => b.price - a.price);
             } else if (sortVal === "type-ticketing") {
-                events = events.filter(e => e.type === "TICKETING");
+                events = events.filter(e => e.saleType === "DROP" || e.saleType === "FIXED_PRICE");
             } else if (sortVal === "type-draw") {
-                events = events.filter(e => e.type === "DRAW");
+                events = events.filter(e => e.saleType === "RAFFLE");
             } else if (sortVal === "type-auction") {
-                events = events.filter(e => e.type === "AUCTION");
+                events = events.filter(e => e.saleType === "AUCTION");
             }
+
+            marketplaceEventByProductId = {};
+            events.forEach(event => {
+                marketplaceEventByProductId[event.productId] = event;
+            });
             
             const rowsContainer = document.getElementById("marketplace-product-rows");
             if (!rowsContainer) return;
@@ -4510,34 +4875,21 @@
             }
             
             rowsContainer.innerHTML = events.map(event => {
-                let typeName = event.type === 'TICKETING' ? '티켓예매' : event.type === 'DRAW' ? '드로우' : '경매';
-                let typeColor = event.type === 'TICKETING' ? '#ff4757' : event.type === 'DRAW' ? '#2ed573' : '#ffa502';
+                let typeName = mapMarketplaceSaleTypeToLabel(event.saleType);
+                let typeColor = event.saleType === 'AUCTION' ? '#ffa502' : event.saleType === 'RAFFLE' ? '#2ed573' : '#ff4757';
                 
                 // Inventory details from productsData if available
                 let stockText = "-";
-                const pData = productsData[event.eventId];
+                const pData = productsData[event.productId];
                 if (pData) {
-                    if (event.type === 'TICKETING') {
-                        if (event.eventId === 'CONCERT-IU') {
-                            const vipData = productsData['CONCERT-VIP'];
-                            const rData = productsData['CONCERT-R'];
-                            const sData = productsData['CONCERT-S'];
-                            const totalAvail = (vipData ? vipData.redisAvailable : 0) + (rData ? rData.redisAvailable : 0) + (sData ? sData.redisAvailable : 0);
-                            const totalQty = (vipData ? vipData.redisTotal : 0) + (rData ? rData.redisTotal : 0) + (sData ? sData.redisTotal : 0);
-                            stockText = `${totalAvail} / ${totalQty}`;
-                        } else {
-                            stockText = `${pData.redisAvailable} / ${pData.redisTotal}`;
-                        }
-                    } else {
-                        stockText = `${pData.redisAvailable} / ${pData.redisTotal}`;
-                    }
+                    stockText = `${pData.redisAvailable} / ${pData.redisTotal}`;
                 } else {
-                    stockText = `${event.totalInventory} (대기)`;
+                    stockText = `${event.availableQuantity} / ${event.totalQuantity}`;
                 }
 
                 return `
-                    <tr style="cursor: pointer;" onclick="selectProductFromMarketplace('${event.eventId}')">
-                        <td style="padding: 12px 8px; font-weight:700; color:var(--text-secondary);">${event.eventId}</td>
+                    <tr style="cursor: pointer;" onclick="selectProductFromMarketplace('${event.productId}')">
+                        <td style="padding: 12px 8px; font-weight:700; color:var(--text-secondary);">${event.productId}</td>
                         <td style="padding: 12px 8px; font-weight:600;">${event.title}</td>
                         <td style="padding: 12px 8px;">
                             <span class="category-tag" style="padding: 2px 6px; font-size: 0.65rem; margin-bottom: 0; background-color: ${typeColor}; color: white;">${typeName}</span>
@@ -4595,7 +4947,10 @@
 
     async function updateAuctionViewStatus(eventId) {
         try {
-            const res = await fetch(`/api/simulation/auction/status?eventId=${encodeURIComponent(eventId)}`);
+            const auctionEvent = await getAuctionMarketplaceEvent(eventId);
+            const res = auctionEvent
+                ? await fetch(`/api/marketplace/events/${encodeURIComponent(auctionEvent.saleEventId)}/auction/status`)
+                : await fetch(`/api/simulation/auction/status?eventId=${encodeURIComponent(eventId)}`);
             if (!res.ok) return;
             const data = await res.json();
             
@@ -4609,9 +4964,8 @@
             if (historyList) {
                 if (data.history && data.history.length > 0) {
                     historyList.innerHTML = data.history.map(h => {
-                        const parts = h.split(" - ");
-                        const bidder = parts[0] || "";
-                        const amt = parts[1] || "";
+                        const bidder = h.customerId || (typeof h === "string" ? h.split(" - ")[0] : "");
+                        const amt = h.bidAmount ? `${Number(h.bidAmount).toLocaleString()}원` : (typeof h === "string" ? h.split(" - ")[1] || "" : "");
                         return `<div style="padding: 4px 8px; border-bottom: 1px dashed #f1f5f9; display:flex; justify-content:space-between;"><span>${bidder}</span><span style="font-weight:700; color:var(--color-primary);">${amt}</span></div>`;
                     }).join("");
                 } else {
@@ -4695,7 +5049,7 @@
 
     async function renderRegisteredProducts() {
         try {
-            const res = await fetch("/api/simulation/products");
+            const res = await fetch(`/api/sellers/${encodeURIComponent(DEFAULT_SELLER_ID)}/listings`);
             if (!res.ok) return;
             const products = await res.json();
             const rowsContainer = document.getElementById("saas-product-rows");
@@ -4710,7 +5064,10 @@
             }
             
             rowsContainer.innerHTML = products.map(prod => {
-                let typeName = prod.category === 'TICKETING' ? '티켓예매' : prod.category === 'DRAW' ? '드로우' : '경매';
+                let typeName = prod.saleType ? mapMarketplaceSaleTypeToLabel(prod.saleType) :
+                    (prod.category === 'TICKETING' ? '티켓예매' : prod.category === 'DRAW' ? '드로우' : '경매');
+                const listingStatusLabel = mapListingStatusToLabel(prod.status);
+                const canShare = prod.status === "ACTIVE";
                 return `
                     <tr>
                         <td style="padding: 4px 6px; font-weight:700; color:var(--text-secondary);">${prod.productId}</td>
@@ -4721,7 +5078,8 @@
                         <td style="padding: 4px 6px; font-weight:700; color:var(--color-primary);">${Number(prod.price).toLocaleString()}원</td>
                         <td style="padding: 4px 6px;">${prod.availableQuantity} / ${prod.totalQuantity}</td>
                         <td style="padding: 4px 6px; text-align:center;">
-                            <button type="button" class="btn" style="width: auto; font-size: 0.65rem; padding: 2px 6px; background: var(--color-primary); color: white; border: none; border-radius: 4px; font-weight:700; cursor:pointer;" onclick="copyCustomShareLink('${prod.productId}')">복사</button>
+                            <div style="font-size:0.62rem; color:#64748b; font-weight:700; margin-bottom:4px;">${listingStatusLabel}</div>
+                            <button type="button" class="btn" style="width: auto; font-size: 0.65rem; padding: 2px 6px; background: ${canShare ? 'var(--color-primary)' : '#cbd5e1'}; color: white; border: none; border-radius: 4px; font-weight:700; cursor:${canShare ? 'pointer' : 'not-allowed'};" ${canShare ? `onclick="copyCustomShareLink('${prod.productId}')"` : 'disabled'}>공유</button>
                         </td>
                     </tr>`;
             }).join('');
@@ -4752,7 +5110,7 @@
         if (!listContainer || !orderTabContent || orderTabContent.style.display === "none") return;
         
         try {
-            const res = await fetch("/api/simulation/orders");
+            const res = await fetch(`/api/sellers/${encodeURIComponent(DEFAULT_SELLER_ID)}/orders`);
             if (!res.ok) return;
             const orders = await res.json();
             
@@ -4770,19 +5128,28 @@
             listContainer.innerHTML = filtered.map(o => {
                 const dateStr = o.createdAt ? o.createdAt.replace("T", " ").substring(0, 16) : "-";
                 const amt = o.amount ? Number(o.amount).toLocaleString() + "원" : "0원";
-                const seatInfo = o.seatId || "-";
+                const itemLabel = o.productId || o.listingId || "-";
+                const orderRef = o.marketplaceOrderId || o.orderId || "-";
+                const checkoutLabel = o.checkoutType || "-";
+                const fulfillmentLabel = mapFulfillmentStatusToLabel(o.fulfillmentStatus);
                 
                 let badgeClass = "badge-ticketing";
-                if (o.productId.startsWith("DRAW-")) badgeClass = "badge-draw";
-                else if (o.productId.startsWith("AUCTION-")) badgeClass = "badge-auction";
+                if (o.saleType === "RAFFLE") badgeClass = "badge-draw";
+                else if (o.saleType === "AUCTION") badgeClass = "badge-auction";
                 
                 return `<tr>
                     <td style="padding: 6px;">${dateStr}</td>
                     <td style="padding: 6px; font-weight:600;">${o.customerId}</td>
-                    <td style="padding: 6px;">${o.productId}</td>
-                    <td style="padding: 6px;">${seatInfo}</td>
+                    <td style="padding: 6px;">
+                        <div style="font-weight:700;">${itemLabel}</div>
+                        <div style="font-size:0.6rem; color:#94a3b8;">${orderRef}</div>
+                    </td>
+                    <td style="padding: 6px;">${checkoutLabel}</td>
                     <td style="padding: 6px; font-weight:700;">${amt}</td>
-                    <td style="padding: 6px;"><span class="badge ${badgeClass}" style="font-size:0.6rem; padding:2px 6px; color:white; border-radius:4px;">${o.status}</span></td>
+                    <td style="padding: 6px;">
+                        <span class="badge ${badgeClass}" style="font-size:0.6rem; padding:2px 6px; color:white; border-radius:4px;">${o.status || "-"}</span>
+                        <div style="font-size:0.6rem; color:#64748b; margin-top:3px;">${fulfillmentLabel}</div>
+                    </td>
                 </tr>`;
             }).join("");
         } catch(e) {
@@ -4804,16 +5171,16 @@
         </div>
     </div>
 
-    <!-- Naver Booking Style Queue Modal -->
+    <!-- 에브리세일 접속 대기열 모달 -->
     <div id="queue-modal" class="modal-overlay" style="display:none;">
         <div class="modal-content glass-card queue-modal-content">
             <div class="queue-header">
-                <h3>N 예약 접속 대기열</h3>
+                <h3>에브리세일 접속 대기열</h3>
             </div>
             <div class="queue-body">
                 <div class="queue-spinner"></div>
                 <div class="queue-status-title">접속 대기 중입니다.</div>
-                <p class="queue-desc">현재 동시 접속자가 많아 순차적으로 처리 중입니다.<br>잠시만 기다려 주시면 예약 화면으로 자동 연결됩니다.</p>
+                <p class="queue-desc">현재 요청량이 많아 순차적으로 거래를 배정하고 있습니다.<br>잠시만 기다려 주시면 판매 채널로 자동 연결됩니다.</p>
                 <div class="queue-info-box">
                     <div class="queue-info-item">
                         <span class="info-label">대기 순서</span>
@@ -4833,8 +5200,8 @@
     <div id="login-overlay" class="modal-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.85); backdrop-filter:blur(10px); z-index:9999; align-items:center; justify-content:center;">
         <div class="glass-card" style="width:360px; text-align:center; padding:35px; background:rgba(255,255,255,0.95); border-radius:20px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.25);">
             <div style="font-size:2.5rem; margin-bottom:10px;">📦</div>
-            <h2 style="font-family:'Outfit',sans-serif; font-weight:800; font-size:1.4rem; color:#1e293b; margin-bottom:5px;">SaaS Simulator Platform</h2>
-            <p style="color:#64748b; font-size:0.8rem; margin-bottom:25px;">B2B SaaS 파트너 센터 로그인</p>
+            <h2 style="font-family:'Outfit',sans-serif; font-weight:800; font-size:1.4rem; color:#1e293b; margin-bottom:5px;">에브리세일 운영 콘솔</h2>
+            <p style="color:#64748b; font-size:0.8rem; margin-bottom:25px;">파트너 운영 콘솔 로그인</p>
             
             <div style="display:flex; flex-direction:column; gap:12px; text-align:left; margin-bottom:20px;">
                 <div>
@@ -4854,10 +5221,10 @@
     <!-- Subscription Screen Overlay -->
     <div id="subscribe-overlay" class="modal-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.85); backdrop-filter:blur(10px); z-index:9998; align-items:center; justify-content:center;">
         <div class="glass-card" style="width:400px; text-align:center; padding:35px; background:rgba(255,255,255,0.95); border-radius:20px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.25);">
-            <span style="background:var(--color-primary-glow); color:var(--color-primary); padding:4px 12px; border-radius:20px; font-size:0.75rem; font-weight:700; text-transform:uppercase; display:inline-block; margin-bottom:15px;">Premium Plan</span>
-            <h2 style="font-family:'Outfit',sans-serif; font-weight:800; font-size:1.5rem; color:#1e293b; margin-bottom:10px;">프리미엄 요금제 구독 안내</h2>
+            <span style="background:var(--color-primary-glow); color:var(--color-primary); padding:4px 12px; border-radius:20px; font-size:0.75rem; font-weight:700; text-transform:uppercase; display:inline-block; margin-bottom:15px;">Operations Plan</span>
+            <h2 style="font-family:'Outfit',sans-serif; font-weight:800; font-size:1.5rem; color:#1e293b; margin-bottom:10px;">운영 플랜 활성화 안내</h2>
             <p style="color:#64748b; font-size:0.82rem; line-height:1.4; margin-bottom:25px;">
-                B2B SaaS 시뮬레이터 플랫폼을 이용하기 위해서는 구독 활성화가 필요합니다. 결제 완료 후 모든 기능이 정상 해제됩니다.
+                에브리세일 운영 콘솔을 이용하려면 플랜 활성화가 필요합니다. 결제 완료 후 판매 채널, 파트너 콘솔, 마켓플레이스 기능이 활성화됩니다.
             </p>
             
             <!-- Price Summary -->
@@ -4930,36 +5297,38 @@
     </div>
 
 <script>
-    // ── Custom Title Bar: Electron IPC wiring ──────────────────────────
-    (function initTitleBar() {
-        const isElectron = typeof window !== 'undefined' &&
-                           typeof window.electronAPI !== 'undefined';
+    // ══ 에브리세일 Title Bar: Electron IPC Bridge ══════════════════════
+    (function initEverySaleTitleBar() {
+        const titlebar = document.getElementById('custom-titlebar');
+        const api = window.electronAPI; // exposed by preload.js via contextBridge
 
-        if (!isElectron) return; // Running in plain browser – hide the bar
+        if (!api) {
+            // Running in a plain browser — hide the custom bar & reset body padding
+            if (titlebar) titlebar.classList.add('hide-in-browser');
+            document.body.classList.add('no-titlebar');
+            return;
+        }
 
-        document.body.classList.add('is-electron');
-
-        const btnMin = document.getElementById('btn-win-minimize');
-        const btnMax = document.getElementById('btn-win-maximize');
+        // ── Wire up window control buttons ─────────────────────────────
+        const btnMin   = document.getElementById('btn-win-minimize');
+        const btnMax   = document.getElementById('btn-win-maximize');
         const btnClose = document.getElementById('btn-win-close');
 
-        if (btnMin)   btnMin.addEventListener('click',  () => window.electronAPI.minimizeWindow());
-        if (btnMax)   btnMax.addEventListener('click',  () => window.electronAPI.maximizeWindow());
-        if (btnClose) btnClose.addEventListener('click', () => window.electronAPI.closeWindow());
+        if (btnMin)   btnMin.addEventListener('click',  () => api.minimizeWindow());
+        if (btnMax)   btnMax.addEventListener('click',  () => api.maximizeWindow());
+        if (btnClose) btnClose.addEventListener('click', () => api.closeWindow());
 
-        // Toggle maximize icon between □ and ❐
-        const maxIconPath = btnMax && btnMax.querySelector('rect');
-        window.electronAPI.onMaximizeChange((isMaximized) => {
+        // ── Maximize ↔ Restore icon toggle ─────────────────────────────
+        api.onMaximizeChange((isMaximized) => {
             if (!btnMax) return;
-            // When maximized show restore icon (two overlapping rects)
             if (isMaximized) {
                 btnMax.querySelector('svg').innerHTML =
-                    '<rect x="2" y="1" width="7" height="7" rx="1"/>' +
-                    '<rect x="1" y="2" width="7" height="7" rx="1" style="fill:rgba(0,0,0,0)" stroke-dasharray="1 0"/>';
-                btnMax.title = '이전 크기로';
+                    '<rect x="3" y="1.5" width="7.5" height="7.5" rx="1.5"/>' +
+                    '<rect x="1.5" y="3" width="7.5" height="7.5" rx="1.5" fill="rgba(0,0,0,0)"/>';
+                btnMax.title = '이전 크기로 복원';
             } else {
                 btnMax.querySelector('svg').innerHTML =
-                    '<rect x="1" y="1" width="8" height="8" rx="1"/>';
+                    '<rect x="1.5" y="1.5" width="9" height="9" rx="1.5"/>';
                 btnMax.title = '최대화';
             }
         });

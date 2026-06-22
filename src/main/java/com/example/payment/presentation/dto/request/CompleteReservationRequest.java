@@ -43,6 +43,9 @@ public class CompleteReservationRequest extends BaseReservationDto {
         private String successUrl;
         private String failUrl;
         private String cancelUrl;
+        private String tossPaymentKey;
+        private String tossOrderId;
+        private String tossIntentId;
     }
 
     @Data

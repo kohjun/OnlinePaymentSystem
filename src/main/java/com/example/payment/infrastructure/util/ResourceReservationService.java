@@ -52,17 +52,26 @@ public class ResourceReservationService {
                 log.info("Resource reserved: key={}, quantity={}, available={}, reserved={}",
                         resourceKey, quantity, result.get("available"), result.get("reserved"));
                 return true;
+            } else if (isBusinessReservationFailure(result)) {
+                log.warn("Reserve failed due to insufficient stock: key={}, code={}, message={}",
+                        resourceKey,
+                        result.get("code"),
+                        result.get("message"));
+                return false;
             } else {
                 log.warn("Reserve failed: key={}, code={}, message={}",
                         resourceKey,
                         (result != null ? result.get("code") : "UNKNOWN"),
                         (result != null ? result.get("message") : "Null result from script"));
-                return false;
+                throw infrastructureFailure("Reserve script failed", resourceKey, result);
             }
 
         } catch (Exception e) {
             log.error("Error reserving resource {}: {}", resourceKey, e.getMessage(), e);
-            return false;
+            if (e instanceof ResourceReservationInfrastructureException infrastructureException) {
+                throw infrastructureException;
+            }
+            throw new ResourceReservationInfrastructureException("Redis reservation failed: " + resourceKey, e);
         }
     }
 
@@ -93,12 +102,15 @@ public class ResourceReservationService {
                         resourceKey,
                         (result != null ? result.get("code") : "UNKNOWN"),
                         (result != null ? result.get("message") : "Null result from script"));
-                return false;
+                throw infrastructureFailure("Release script failed", resourceKey, result);
             }
 
         } catch (Exception e) {
             log.error("Error releasing resource {}: {}", resourceKey, e.getMessage(), e);
-            return false;
+            if (e instanceof ResourceReservationInfrastructureException infrastructureException) {
+                throw infrastructureException;
+            }
+            throw new ResourceReservationInfrastructureException("Redis reservation release failed: " + resourceKey, e);
         }
     }
 
@@ -129,12 +141,15 @@ public class ResourceReservationService {
                         resourceKey,
                         (result != null ? result.get("code") : "UNKNOWN"),
                         (result != null ? result.get("message") : "Null result from script"));
-                return false;
+                throw infrastructureFailure("Confirm script failed", resourceKey, result);
             }
 
         } catch (Exception e) {
             log.error("Error confirming resource {}: {}", resourceKey, e.getMessage(), e);
-            return false;
+            if (e instanceof ResourceReservationInfrastructureException infrastructureException) {
+                throw infrastructureException;
+            }
+            throw new ResourceReservationInfrastructureException("Redis reservation confirmation failed: " + resourceKey, e);
         }
     }
 
@@ -186,5 +201,18 @@ public class ResourceReservationService {
             return objectMapper.readValue(stringResult, SCRIPT_RESULT_TYPE);
         }
         return objectMapper.convertValue(rawResult, SCRIPT_RESULT_TYPE);
+    }
+
+    private boolean isBusinessReservationFailure(Map<String, Object> result) {
+        return result != null && "INSUFFICIENT_STOCK".equals(String.valueOf(result.get("code")));
+    }
+
+    private ResourceReservationInfrastructureException infrastructureFailure(String message, String resourceKey,
+                                                                            Map<String, Object> result) {
+        String code = result != null ? String.valueOf(result.get("code")) : "UNKNOWN";
+        String detail = result != null ? String.valueOf(result.get("message")) : "Null result from script";
+        return new ResourceReservationInfrastructureException(
+                message + ": key=" + resourceKey + ", code=" + code + ", message=" + detail
+        );
     }
 }

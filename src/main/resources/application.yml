@@ -93,17 +93,46 @@ logging:
     root: INFO
     com.example.payment: INFO
     org.springframework.kafka: WARN
+  pattern:
+    level: "%5p [tenant:%X{tenantId:-everysale-demo}] [partner:%X{partnerId:-demo-partner}] [corr:%X{correlationId:-n/a}]"
 
 payment:
   processing:
     retry-count: 3
     timeout-seconds: 60
-  default-gateway: MOCK_PAYMENT_GATEWAY
+  default-gateway: TOSS_PAYMENTS
+  allow-gateway-fallback: false
+  mock:
+    enabled: false
+  toss:
+    client-key: ${TOSS_CLIENT_KEY:}
+    secret-key: ${TOSS_SECRET_KEY:}
+    base-url: ${TOSS_BASE_URL:https://api.tosspayments.com}
+    mode: ${TOSS_MODE:test}
+    api-version: ${TOSS_API_VERSION:2022-11-16}
+    test-code: ${TOSS_TEST_CODE:}
   topics:
     payment-requests: payment-requests
     payment-events: payment-events
 
 app:
+  distribution:
+    brand-name: 에브리세일
+    mode: DEMO
+    release-channel: local-demo
+    minimum-java-version: 17
+    fail-fast-on-blockers: false
+    require-real-payment-gateway: false
+    require-external-auth: false
+    require-tenant-isolation: false
+  tenancy:
+    default-tenant-id: everysale-demo
+    default-partner-id: demo-partner
+    require-tenant-header: false
+    response-headers-enabled: true
+  security:
+    external-auth:
+      enabled: false
   temporal:
     enabled: true
     worker-enabled: true
@@ -118,6 +147,7 @@ app:
     batch-size: 50
     max-retry: 5
     retry-backoff-seconds: 5
+    stale-lock-seconds: 60
   kafka:
     listeners:
       payment-events:
@@ -128,5 +158,10 @@ app:
     reconciliation:
       enabled: true
       fixed-delay-ms: 60000
+  rate-limit:
+    capacity: 10
+    refill-rate: 2
+    client-window-seconds: 60
+    client-max-requests: 120
   queue:
     enabled: false
