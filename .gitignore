@@ -45,3 +45,6 @@ desktop-app/*.jar
 build_sim/
 *.zip
 .gitignore-desktop
+build_sim_old/
+.gradle/
+build/

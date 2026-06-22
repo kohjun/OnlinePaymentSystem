@@ -196,12 +196,17 @@ Invoke-Step "Brand and encoding regression scan" {
 }
 
 Invoke-Step "Toss payment configuration scan" {
-    $configPaths = @("src\main\resources\application.yml")
+    $configPaths = @("src\main\resources\application.yml", "src\main\resources\application-prod.yml")
     Assert-LiteralMatch "default-gateway: TOSS_PAYMENTS" $configPaths "Toss Payments default gateway"
     Assert-LiteralMatch "allow-gateway-fallback: false" $configPaths "payment gateway fallback disabled"
     Assert-NoLiteralMatch "default-gateway: MOCK_PAYMENT_GATEWAY" $configPaths "Mock gateway as production default"
     Assert-LiteralMatch 'client-key: ${TOSS_CLIENT_KEY:}' $configPaths "Toss client key environment binding"
     Assert-LiteralMatch 'secret-key: ${TOSS_SECRET_KEY:}' $configPaths "Toss secret key environment binding"
+    Assert-LiteralMatch "public-complete-enabled: false" $configPaths "direct complete reservation API disabled"
+    Assert-LiteralMatch "legacy-marketplace-enabled: false" $configPaths "legacy marketplace checkout disabled"
+    Assert-LiteralMatch "legacy-api:" $configPaths "legacy payment API toggle"
+    Assert-LiteralMatch "enabled: false" $configPaths "disabled legacy/mock defaults"
+    Assert-LiteralMatch "mode: live" @("src\main\resources\application-prod.yml") "production Toss live mode"
 }
 
 if (-not $SkipDesktopPackage) {

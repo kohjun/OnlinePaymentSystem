@@ -1,26 +1,28 @@
 # OnlinePaymentSystem
 
-OnlinePaymentSystem is a Spring Boot proof-of-concept for an online payment flow that combines inventory reservation, order creation, payment processing, compensation, and reliable event publication.
+OnlinePaymentSystem powers EverySale, a commerce operations simulator that combines inventory reservation, order creation, Toss Payments checkout, compensation, and reliable event publication.
 
-The primary path is the Temporal-based complete reservation API:
+The public checkout path is Toss Payments intent/confirm:
 
 ```text
-POST /api/reservations/complete
+POST /api/payments/toss/intents
+-> Toss Payments payment window
+-> POST /api/payments/toss/confirm
 ```
 
-This path orchestrates the Saga:
+After Toss confirm, the server invokes the Temporal complete reservation Saga internally:
 
 ```text
 Reserve inventory in Redis
 -> Create order/payment/reservation records in Postgres
--> Process payment through MockPaymentGateway
+-> Confirm Toss payment
 -> Confirm inventory
 -> Mark order as PAID
 -> Record outbox events
 -> Publish outbox events to Kafka
 ```
 
-Legacy WAL-based APIs are retained for compatibility, but the default configuration keeps the legacy scheduler disabled with `app.legacy-wal.enabled=false`.
+`/api/reservations/complete`, `/api/payments/process`, `/api/payments/{paymentId}/retry`, and `/api/payments/{paymentId}/refund` are retained only as compatibility/internal paths. The default configuration disables them with `app.checkout.public-complete-enabled=false` and `payment.legacy-api.enabled=false`.
 
 ## Stack
 
@@ -75,14 +77,14 @@ Start the application:
 .\gradlew.bat bootRun
 ```
 
-## Complete Reservation API
+## Toss Checkout API
 
-Recommended request:
+Create a Toss payment intent:
 
 ```powershell
 $body = @{
   productId = "SAGA-TEST-001"
-  customerId = "CUS-001"
+  customerId = "CUST-1049"
   quantity = 1
   clientId = "web"
   idempotencyKey = [guid]::NewGuid().ToString()
@@ -96,9 +98,26 @@ $body = @{
 
 Invoke-RestMethod `
   -Method Post `
-  -Uri http://localhost:8080/api/reservations/complete `
+  -Uri http://localhost:8080/api/payments/toss/intents `
   -ContentType "application/json" `
   -Body $body
+```
+
+Confirm after Toss redirects with `paymentKey`, `orderId`, and `amount`:
+
+```powershell
+$confirm = @{
+  intentId = "{intentId}"
+  paymentKey = "{paymentKey}"
+  orderId = "{orderId}"
+  amount = 100.00
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://localhost:8080/api/payments/toss/confirm `
+  -ContentType "application/json" `
+  -Body $confirm
 ```
 
 Expected responses:
@@ -106,6 +125,7 @@ Expected responses:
 - `200 OK` with `status: SUCCESS` when the Temporal workflow completes within the synchronous wait window.
 - `202 Accepted` with `status: PENDING` and `workflowId` when the workflow is still running.
 - `400 Bad Request` with `status: FAILED` when the Saga fails and compensation is attempted.
+- `409 Conflict` for amount mismatch or Toss confirm conflicts.
 
 Check a pending workflow:
 
@@ -139,7 +159,7 @@ EverySale marketplace read APIs expose public sale events backed by sellers, lis
 ```text
 GET /api/marketplace/events?status=LIVE&saleType=RAFFLE&keyword=조던&sort=startsAt
 GET /api/marketplace/events/{eventId}
-POST /api/marketplace/events/{eventId}/checkout
+POST /api/marketplace/events/{eventId}/checkout/toss/intents
 ```
 
 Supported sale types:
@@ -150,7 +170,8 @@ Supported sale types:
 - `AUCTION`
 
 The current seed data publishes limited-goods events for raffle, auction, and drop flows so the consumer marketplace can render real catalog data without using `/api/simulation/*`.
-Direct checkout is enabled for `FIXED_PRICE` and `DROP` events and reuses the Temporal complete reservation Saga. `RAFFLE` and `AUCTION` use dedicated winner checkout flows after draw or settlement.
+Public marketplace checkout creates a Toss intent first, opens the Toss payment window, then calls `POST /api/payments/toss/confirm`; confirm records the marketplace order ledger and seller payout for successful Saga responses.
+Legacy non-Toss marketplace checkout endpoints are disabled by default with `app.checkout.legacy-marketplace-enabled=false`.
 
 Raffle flow:
 
@@ -158,7 +179,7 @@ Raffle flow:
 POST /api/marketplace/events/{eventId}/raffle/entries
 GET /api/marketplace/events/{eventId}/raffle/status?customerId={customerId}
 POST /api/marketplace/events/{eventId}/raffle/draw
-POST /api/marketplace/events/{eventId}/raffle/winner-checkout
+POST /api/marketplace/events/{eventId}/raffle/winner-checkout/toss/intents
 ```
 
 Raffle entry is free and idempotency is enforced by `(saleEventId, customerId)`. Payment is only allowed for selected winners through winner checkout.
@@ -170,7 +191,7 @@ POST /api/marketplace/events/{eventId}/bids
 GET /api/marketplace/events/{eventId}/auction/status
 GET /api/marketplace/events/{eventId}/auction/stream
 POST /api/marketplace/events/{eventId}/auction/close
-POST /api/marketplace/events/{eventId}/auction/winner-checkout
+POST /api/marketplace/events/{eventId}/auction/winner-checkout/toss/intents
 ```
 
 Auction bids are persisted in Postgres. Closing an auction creates an awaiting-payment settlement for the highest bidder, and successful winner checkout creates a `HELD` seller payout.
@@ -183,7 +204,7 @@ GET /api/sellers/{sellerId}/orders
 PATCH /api/sellers/{sellerId}/orders/{marketplaceOrderId}/fulfillment
 ```
 
-Successful or pending direct, raffle winner, and auction winner checkout responses create `marketplace_orders` rows. Paid orders become `READY_TO_FULFILL`; sellers can move them through `PROCESSING`, `SHIPPED`, and `DELIVERED`.
+Successful direct, raffle winner, and auction winner checkout responses create `marketplace_orders` rows. Paid orders become `READY_TO_FULFILL`; sellers can move them through `PROCESSING`, `SHIPPED`, and `DELIVERED`.
 
 Seller payout APIs:
 
@@ -272,12 +293,12 @@ See [docs/distribution-readiness.md](docs/distribution-readiness.md) for B2B Saa
 
 ## Load Test
 
-The default JMeter scenario targets `POST /api/reservations/complete`.
+The historical JMeter scenario targets `POST /api/reservations/complete`; for release validation, prefer the Toss intent/confirm flow and poll workflow status when confirm returns `202 PENDING`.
 
-Accepted load-test outcomes:
+Accepted final load-test outcomes:
 
 - `200 SUCCESS`
-- `202 PENDING`
+- `202 PENDING` only after workflow polling later resolves to `SUCCESS`
 
 Run:
 
@@ -290,7 +311,8 @@ Use Temporal UI to inspect workflow duration and activity retries. Use the `outb
 
 ## Operational Notes
 
-- `MockPaymentGateway` is the default payment gateway for this PoC.
+- `TOSS_PAYMENTS` is the default payment gateway; local mock beans are disabled unless explicitly enabled for tests.
+- Public direct complete and legacy payment APIs are disabled by default.
 - Inventory counters are maintained in Redis and mirrored in Postgres.
 - `app.inventory.reconciliation.enabled=true` enables scheduled mismatch detection between Redis and Postgres.
 - `app.outbox.enabled=true` enables scheduled outbox publishing to Kafka.
