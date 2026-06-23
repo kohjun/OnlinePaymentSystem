@@ -22,7 +22,7 @@ Reserve inventory in Redis
 -> Publish outbox events to Kafka
 ```
 
-`/api/reservations/complete`, `/api/payments/process`, `/api/payments/{paymentId}/retry`, and `/api/payments/{paymentId}/refund` are retained only as compatibility/internal paths. The default configuration disables them with `app.checkout.public-complete-enabled=false` and `payment.legacy-api.enabled=false`.
+`/api/reservations/complete`, `/api/payments/process`, `/api/payments/{paymentId}/retry`, and `/api/payments/{paymentId}/refund` are retained only as compatibility/internal paths. The default configuration disables them with `app.checkout.public-complete-enabled=false` and `payment.legacy-api.enabled=false`. Demo simulation authentication is also disabled by default with `app.simulation.auth.enabled=false`; the local mock-auth filter is demo-only and is disabled by the `prod` profile.
 
 ## Stack
 
@@ -65,7 +65,7 @@ docker compose up -d
 Services:
 
 - App: `http://localhost:8080`
-- Postgres: `localhost:5432`, database/user/password `payment`
+- Postgres: `localhost:5434`, database/user/password `payment`
 - Redis: `localhost:6379`
 - Kafka: `localhost:9092`
 - Temporal gRPC: `localhost:7233`
@@ -77,6 +77,27 @@ Start the application:
 .\gradlew.bat bootRun
 ```
 
+
+## Production Profile
+
+Run production with `spring.profiles.active=prod` and provide non-local infrastructure endpoints through environment variables. The prod profile intentionally does not fall back to local Docker defaults.
+
+Required production variables:
+
+```text
+DATABASE_URL=jdbc:postgresql://db.example.com:5432/payment
+DATABASE_USERNAME=payment_app
+DATABASE_PASSWORD=...
+REDIS_HOST=redis.example.com
+KAFKA_BOOTSTRAP_SERVERS=kafka-1.example.com:9092,kafka-2.example.com:9092
+TEMPORAL_TARGET=temporal.example.com:7233
+OIDC_ISSUER_URI=https://idp.example.com/realms/everysale
+TOSS_CLIENT_KEY=live_...
+TOSS_SECRET_KEY=live_...
+CORS_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com
+```
+
+`GET /api/system/readiness` blocks production when DB, Redis, Kafka, or Temporal still point at localhost, when CORS allows wildcard/local/insecure HTTP origins, when mock auth is enabled, when Toss live keys are missing/mismatched, or when external auth/tenant isolation is not configured.
 ## Toss Checkout API
 
 Create a Toss payment intent:
@@ -173,6 +194,18 @@ The current seed data publishes limited-goods events for raffle, auction, and dr
 Public marketplace checkout creates a Toss intent first, opens the Toss payment window, then calls `POST /api/payments/toss/confirm`; confirm records the marketplace order ledger and seller payout for successful Saga responses.
 Legacy non-Toss marketplace checkout endpoints are disabled by default with `app.checkout.legacy-marketplace-enabled=false`.
 
+Admin refund path:
+
+```text
+POST /api/admin/payments/{paymentId}/refund
+{
+  "idempotencyKey": "refund-request-id",
+  "reason": "customer requested cancellation"
+}
+```
+
+Manual refunds are admin-only, idempotent by `(paymentId, idempotencyKey)`, recorded in the `refunds` ledger, and emitted through the outbox publisher.
+Raffle draw, auction close, simulation reset/run, queue clear, and reconciliation endpoints are admin-only and audited.
 Raffle flow:
 
 ```text
@@ -313,6 +346,12 @@ Use Temporal UI to inspect workflow duration and activity retries. Use the `outb
 
 - `TOSS_PAYMENTS` is the default payment gateway; local mock beans are disabled unless explicitly enabled for tests.
 - Public direct complete and legacy payment APIs are disabled by default.
+- Security is deny-by-default for API routes that are not explicitly public; public routes are limited to static pages, health/readiness, and public marketplace/event reads.
+- Authorization denials and sensitive admin actions are recorded in `security_audit_events`; production readiness blocks startup if `app.audit.enabled=false`.
+- CORS is explicit allowlist based; production readiness blocks wildcard, localhost, unresolved, or plain HTTP origins.
+- Local mock authentication grants `CUSTOMER` only by default. Use `X-EverySale-Roles: ADMIN` only for local admin testing; production must use `spring.profiles.active=prod` with external JWT/OIDC auth and `OIDC_ISSUER_URI`. Readiness blocks production when mock auth is enabled.
+- The legacy demo auth API is off by default and is treated as a readiness blocker in production when `app.simulation.auth.enabled=true`; local demo credentials must come from `SIMULATION_AUTH_USERNAME` and `SIMULATION_AUTH_PASSWORD`.
+- Order, payment, reservation, workflow, Toss intent, queue, seat, seller, and admin APIs perform ownership or role checks server-side; do not rely on client-provided `customerId` alone.
 - Inventory counters are maintained in Redis and mirrored in Postgres.
 - `app.inventory.reconciliation.enabled=true` enables scheduled mismatch detection between Redis and Postgres.
 - `app.outbox.enabled=true` enables scheduled outbox publishing to Kafka.

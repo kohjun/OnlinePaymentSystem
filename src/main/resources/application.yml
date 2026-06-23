@@ -119,11 +119,13 @@ payment:
     payment-events: payment-events
 
 app:
+  audit:
+    enabled: true
   checkout:
     public-complete-enabled: false
     legacy-marketplace-enabled: false
   distribution:
-    brand-name: 에브리세일
+    brand-name: EverySale
     mode: DEMO
     release-channel: local-demo
     minimum-java-version: 17
@@ -140,9 +142,13 @@ app:
     mock-auth:
       enabled: true
       default-customer-id: CUST-1049
-      default-roles: CUSTOMER,ADMIN
+      default-roles: CUSTOMER
     external-auth:
       enabled: false
+    cors:
+      enabled: true
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:8080,http://127.0.0.1:8080}
+      allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:}
   temporal:
     enabled: true
     worker-enabled: true
@@ -173,5 +179,10 @@ app:
     refill-rate: 2
     client-window-seconds: 60
     client-max-requests: 120
+  simulation:
+    auth:
+      enabled: false
+      username: ${SIMULATION_AUTH_USERNAME:}
+      password: ${SIMULATION_AUTH_PASSWORD:}
   queue:
     enabled: false

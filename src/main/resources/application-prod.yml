@@ -1,4 +1,36 @@
+spring:
+  datasource:
+    url: ${DATABASE_URL}
+    username: ${DATABASE_USERNAME}
+    password: ${DATABASE_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DATABASE_MAX_POOL_SIZE:50}
+      minimum-idle: ${DATABASE_MIN_IDLE:5}
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: ${REDIS_TIMEOUT_MS:5000}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
+    properties:
+      security.protocol: ${KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+      sasl.mechanism: ${KAFKA_SASL_MECHANISM:}
+      sasl.jaas.config: ${KAFKA_SASL_JAAS_CONFIG:}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OIDC_ISSUER_URI}
+
+server:
+  forward-headers-strategy: native
+
 app:
+  audit:
+    enabled: true
   checkout:
     public-complete-enabled: false
     legacy-marketplace-enabled: false
@@ -9,13 +41,26 @@ app:
     require-real-payment-gateway: true
     require-external-auth: true
     require-tenant-isolation: true
+  simulation:
+    auth:
+      enabled: false
   security:
     mock-auth:
       enabled: false
     external-auth:
       enabled: true
+    cors:
+      enabled: true
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:}
+      allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:}
   tenancy:
     require-tenant-header: true
+    default-tenant-id: ${DEFAULT_TENANT_ID:}
+    default-partner-id: ${DEFAULT_PARTNER_ID:}
+  temporal:
+    target: ${TEMPORAL_TARGET}
+    namespace: ${TEMPORAL_NAMESPACE:payment}
+    task-queue: ${TEMPORAL_TASK_QUEUE:payment-reservation-task-queue}
 
 payment:
   default-gateway: TOSS_PAYMENTS
@@ -25,4 +70,7 @@ payment:
   mock:
     enabled: false
   toss:
+    client-key: ${TOSS_CLIENT_KEY}
+    secret-key: ${TOSS_SECRET_KEY}
+    base-url: ${TOSS_BASE_URL:https://api.tosspayments.com}
     mode: live

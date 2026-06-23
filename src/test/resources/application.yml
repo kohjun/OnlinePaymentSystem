@@ -94,6 +94,8 @@ payment:
     payment-events: payment-events
 
 app:
+  audit:
+    enabled: true
   checkout:
     public-complete-enabled: true
     legacy-marketplace-enabled: true
@@ -118,6 +120,11 @@ app:
       default-roles: CUSTOMER,ADMIN
     external-auth:
       enabled: false
+  simulation:
+    auth:
+      enabled: true
+      username: test-admin
+      password: test-password
   temporal:
     enabled: false
     worker-enabled: false
