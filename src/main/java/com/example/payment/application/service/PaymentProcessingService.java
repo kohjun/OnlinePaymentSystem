@@ -3,13 +3,16 @@ package com.example.payment.application.service;
 import com.example.payment.application.dto.PaymentGatewayRequest;
 import com.example.payment.application.dto.PaymentGatewayResult;
 import com.example.payment.domain.entity.PaymentRecord;
+import com.example.payment.domain.entity.RefundRecord;
 import com.example.payment.domain.model.common.Money;
 import com.example.payment.domain.model.payment.Payment;
 import com.example.payment.domain.model.payment.PaymentMethod;
 import com.example.payment.domain.model.payment.PaymentStatus;
 import com.example.payment.domain.repository.PaymentRecordRepository;
+import com.example.payment.domain.repository.RefundRecordRepository;
 import com.example.payment.domain.service.PaymentGatewayService;
 import com.example.payment.infrastructure.gateway.PaymentGatewayFactory;
+import com.example.payment.infrastructure.messaging.outbox.OutboxEventService;
 import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
 import com.example.payment.infrastructure.util.IdGenerator;
 import com.example.payment.presentation.dto.request.PaymentProcessRequest;
@@ -17,9 +20,12 @@ import com.example.payment.presentation.dto.response.PaymentResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * 결제 처리 서비스 (WAL 의존성 제거)
@@ -32,6 +38,8 @@ public class PaymentProcessingService {
     private final PaymentGatewayFactory gatewayFactory;
     private final CacheService cacheService;
     private final PaymentRecordRepository paymentRecordRepository;
+    private final RefundRecordRepository refundRecordRepository;
+    private final OutboxEventService outboxEventService;
 
     private static final int PAYMENT_CACHE_TTL_SECONDS = 86400; // 24시간
 
@@ -132,50 +140,88 @@ public class PaymentProcessingService {
      * 결제 환불
      */
     public boolean refundPayment(String paymentId) {
-        try {
-            String transactionId = IdGenerator.generateCorrelationId();
-            log.info("Refunding payment: txId={}, paymentId={}", transactionId, paymentId);
-
-            Payment payment = getPayment(paymentId);
-            if (payment == null) {
-                log.warn("Payment not found for refund: paymentId={}", paymentId);
-                return false;
-            }
-
-            if (!payment.canBeRefunded()) {
-                log.warn("Payment cannot be refunded: paymentId={}, status={}",
-                        paymentId, payment.getStatus());
-                return false;
-            }
-
-            PaymentGatewayService gateway = gatewayFactory.getGateway(payment.getMethod().name());
-            boolean refunded = gateway.refundPayment(payment.getTransactionId());
-
-            if (refunded) {
-                payment.markAsRefunded();
-
-                String cacheKey = "payment:" + paymentId;
-                cacheService.cacheData(cacheKey, payment, PAYMENT_CACHE_TTL_SECONDS);
-                paymentRecordRepository.save(toRecord(payment, payment.getMethod().name()));
-
-                log.info("Payment refunded successfully: paymentId={}", paymentId);
-                return true;
-            } else {
-                log.warn("PG refund failed: paymentId={}", paymentId);
-                markRefundFailed(paymentId, "PG refund returned false");
-                return false;
-            }
-
-        } catch (Exception e) {
-            log.error("Error refunding payment: paymentId={}", paymentId, e);
-            markRefundFailed(paymentId, e.getMessage());
-            return false;
-        }
+        return refundPayment(paymentId, "manual-" + paymentId, "Manual refund request");
     }
 
-    /**
-     * 예약 기반 결제 처리 (PaymentProcessRequest 받음)
-     */
+    public boolean refundPayment(String paymentId, String idempotencyKey, String reason) {
+        return refundPaymentWithResult(paymentId, idempotencyKey, reason).success();
+    }
+
+    @Transactional
+    public RefundResult refundPaymentWithResult(String paymentId, String idempotencyKey, String reason) {
+        String effectiveKey = defaultText(idempotencyKey, "manual-" + paymentId);
+        String refundId = "RF-" + paymentId + "-" + effectiveKey;
+        String refundReason = defaultText(reason, "Manual refund request");
+        log.info("Refunding payment: refundId={}, paymentId={}, reason={}", refundId, paymentId, refundReason);
+
+        PaymentRecord payment = paymentRecordRepository.findById(paymentId).orElse(null);
+        if (payment == null) {
+            log.warn("Payment not found for refund: paymentId={}", paymentId);
+            return new RefundResult(false, "PAYMENT_NOT_FOUND", "Payment not found.", null);
+        }
+
+        RefundRecord refund = refundRecordRepository.findByPaymentIdAndIdempotencyKey(paymentId, effectiveKey)
+                .orElseGet(() -> refundRecordRepository.save(RefundRecord.builder()
+                        .refundId(refundId)
+                        .paymentId(paymentId)
+                        .idempotencyKey(effectiveKey)
+                        .amount(payment.getAmount())
+                        .currency(payment.getCurrency())
+                        .status("PROCESSING")
+                        .attemptCount(0)
+                        .createdAt(LocalDateTime.now())
+                        .build()));
+
+        if ("SUCCEEDED".equals(refund.getStatus())) {
+            payment.setStatus(refundCompletionStatus(payment));
+            payment.setFailureReason(null);
+            payment.setProcessedAt(LocalDateTime.now());
+            paymentRecordRepository.save(payment);
+            cachePayment(payment);
+            return new RefundResult(true, "REFUND_ALREADY_SUCCEEDED", "Refund already succeeded.", convertToResponse(toDomainPayment(payment)));
+        }
+
+        if (!isApprovedPayment(payment.getStatus())) {
+            log.warn("Payment cannot be refunded: paymentId={}, status={}", paymentId, payment.getStatus());
+            return new RefundResult(false, "PAYMENT_NOT_REFUNDABLE", "Payment is not refundable in status " + payment.getStatus() + ".", convertToResponse(toDomainPayment(payment)));
+        }
+
+        refund.setAttemptCount(refund.getAttemptCount() + 1);
+        refund.setStatus("PROCESSING");
+        refund.setFailureReason(null);
+        refundRecordRepository.save(refund);
+
+        boolean refunded;
+        try {
+            PaymentGatewayService gateway = gatewayFactory.getGateway(payment.getMethod());
+            refunded = gateway.refundPayment(payment.getTransactionId());
+        } catch (Exception e) {
+            markRefundFailed(payment, refund, e.getMessage(), refundReason);
+            return new RefundResult(false, "REFUND_FAILED", "System error while refunding payment.", convertToResponse(toDomainPayment(payment)));
+        }
+
+        if (refunded) {
+            refund.setStatus("SUCCEEDED");
+            refund.setProviderRefundId(refundId);
+            refund.setCompletedAt(LocalDateTime.now());
+            refund.setFailureReason(null);
+            refundRecordRepository.save(refund);
+
+            payment.setStatus(refundCompletionStatus(payment));
+            payment.setFailureReason(null);
+            payment.setProcessedAt(LocalDateTime.now());
+            paymentRecordRepository.save(payment);
+            cachePayment(payment);
+            recordRefundOutbox(payment, "PAYMENT_REFUNDED", refund, refundReason);
+
+            log.info("Payment refunded successfully: paymentId={}, refundId={}", paymentId, refundId);
+            return new RefundResult(true, "REFUND_SUCCEEDED", "Payment refunded successfully.", convertToResponse(toDomainPayment(payment)));
+        }
+
+        log.warn("PG refund failed: paymentId={}, refundId={}", paymentId, refundId);
+        markRefundFailed(payment, refund, "PG refund returned false", refundReason);
+        return new RefundResult(false, "REFUND_FAILED", "Payment refund failed.", convertToResponse(toDomainPayment(payment)));
+    }
     public PaymentResponse processReservationPayment(PaymentProcessRequest request) {
         try {
             String transactionId = IdGenerator.generateCorrelationId();
@@ -373,20 +419,71 @@ public class PaymentProcessingService {
                 .build();
     }
 
-    private void markRefundFailed(String paymentId, String reason) {
-        paymentRecordRepository.findById(paymentId).ifPresent(record -> {
-            record.setStatus(PaymentStatus.REFUND_FAILED.name());
-            record.setFailureReason(reason);
-            record.setProcessedAt(LocalDateTime.now());
-            paymentRecordRepository.save(record);
-        });
+    private void markRefundFailed(PaymentRecord payment, RefundRecord refund, String failureReason, String reason) {
+        refund.setStatus("FAILED");
+        refund.setFailureReason(failureReason);
+        refundRecordRepository.save(refund);
+
+        payment.setStatus(PaymentStatus.REFUND_FAILED.name());
+        payment.setFailureReason(failureReason);
+        payment.setProcessedAt(LocalDateTime.now());
+        paymentRecordRepository.save(payment);
+        cachePayment(payment);
+        recordRefundOutbox(payment, "PAYMENT_REFUND_FAILED", refund, reason);
     }
 
+    private String refundCompletionStatus(PaymentRecord payment) {
+        BigDecimal refundedAmount = refundRecordRepository.sumSucceededAmountByPaymentId(payment.getPaymentId());
+        if (refundedAmount == null) {
+            refundedAmount = BigDecimal.ZERO;
+        }
+        return refundedAmount.compareTo(payment.getAmount()) >= 0
+                ? PaymentStatus.REFUNDED.name()
+                : PaymentStatus.PARTIALLY_REFUNDED.name();
+    }
+
+    private boolean isApprovedPayment(String status) {
+        return PaymentStatus.APPROVED.name().equals(status) || PaymentStatus.COMPLETED.name().equals(status);
+    }
+
+    private void cachePayment(PaymentRecord payment) {
+        cacheService.cacheData("payment:" + payment.getPaymentId(), toDomainPayment(payment), PAYMENT_CACHE_TTL_SECONDS);
+    }
+
+    private void recordRefundOutbox(PaymentRecord payment, String eventType, RefundRecord refund, String reason) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("paymentId", payment.getPaymentId());
+        payload.put("orderId", payment.getOrderId());
+        payload.put("reservationId", payment.getReservationId());
+        payload.put("customerId", payment.getCustomerId());
+        payload.put("refundId", refund.getRefundId());
+        payload.put("amount", refund.getAmount());
+        payload.put("currency", refund.getCurrency());
+        payload.put("paymentStatus", payment.getStatus());
+        payload.put("refundStatus", refund.getStatus());
+        payload.put("reason", reason);
+        if (refund.getFailureReason() != null) {
+            payload.put("failureReason", refund.getFailureReason());
+        }
+        outboxEventService.record("PAYMENT", payment.getPaymentId(), eventType,
+                "payment-events", payment.getPaymentId(), payload);
+    }
+
+    private String defaultText(String value, String fallback) {
+        return value == null || value.trim().isEmpty() ? fallback : value.trim();
+    }
     private PaymentMethod toPaymentMethod(String method) {
         try {
             return PaymentMethod.valueOf(method);
         } catch (Exception e) {
             return PaymentMethod.CREDIT_CARD;
         }
+    }
+    public record RefundResult(
+            boolean success,
+            String code,
+            String message,
+            PaymentResponse payment
+    ) {
     }
 }
