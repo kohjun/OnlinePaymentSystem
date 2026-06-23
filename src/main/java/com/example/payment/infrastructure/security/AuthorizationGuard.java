@@ -1,9 +1,11 @@
 package com.example.payment.infrastructure.security;
 
 import com.example.payment.domain.entity.InventoryReservationRecord;
+import com.example.payment.domain.entity.OrderRecord;
 import com.example.payment.domain.entity.PaymentRecord;
 import com.example.payment.domain.entity.TossPaymentIntent;
 import com.example.payment.domain.repository.InventoryReservationRecordRepository;
+import com.example.payment.domain.repository.OrderRecordRepository;
 import com.example.payment.domain.repository.PaymentRecordRepository;
 import com.example.payment.domain.repository.TossPaymentIntentRepository;
 import lombok.RequiredArgsConstructor;
@@ -21,10 +23,13 @@ public class AuthorizationGuard {
 
     private final PaymentRecordRepository paymentRecordRepository;
     private final InventoryReservationRecordRepository reservationRepository;
+    private final OrderRecordRepository orderRecordRepository;
     private final TossPaymentIntentRepository tossPaymentIntentRepository;
+    private final SecurityAuditService securityAuditService;
 
     public void requireAuthenticated() {
         if (!isAuthenticated(authentication())) {
+            securityAuditService.recordDenied("AUTHENTICATED_ACCESS", "REQUEST", null, "Authentication is required.");
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication is required.");
         }
     }
@@ -32,6 +37,7 @@ public class AuthorizationGuard {
     public void requireAdmin() {
         requireAuthenticated();
         if (!isAdmin(authentication())) {
+            securityAuditService.recordDenied("ADMIN_ACCESS", "ADMIN", "*", "Admin role is required.");
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin role is required.");
         }
     }
@@ -44,6 +50,7 @@ public class AuthorizationGuard {
         }
         String authenticatedCustomerId = customerId(authentication);
         if (authenticatedCustomerId == null || !authenticatedCustomerId.equals(customerId)) {
+            securityAuditService.recordDenied("CUSTOMER_ACCESS", "CUSTOMER", customerId, "Customer ownership mismatch.");
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Customer ownership mismatch.");
         }
     }
@@ -56,6 +63,7 @@ public class AuthorizationGuard {
         }
         String authenticatedSellerId = sellerId(authentication);
         if (authenticatedSellerId == null || !authenticatedSellerId.equals(sellerId)) {
+            securityAuditService.recordDenied("SELLER_ACCESS", "SELLER", sellerId, "Seller ownership mismatch.");
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Seller ownership mismatch.");
         }
     }
@@ -82,6 +90,16 @@ public class AuthorizationGuard {
         requireCustomerAccess(reservation.getCustomerId());
     }
 
+    public void requireOrderAccess(String orderId) {
+        requireAuthenticated();
+        Authentication authentication = authentication();
+        if (isAdmin(authentication)) {
+            return;
+        }
+        OrderRecord order = orderRecordRepository.findById(orderId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found."));
+        requireCustomerAccess(order.getCustomerId());
+    }
     public void requireWorkflowAccess(String workflowId) {
         requireAuthenticated();
         Authentication authentication = authentication();
@@ -124,7 +142,7 @@ public class AuthorizationGuard {
         if (authentication.getPrincipal() instanceof EverySalePrincipal principal) {
             return principal.customerId();
         }
-        Object claim = detailsClaim(authentication, "customerId");
+        Object claim = detailsClaim(authentication, "customerId", "customer_id", "cid");
         return claim != null ? claim.toString() : authentication.getName();
     }
 
@@ -132,13 +150,18 @@ public class AuthorizationGuard {
         if (authentication.getPrincipal() instanceof EverySalePrincipal principal) {
             return principal.sellerId();
         }
-        Object claim = detailsClaim(authentication, "sellerId");
+        Object claim = detailsClaim(authentication, "sellerId", "seller_id", "sid");
         return claim != null ? claim.toString() : null;
     }
 
-    private Object detailsClaim(Authentication authentication, String name) {
+    private Object detailsClaim(Authentication authentication, String... names) {
         if (authentication.getPrincipal() instanceof org.springframework.security.oauth2.jwt.Jwt jwt) {
-            return jwt.getClaims().get(name);
+            for (String name : names) {
+                Object value = jwt.getClaims().get(name);
+                if (value != null && !value.toString().isBlank()) {
+                    return value;
+                }
+            }
         }
         return null;
     }

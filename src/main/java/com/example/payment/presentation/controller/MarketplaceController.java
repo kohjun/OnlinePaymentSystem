@@ -10,6 +10,7 @@ import com.example.payment.application.service.IdempotencyConflictException;
 import com.example.payment.application.service.TossPaymentIntentService;
 import com.example.payment.domain.model.marketplace.MarketplaceCheckoutType;
 import com.example.payment.infrastructure.security.AuthorizationGuard;
+import com.example.payment.infrastructure.security.SecurityAuditService;
 import com.example.payment.presentation.dto.request.AuctionBidRequest;
 import com.example.payment.presentation.dto.request.MarketplaceCheckoutRequest;
 import com.example.payment.presentation.dto.request.RaffleDrawRequest;
@@ -51,6 +52,7 @@ public class MarketplaceController {
     private final MarketplaceOrderService marketplaceOrderService;
     private final TossPaymentIntentService tossPaymentIntentService;
     private final AuthorizationGuard authorizationGuard;
+    private final SecurityAuditService securityAuditService;
 
     @Value("${app.checkout.legacy-marketplace-enabled:false}")
     private boolean legacyMarketplaceCheckoutEnabled;
@@ -157,6 +159,8 @@ public class MarketplaceController {
             @PathVariable String eventId,
             @Valid @RequestBody RaffleDrawRequest request) {
         try {
+            authorizationGuard.requireAdmin();
+            securityAuditService.recordGranted("RAFFLE_DRAW_REQUESTED", "SALE_EVENT", eventId);
             return ResponseEntity.ok(raffleService.draw(eventId, request));
         } catch (MarketplaceCheckoutException e) {
             return marketplaceError(e);
@@ -221,6 +225,8 @@ public class MarketplaceController {
     @PostMapping("/events/{eventId}/auction/close")
     public ResponseEntity<?> closeAuction(@PathVariable String eventId) {
         try {
+            authorizationGuard.requireAdmin();
+            securityAuditService.recordGranted("AUCTION_CLOSE_REQUESTED", "SALE_EVENT", eventId);
             return ResponseEntity.ok(auctionService.close(eventId));
         } catch (MarketplaceCheckoutException e) {
             return marketplaceError(e);

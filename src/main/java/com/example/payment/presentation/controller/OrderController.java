@@ -2,6 +2,7 @@ package com.example.payment.presentation.controller;
 
 import com.example.payment.application.service.OrderService;
 import com.example.payment.domain.model.order.Order;
+import com.example.payment.infrastructure.security.AuthorizationGuard;
 import com.example.payment.infrastructure.util.IdGenerator;
 import com.example.payment.presentation.dto.response.OrderResponse;
 import lombok.RequiredArgsConstructor;
@@ -25,9 +26,11 @@ import java.util.List;
 public class OrderController {
 
     private final OrderService orderService;
+    private final AuthorizationGuard authorizationGuard;
 
     @GetMapping("/{orderId}")
     public ResponseEntity<OrderResponse> getOrderStatus(@PathVariable String orderId) {
+        authorizationGuard.requireOrderAccess(orderId);
         log.debug("Getting order status: orderId={}", orderId);
 
         Order order = orderService.getOrder(orderId);
@@ -43,6 +46,7 @@ public class OrderController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
 
+        authorizationGuard.requireCustomerAccess(customerId);
         List<OrderResponse> orders = orderService.getOrdersByCustomerId(customerId, page, size)
                 .stream()
                 .map(OrderResponse::from)
@@ -55,6 +59,8 @@ public class OrderController {
                                               @RequestParam String customerId,
                                               @RequestParam(required = false) String cancelReason) {
 
+        authorizationGuard.requireOrderAccess(orderId);
+        authorizationGuard.requireCustomerAccess(customerId);
         log.info("Order cancellation requested: orderId={}, customerId={}", orderId, customerId);
 
         try {

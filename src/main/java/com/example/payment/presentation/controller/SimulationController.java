@@ -8,6 +8,8 @@ import com.example.payment.domain.entity.OrderRecord;
 import com.example.payment.domain.repository.ProductRepository;
 import com.example.payment.domain.repository.InventoryRepository;
 import com.example.payment.domain.repository.OrderRecordRepository;
+import com.example.payment.infrastructure.security.AuthorizationGuard;
+import com.example.payment.infrastructure.security.SecurityAuditService;
 import com.example.payment.presentation.dto.request.ProductDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +35,8 @@ public class SimulationController {
     private final InventoryRepository inventoryRepository;
     private final OrderRecordRepository orderRecordRepository;
     private final RedisTemplate<String, Object> redisTemplate;
+    private final AuthorizationGuard authorizationGuard;
+    private final SecurityAuditService securityAuditService;
 
     @GetMapping("/events")
     public ResponseEntity<List<EventConfig>> getEvents() {
@@ -41,6 +45,8 @@ public class SimulationController {
 
     @PostMapping("/events")
     public ResponseEntity<Map<String, Object>> createEvent(@RequestBody EventConfig config) {
+        authorizationGuard.requireAdmin();
+        securityAuditService.recordGranted("SIMULATION_EVENT_CREATED", "SIMULATION_EVENT", config.getEventId());
         simulationService.createEvent(config);
         return ResponseEntity.ok(Map.of("status", "SUCCESS", "message", "이벤트가 등록되었습니다."));
     }
@@ -53,6 +59,8 @@ public class SimulationController {
 
     @PostMapping("/events/active")
     public ResponseEntity<Map<String, Object>> setActiveEvent(@RequestParam String eventId) {
+        authorizationGuard.requireAdmin();
+        securityAuditService.recordGranted("SIMULATION_ACTIVE_EVENT_CHANGED", "SIMULATION_EVENT", eventId);
         simulationService.setActiveEventId(eventId);
         return ResponseEntity.ok(Map.of("status", "SUCCESS", "message", "활성 상품/이벤트가 전환되었습니다."));
     }
@@ -61,23 +69,30 @@ public class SimulationController {
     public ResponseEntity<Map<String, Object>> runSimulation(
             @RequestParam(defaultValue = "50") int vus,
             @RequestParam(defaultValue = "15") int duration) {
+        authorizationGuard.requireAdmin();
+        securityAuditService.recordGranted("SIMULATION_RUN_STARTED", "SIMULATION", "load-test");
         return ResponseEntity.ok(simulationService.startSimulation(vus, duration));
     }
 
     @PostMapping("/stop")
     public ResponseEntity<Map<String, Object>> stopSimulation() {
+        authorizationGuard.requireAdmin();
+        securityAuditService.recordGranted("SIMULATION_RUN_STOPPED", "SIMULATION", "load-test");
         simulationService.stopSimulation();
         return ResponseEntity.ok(Map.of("status", "SUCCESS", "message", "시뮬레이션 부하 테스트가 중단되었습니다."));
     }
 
     @GetMapping("/status")
     public ResponseEntity<Map<String, Object>> getSimulationStatus() {
+        authorizationGuard.requireAdmin();
         return ResponseEntity.ok(simulationService.getSimulationStatus());
     }
 
     @PostMapping("/reset")
     public ResponseEntity<Map<String, Object>> resetEvent() {
+        authorizationGuard.requireAdmin();
         String activeId = simulationService.getActiveEventId();
+        securityAuditService.recordGranted("SIMULATION_EVENT_RESET", "SIMULATION_EVENT", activeId);
         simulationService.resetEventInventory(activeId);
         return ResponseEntity.ok(Map.of("status", "SUCCESS", "message", "상품/이벤트 상태가 초기화되었습니다."));
     }
@@ -87,6 +102,7 @@ public class SimulationController {
             @RequestParam String eventId,
             @RequestParam String customerId,
             @RequestParam double bidAmount) {
+        authorizationGuard.requireCustomerAccess(customerId);
         Map<String, Object> result = simulationService.processAuctionBid(eventId, customerId, bidAmount);
         if ("SUCCESS".equals(result.get("status"))) {
             return ResponseEntity.ok(result);
@@ -104,6 +120,7 @@ public class SimulationController {
 
     @PostMapping("/products/register")
     public ResponseEntity<Map<String, Object>> registerProduct(@RequestBody ProductDto dto) {
+        authorizationGuard.requireAdmin();
         try {
             if (dto.getName() == null || dto.getName().isEmpty() ||
                 dto.getCategory() == null || dto.getCategory().isEmpty() ||
@@ -144,6 +161,7 @@ public class SimulationController {
             ));
             
             log.info("Successfully registered custom B2B product: id={}, name={}, qty={}", productId, dto.getName(), dto.getQuantity());
+            securityAuditService.recordGranted("SIMULATION_PRODUCT_REGISTERED", "PRODUCT", productId);
             
             return ResponseEntity.ok(Map.of(
                     "status", "SUCCESS",
@@ -227,6 +245,7 @@ public class SimulationController {
 
     @GetMapping("/orders")
     public ResponseEntity<List<OrderRecord>> getOrders() {
+        authorizationGuard.requireAdmin();
         try {
             List<OrderRecord> orders = orderRecordRepository.findAll();
             // Sort by createdAt descending

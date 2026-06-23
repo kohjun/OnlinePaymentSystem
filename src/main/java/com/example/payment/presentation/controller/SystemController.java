@@ -8,6 +8,7 @@ import com.example.payment.domain.repository.OrderRecordRepository;
 import com.example.payment.domain.repository.PaymentRecordRepository;
 import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
 import com.example.payment.infrastructure.security.AuthorizationGuard;
+import com.example.payment.infrastructure.security.SecurityAuditService;
 import com.example.payment.infrastructure.util.ResourceReservationService;
 import com.example.payment.scheduler.InventoryReconciliationJob;
 import com.example.payment.application.service.DistributionReadinessService;
@@ -43,6 +44,7 @@ public class SystemController {
     private final SimulationService simulationService;
     private final DistributionReadinessService distributionReadinessService;
     private final AuthorizationGuard authorizationGuard;
+    private final SecurityAuditService securityAuditService;
 
     @Autowired(required = false)
     private InventoryReconciliationJob inventoryReconciliationJob;
@@ -260,6 +262,7 @@ public class SystemController {
     @Transactional
     public ResponseEntity<Map<String, Object>> resetSystem() {
         authorizationGuard.requireAdmin();
+        securityAuditService.recordGranted("SYSTEM_RESET_REQUESTED", "SYSTEM", "dashboard");
         try {
             log.info("System simulation reset requested.");
             // 예약, 주문, 결제 이력 모두 삭제
@@ -306,9 +309,11 @@ public class SystemController {
             if (seatKeys != null && !seatKeys.isEmpty()) redisTemplate.delete(seatKeys);
 
             log.info("System simulation reset executed successfully.");
+            securityAuditService.recordGranted("SYSTEM_RESET_SUCCEEDED", "SYSTEM", "dashboard");
             return ResponseEntity.ok(Map.of("status", "SUCCESS", "message", "시스템 시뮬레이션 상태가 성공적으로 초기화되었습니다."));
         } catch (Exception e) {
             log.error("Failed to reset system simulation state", e);
+            securityAuditService.record("SYSTEM_RESET_FAILED", "SYSTEM", "dashboard", "FAILED", e.getMessage());
             return ResponseEntity.internalServerError().body(Map.of("status", "FAILED", "message", "초기화 중 오류 발생: " + e.getMessage()));
         }
     }
@@ -316,11 +321,14 @@ public class SystemController {
     @PostMapping("/inventory/reconcile")
     public ResponseEntity<Map<String, Object>> triggerReconciliation() {
         authorizationGuard.requireAdmin();
+        securityAuditService.recordGranted("INVENTORY_RECONCILE_REQUESTED", "INVENTORY", "all");
         log.info("Manual inventory reconciliation requested.");
         if (inventoryReconciliationJob != null) {
             inventoryReconciliationJob.reconcileInventoryCounters();
+            securityAuditService.recordGranted("INVENTORY_RECONCILE_SUCCEEDED", "INVENTORY", "all");
             return ResponseEntity.ok(Map.of("status", "SUCCESS", "message", "재고 정합성 복구 작업(Self-Healing)이 실행되었습니다."));
         } else {
+            securityAuditService.record("INVENTORY_RECONCILE_UNAVAILABLE", "INVENTORY", "all", "FAILED", "Inventory reconciliation job is not available.");
             return ResponseEntity.badRequest().body(Map.of("status", "FAILED", "message", "정합성 복구 작업 빈이 활성화되지 않았습니다."));
         }
     }
@@ -451,11 +459,14 @@ public class SystemController {
     @PostMapping("/seats/confirm")
     public ResponseEntity<Map<String, Object>> confirmSeat(
             @org.springframework.web.bind.annotation.RequestParam String seatId) {
+        authorizationGuard.requireAdmin();
+        securityAuditService.recordGranted("SEAT_CONFIRM_REQUESTED", "SEAT", seatId);
         try {
             String key = "locked_seat:" + seatId;
             // 결제 완료된 자리는 CUST-ID 대신 "SOLD"로 영구 락 설정 (30일 동안 유지)
             redisTemplate.opsForValue().set(key, "SOLD", 30 * 24 * 3600, java.util.concurrent.TimeUnit.SECONDS);
             log.info("Seat confirmed as SOLD in Redis: seatId={}", seatId);
+            securityAuditService.recordGranted("SEAT_CONFIRM_SUCCEEDED", "SEAT", seatId);
             
             return ResponseEntity.ok(Map.of(
                     "status", "SUCCESS",
@@ -463,6 +474,7 @@ public class SystemController {
             ));
         } catch (Exception e) {
             log.error("Failed to confirm seat: seatId={}", seatId, e);
+            securityAuditService.record("SEAT_CONFIRM_FAILED", "SEAT", seatId, "FAILED", e.getMessage());
             return ResponseEntity.internalServerError().body(Map.of(
                     "status", "FAILED",
                     "message", "좌석 확정 중 시스템 오류 발생: " + e.getMessage()

@@ -1,5 +1,7 @@
 package com.example.payment.presentation.controller;
 
+import com.example.payment.infrastructure.security.AuthorizationGuard;
+import com.example.payment.infrastructure.security.SecurityAuditService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -15,9 +17,12 @@ import java.util.Map;
 public class QueueController {
 
     private final RedisTemplate<String, Object> redisTemplate;
+    private final AuthorizationGuard authorizationGuard;
+    private final SecurityAuditService securityAuditService;
 
     @PostMapping("/join")
     public ResponseEntity<Map<String, Object>> joinQueue(@RequestParam String customerId) {
+        authorizationGuard.requireCustomerAccess(customerId);
         String activeKey = "active_user:" + customerId;
         Boolean isActive = redisTemplate.hasKey(activeKey);
         
@@ -46,6 +51,7 @@ public class QueueController {
 
     @GetMapping("/status")
     public ResponseEntity<Map<String, Object>> getQueueStatus(@RequestParam String customerId) {
+        authorizationGuard.requireCustomerAccess(customerId);
         String activeKey = "active_user:" + customerId;
         Boolean isActive = redisTemplate.hasKey(activeKey);
         
@@ -77,6 +83,8 @@ public class QueueController {
 
     @PostMapping("/clear")
     public ResponseEntity<Map<String, Object>> clearQueue(@RequestParam String customerId) {
+        authorizationGuard.requireAdmin();
+        securityAuditService.recordGranted("QUEUE_TOKEN_CLEARED", "QUEUE", customerId);
         redisTemplate.opsForZSet().remove("ticket_queue", customerId);
         redisTemplate.delete("active_user:" + customerId);
         log.info("Cleared standby queue token for customer: {}", customerId);

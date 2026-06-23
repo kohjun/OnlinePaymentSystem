@@ -1,6 +1,8 @@
 package com.example.payment.presentation.controller;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.ResponseEntity;
@@ -9,12 +11,19 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 
 @RestController
+@ConditionalOnProperty(name = "app.simulation.auth.enabled", havingValue = "true")
 @RequestMapping("/api/simulation/auth")
 @RequiredArgsConstructor
 @Slf4j
 public class AuthController {
 
     private final RedisTemplate<String, Object> redisTemplate;
+
+    @Value("${app.simulation.auth.username:}")
+    private String demoUsername;
+
+    @Value("${app.simulation.auth.password:}")
+    private String demoPassword;
 
     private static final String LOGIN_KEY = "auth:is_logged_in";
     private static final String USERNAME_KEY = "auth:username";
@@ -38,7 +47,9 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseEntity<Map<String, Object>> login(@RequestParam String username, @RequestParam String password) {
-        if ("admin".equals(username) && "admin123".equals(password)) {
+        if (hasText(demoUsername) && hasText(demoPassword)
+                && demoUsername.equals(username)
+                && demoPassword.equals(password)) {
             redisTemplate.opsForValue().set(LOGIN_KEY, "true");
             redisTemplate.opsForValue().set(USERNAME_KEY, username);
             log.info("Merchant login successful: {}", username);
@@ -53,6 +64,10 @@ public class AuthController {
         redisTemplate.opsForValue().set(SUBSCRIBED_KEY, "true");
         log.info("Merchant subscription payment completed successfully.");
         return ResponseEntity.ok(Map.of("status", "SUCCESS", "message", "구독 결제가 완료되었습니다."));
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 
     @PostMapping("/logout")

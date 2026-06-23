@@ -3,6 +3,7 @@ package com.example.payment.presentation.controller;
 import com.example.payment.application.service.PaymentProcessingService;
 import com.example.payment.infrastructure.gateway.TossPaymentsProperties;
 import com.example.payment.infrastructure.security.AuthorizationGuard;
+import com.example.payment.infrastructure.security.SecurityAuditService;
 import com.example.payment.infrastructure.util.RateLimiter;
 import com.example.payment.presentation.dto.request.PaymentProcessRequest;
 import com.example.payment.presentation.dto.response.PaymentResponse;
@@ -32,6 +33,7 @@ public class PaymentController {
     private final RateLimiter rateLimiter;
     private final TossPaymentsProperties tossPaymentsProperties;
     private final AuthorizationGuard authorizationGuard;
+    private final SecurityAuditService securityAuditService;
 
     @Value("${payment.legacy-api.enabled:false}")
     private boolean legacyApiEnabled;
@@ -142,6 +144,7 @@ public class PaymentController {
                     .body("Legacy refund API is disabled. Use the admin refund API after authorization is enabled.");
         }
         authorizationGuard.requireAdmin();
+        securityAuditService.recordGranted("PAYMENT_REFUND_REQUESTED", "PAYMENT", paymentId);
 
         log.info("Payment refund requested: paymentId={}, customerId={}, reason={}",
                 paymentId, customerId, reason);
@@ -150,16 +153,19 @@ public class PaymentController {
             boolean refunded = paymentProcessingService.refundPayment(paymentId);
             if (refunded) {
                 log.info("Payment refunded successfully: paymentId={}", paymentId);
+                securityAuditService.recordGranted("PAYMENT_REFUND_SUCCEEDED", "PAYMENT", paymentId);
                 return ResponseEntity.ok("Payment refunded successfully.");
             }
 
             log.warn("Failed to refund payment: paymentId={}", paymentId);
+            securityAuditService.record("PAYMENT_REFUND_REJECTED", "PAYMENT", paymentId, "FAILED", "Payment could not be refunded.");
             return ResponseEntity.badRequest().body(
                     "Payment refund failed. It may already be refunded or cannot be refunded."
             );
 
         } catch (Exception e) {
             log.error("Error refunding payment: paymentId={}", paymentId, e);
+            securityAuditService.record("PAYMENT_REFUND_FAILED", "PAYMENT", paymentId, "FAILED", e.getMessage());
             return ResponseEntity.internalServerError().body("System error while refunding payment.");
         }
     }

@@ -61,6 +61,8 @@ public class ReservationController {
                     .build());
         }
 
+        authorizationGuard.requireCustomerAccess(request.getCustomerId());
+
         log.info("Complete reservation request: customerId={}, productId={}, quantity={}, amount={}",
                 request.getCustomerId(), request.getProductId(), request.getQuantity(),
                 request.getPaymentInfo().getAmount());
