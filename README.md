@@ -94,10 +94,11 @@ TEMPORAL_TARGET=temporal.example.com:7233
 OIDC_ISSUER_URI=https://idp.example.com/realms/everysale
 TOSS_CLIENT_KEY=live_...
 TOSS_SECRET_KEY=live_...
+TOSS_WEBHOOK_PATH_TOKEN=at-least-32-random-characters
 CORS_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com
 ```
 
-`GET /api/system/readiness` blocks production when DB, Redis, Kafka, or Temporal still point at localhost, when CORS allows wildcard/local/insecure HTTP origins, when mock auth is enabled, when Toss live keys are missing/mismatched, or when external auth/tenant isolation is not configured.
+`GET /api/system/readiness` blocks production when DB, Redis, Kafka, or Temporal still point at localhost, when CORS allows wildcard/local/insecure HTTP origins, when mock auth is enabled, when Toss live keys or webhook token are missing/mismatched, or when external auth/tenant isolation is not configured.
 ## Toss Checkout API
 
 Create a Toss payment intent:
@@ -153,6 +154,14 @@ Check a pending workflow:
 ```powershell
 Invoke-RestMethod http://localhost:8080/api/reservations/workflows/{workflowId}
 ```
+
+Toss webhook recovery endpoint:
+
+```text
+POST /api/payments/toss/webhooks/{TOSS_WEBHOOK_PATH_TOKEN}
+```
+
+The endpoint stores the raw event first and processes it idempotently. Supported events are `PAYMENT_STATUS_CHANGED` and `CANCEL_STATUS_CHANGED`.
 
 ## Lookup APIs
 
@@ -314,6 +323,12 @@ This gate verifies Java 17+, Gradle compile, focused quality tests, EverySale br
 
 ```text
 desktop-app\dist\EverySale-win32-x64\EverySale.exe
+```
+
+Docker/Testcontainers-backed scenarios are separated from the default unit test gate:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-integration.ps1
 ```
 
 Operational readiness is also exposed by:

@@ -34,10 +34,11 @@ import static org.mockito.Mockito.*;
 /**
  * Phase 2 실패 시나리오 테스트 (WAL 제거)
  */
+@org.junit.jupiter.api.Tag("integration")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Transactional
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
-class Phase2FailureScenarioTest {
+class Phase2FailureScenarioTest extends TestcontainersIntegrationSupport {
 
     @LocalServerPort
     private int port;

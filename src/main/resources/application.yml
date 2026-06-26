@@ -104,8 +104,8 @@ payment:
   mock:
     enabled: false
   toss:
-    client-key: ${TOSS_CLIENT_KEY:}
-    secret-key: ${TOSS_SECRET_KEY:}
+    client-key: ${TOSS_CLIENT_KEY}
+    secret-key: ${TOSS_SECRET_KEY}
     base-url: ${TOSS_BASE_URL:https://api.tosspayments.com}
     mode: ${TOSS_MODE:test}
     api-version: ${TOSS_API_VERSION:2022-11-16}
@@ -142,7 +142,7 @@ app:
     mock-auth:
       enabled: true
       default-customer-id: CUST-1049
-      default-roles: CUSTOMER
+      default-roles: CUSTOMER,ADMIN
     external-auth:
       enabled: false
     cors:

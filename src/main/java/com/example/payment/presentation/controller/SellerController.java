@@ -45,6 +45,7 @@ public class SellerController {
 
     @PostMapping
     public ResponseEntity<?> createSeller(@Valid @RequestBody CreateSellerRequest request) {
+        authorizationGuard.requireAdmin();
         SellerResponse response = sellerMarketplaceService.createSeller(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }

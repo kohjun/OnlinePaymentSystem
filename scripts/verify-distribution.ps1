@@ -41,6 +41,17 @@ function Invoke-Native {
     }
 }
 
+function Clear-GradleProblemsReport {
+    $problemReport = Join-Path $repoRoot "build_sim\reports\problems\problems-report.html"
+    if (Test-Path $problemReport) {
+        try {
+            Remove-Item -LiteralPath $problemReport -Force
+        } catch {
+            Write-Warning "Could not remove existing Gradle problems report; continuing with --no-problems-report."
+        }
+    }
+}
+
 function Enable-Java {
     if (-not $env:JAVA_HOME) {
         $androidStudioJbr = "C:\Program Files\Android\Android Studio\jbr"
@@ -121,11 +132,13 @@ Invoke-Step "Java runtime" {
 }
 
 Invoke-Step "Gradle compile" {
-    Invoke-Native $gradle @("compileJava", "compileTestJava", "--no-daemon")
+    Clear-GradleProblemsReport
+    Invoke-Native $gradle @("compileJava", "compileTestJava", "--no-daemon", "--no-problems-report")
 }
 
 if (-not $SkipTests) {
     Invoke-Step "Focused quality tests" {
+        Clear-GradleProblemsReport
         Invoke-Native $gradle @(
             "test",
             "--tests", "*DistributionReadinessServiceTest",
@@ -140,13 +153,15 @@ if (-not $SkipTests) {
             "--tests", "*CompleteReservationWorkflowTest",
             "--tests", "*OutboxPublisherTest",
             "--tests", "*InventoryReconciliationJobTest",
-            "--no-daemon"
+            "--no-daemon",
+            "--no-problems-report"
         )
     }
 }
 
 $sourcePaths = @(
     "src\main\resources\static\index.html",
+    "src\main\resources\static\shared.html",
     "desktop-app\main.js",
     "desktop-app\package.json",
     "desktop-app\package-lock.json",
@@ -195,6 +210,18 @@ Invoke-Step "Brand and encoding regression scan" {
     }
 }
 
+Invoke-Step "Frontend checkout flow scan" {
+    $frontendPaths = @(
+        "src\main\resources\static\index.html",
+        "src\main\resources\static\shared.html"
+    )
+
+    Assert-NoLiteralMatch "/api/reservations/complete" $frontendPaths "public frontend direct complete reservation call"
+    Assert-NoLiteralMatch "/api/payments/process" $frontendPaths "public frontend legacy payment process call"
+    Assert-LiteralMatch "/api/payments/toss/intents" $frontendPaths "Toss payment intent endpoint"
+    Assert-LiteralMatch "/api/payments/toss/confirm" $frontendPaths "Toss payment confirm endpoint"
+}
+
 Invoke-Step "Toss payment configuration scan" {
     $configPaths = @("src\main\resources\application.yml", "src\main\resources\application-prod.yml")
     Assert-LiteralMatch "default-gateway: TOSS_PAYMENTS" $configPaths "Toss Payments default gateway"
@@ -207,6 +234,9 @@ Invoke-Step "Toss payment configuration scan" {
     Assert-LiteralMatch "legacy-api:" $configPaths "legacy payment API toggle"
     Assert-LiteralMatch "enabled: false" $configPaths "disabled legacy/mock defaults"
     Assert-LiteralMatch "mode: live" @("src\main\resources\application-prod.yml") "production Toss live mode"
+    Assert-LiteralMatch "webhook:" $configPaths "Toss webhook configuration block"
+    Assert-LiteralMatch 'path-token: ${TOSS_WEBHOOK_PATH_TOKEN' $configPaths "Toss webhook path token environment binding"
+    Assert-LiteralMatch "toss-webhook-configured" @("src\main\java\com\example\payment\application\service\DistributionReadinessService.java") "Toss webhook readiness check"
 }
 
 if (-not $SkipDesktopPackage) {

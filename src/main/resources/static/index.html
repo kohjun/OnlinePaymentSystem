@@ -1641,6 +1641,335 @@
             50% { transform: scale(1.3); opacity: 0.5; }
             100% { transform: scale(1); opacity: 1; }
         }
+
+        /* Bunjang Premium Theme Overrides & Layout */
+        :root {
+            --color-primary: #FF5058; /* 번개장터 크림슨 레드 */
+            --color-primary-hover: #E0444C;
+            --color-bg: #F8F9FA;
+            --color-card: #FFFFFF;
+            --text-primary: #1E293B;
+            --text-secondary: #64748B;
+            --border-color: #E2E8F0;
+        }
+
+        /* Bunjang Header */
+        .bunjang-header {
+            background: #FFFFFF;
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 40px; /* Below Titlebar */
+            z-index: 100;
+            padding: 14px 24px;
+        }
+        .bunjang-header-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+        }
+        .bunjang-search-bar {
+            flex: 1;
+            max-width: 480px;
+            position: relative;
+        }
+        .bunjang-search-input {
+            width: 100%;
+            height: 38px;
+            border: 2px solid var(--color-primary);
+            border-radius: 20px;
+            padding: 0 44px 0 16px;
+            font-size: 0.85rem;
+            outline: none;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+        .bunjang-search-input:focus {
+            box-shadow: 0 0 8px rgba(255, 80, 88, 0.15);
+        }
+        .bunjang-search-icon {
+            position: absolute;
+            right: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--color-primary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+        }
+
+        /* Bunjang Banner */
+        .bunjang-banner {
+            background: linear-gradient(135deg, #FF5058 0%, #FF8E94 100%);
+            border-radius: 16px;
+            padding: 24px 32px;
+            color: white;
+            margin-top: 16px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 18px rgba(255, 80, 88, 0.12);
+        }
+
+        /* Category Nav Grid */
+        .category-nav-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .category-nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            text-decoration: none;
+            color: var(--text-primary);
+            font-weight: 700;
+            font-size: 0.78rem;
+            transition: all 0.2s ease;
+        }
+        .category-icon-circle {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: white;
+            border: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.3rem;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.01);
+            transition: all 0.2s ease;
+        }
+        .category-nav-item:hover {
+            color: var(--color-primary);
+        }
+        .category-nav-item:hover .category-icon-circle {
+            transform: translateY(-3px);
+            border-color: var(--color-primary);
+            box-shadow: 0 4px 10px rgba(255, 80, 88, 0.15);
+        }
+
+        /* Product Grid & Cards */
+        .bunjang-products-section {
+            margin-bottom: 30px;
+        }
+        .bunjang-section-title {
+            font-size: 1.15rem;
+            font-weight: 800;
+            margin-bottom: 14px;
+            color: var(--text-primary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .product-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+        }
+        @media (max-width: 900px) {
+            .product-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        .bunjang-product-card {
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+        }
+        .bunjang-product-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 16px rgba(30, 41, 59, 0.06);
+            border-color: rgba(255, 80, 88, 0.25);
+        }
+        .card-img-container {
+            width: 100%;
+            padding-top: 90%;
+            position: relative;
+            background-color: #f8f9fa;
+        }
+        .card-img-container img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .card-badge {
+            position: absolute;
+            top: 6px;
+            left: 6px;
+            background: rgba(30, 41, 59, 0.8);
+            color: white;
+            padding: 2px 6px;
+            font-size: 0.62rem;
+            font-weight: 800;
+            border-radius: 4px;
+            backdrop-filter: blur(2px);
+        }
+        .card-badge.raffle {
+            background: rgba(16, 185, 129, 0.9);
+        }
+        .card-badge.auction {
+            background: rgba(245, 158, 11, 0.9);
+        }
+        .card-badge.sold {
+            background: rgba(239, 68, 68, 0.9);
+        }
+        .card-info {
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .card-title {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .card-price-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .card-price {
+            font-size: 0.9rem;
+            font-weight: 800;
+            color: var(--color-primary);
+        }
+        .card-time {
+            font-size: 0.65rem;
+            color: var(--text-secondary);
+        }
+
+        /* Collapsible Simulation Console Drawer */
+        .sim-console-drawer {
+            position: fixed;
+            top: 40px; /* Below titlebar */
+            right: -460px; /* Hidden by default */
+            width: 440px;
+            height: calc(100% - 40px);
+            background: rgba(30, 41, 59, 0.96);
+            backdrop-filter: blur(20px);
+            box-shadow: -4px 0 30px rgba(0,0,0,0.3);
+            z-index: 1000;
+            transition: right 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            flex-direction: column;
+            color: white;
+            border-left: 1px solid rgba(255,255,255,0.1);
+        }
+        .sim-console-drawer.open {
+            right: 0;
+        }
+        .drawer-header {
+            padding: 14px 18px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .drawer-body {
+            padding: 16px;
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        /* Product Detail Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(8px);
+            z-index: 990;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .product-detail-modal-content {
+            width: 95%;
+            max-width: 1000px;
+            max-height: 90vh;
+            background: white;
+            border-radius: 20px;
+            overflow-y: auto;
+            position: relative;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+            padding: 24px;
+            border: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+        }
+        .modal-close-btn {
+            position: absolute;
+            top: 14px;
+            right: 14px;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: #f1f5f9;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-primary);
+            font-size: 1.2rem;
+            font-weight: bold;
+            transition: all 0.2s ease;
+            z-index: 10;
+        }
+        .modal-close-btn:hover {
+            background: var(--color-primary);
+            color: white;
+        }
+
+        /* Floating Gear Button */
+        .floating-gear-btn {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            width: 54px;
+            height: 54px;
+            border-radius: 50%;
+            background: #1e293b;
+            color: white;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            font-size: 1.5rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            z-index: 980; /* Below modals but above cards */
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .floating-gear-btn:hover {
+            transform: scale(1.1) rotate(45deg);
+            background: var(--color-primary);
+            border-color: white;
+            box-shadow: 0 6px 24px rgba(255, 80, 88, 0.3);
+        }
     </style>
 </head>
 <body>
@@ -1648,599 +1977,477 @@
 <!-- ══ 에브리세일 Custom Title Bar ══════════════════════════════════════ -->
 <div id="custom-titlebar">
     <div class="titlebar-left">
-        <div class="titlebar-icon">E</div>
+        <div class="titlebar-icon">⚡</div>
         <div class="titlebar-brand">
             <span class="titlebar-appname">EVERY<span class="accent">SALE</span></span>
-            <span class="titlebar-subtitle">에브리세일 · Enterprise Commerce Operations</span>
+            <span class="titlebar-subtitle">실시간 동시성 B2B SaaS 커머스 플랫폼</span>
         </div>
         <div class="titlebar-divider"></div>
-        <span class="titlebar-badge">B2B Commerce</span>
+        <span class="titlebar-badge" style="background:#FF5058;">Storefront</span>
     </div>
-    <div class="titlebar-center">에브리세일 | 엔터프라이즈 커머스 운영 플랫폼</div>
+    <div class="titlebar-center">에브리세일 | 실시간 라이브 쇼핑몰</div>
     <div class="titlebar-controls">
-        <!-- Minimize -->
         <button class="win-btn minimize" id="btn-win-minimize" title="최소화" type="button">
             <svg viewBox="0 0 12 12"><line x1="2" y1="6" x2="10" y2="6"/></svg>
         </button>
-        <!-- Maximize / Restore -->
         <button class="win-btn maximize" id="btn-win-maximize" title="최대화" type="button">
             <svg viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" rx="1.5"/></svg>
         </button>
-        <!-- Close -->
         <button class="win-btn close" id="btn-win-close" title="닫기" type="button">
             <svg viewBox="0 0 12 12"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg>
         </button>
     </div>
 </div>
 
-<div class="app-container">
+<div class="app-container" style="padding-top: 0;">
 
-    <!-- ══ 에브리세일 글로벌 내비게이션 바 ══ -->
-    <header class="glass-card header-navigation">
-        <div class="logo-section">
-            <h1>에브리세일</h1>
-            <p>엔터프라이즈 커머스 운영 플랫폼</p>
-        </div>
-        <nav class="nav-links">
-            <a href="#" class="nav-item active" id="btn-tab-storefront">판매 채널</a>
-            <a href="#" class="nav-item" id="btn-tab-partner">파트너 콘솔</a>
-            <a href="#" class="nav-item" id="btn-tab-marketplace">마켓플레이스</a>
-        </nav>
-        <div class="system-badges">
-            <button id="btn-my-bookings" class="btn btn-outline btn-my-bookings-nav">
-                구매 내역
-            </button>
-            <button id="btn-toggle-dev" class="btn btn-dev-toggle">
-                운영 진단
-            </button>
+    <!-- ══ 에브리세일 프리미엄 헤더 ══ -->
+    <header class="bunjang-header">
+        <div class="bunjang-header-container">
+            <div class="logo-section" style="cursor: pointer;" onclick="window.location.reload();">
+                <span class="logo-badge" style="background-color: var(--color-primary); font-family:'Outfit', sans-serif; font-weight:800; font-size:1rem; padding:4px 10px; border-radius:6px; color:white; display:flex; align-items:center; gap:2px;">⚡ 에브리세일</span>
+            </div>
+            
+            <!-- Center Search Bar -->
+            <div class="bunjang-search-bar">
+                <input type="text" id="marketplace-search" class="bunjang-search-input" placeholder="어떤 상품을 찾고 계신가요? (예: 아이유, 조던, 롤렉스)">
+                <span class="bunjang-search-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                </span>
+            </div>
+
+            <!-- Right Nav Links -->
+            <div style="display:flex; align-items:center; gap:16px;">
+                <a href="seller.html" style="font-size:0.85rem; font-weight:700; color:#334155; text-decoration:none; display:flex; align-items:center; gap:4px; transition: color 0.2s ease;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--color-primary);"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+                    판매자 센터
+                </a>
+                <a href="#" id="btn-my-bookings" style="font-size:0.85rem; font-weight:700; color:#334155; text-decoration:none; display:flex; align-items:center; gap:4px; transition: color 0.2s ease;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--color-primary);"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg>
+                    구매 내역
+                </a>
+            </div>
         </div>
     </header>
 
-    <!-- Tab 1: 실시간 예매/경매/드로우 (Storefront View) -->
-    <div id="tab-content-storefront" class="main-tab-content">
-        <!-- Main Ticketing Page (Two-Column Layout) -->
-        <div class="ticketing-container">
-            <!-- Left Section: Concert Details & Ticket Purchase -->
-            <section class="glass-card concert-detail-panel">
-                <div class="concert-header">
-                    <span id="left-category-tag" class="category-tag">CONCERT</span>
-                    <h2 id="left-title">STARLIGHT WORLD TOUR 2026 - SEOUL</h2>
-                    <p id="left-subtitle" class="artist-name">Artist: STARLIGHT (스타라이트)</p>
-                </div>
-                
-                <div class="concert-info-body">
-                    <div class="poster-container">
-                        <img id="left-poster" src="/concert_poster.png" alt="Starlight Concert Poster" class="concert-poster">
-                    </div>
-                    <div class="info-details-list">
-                        <div class="info-item">
-                            <span id="left-label-1" class="info-label">일시</span>
-                            <span id="left-val-1" class="info-val">2026년 8월 15일 (토) 19:00</span>
-                        </div>
-                        <div class="info-item">
-                            <span id="left-label-2" class="info-label">장소</span>
-                            <span id="left-val-2" class="info-val">서울 올림픽 체조경기장 (KSPO DOME)</span>
-                        </div>
-                        <div class="info-item">
-                            <span id="left-label-3" class="info-label">관람시간</span>
-                            <span id="left-val-3" class="info-val">150분</span>
-                        </div>
-                        <div class="info-item">
-                            <span id="left-label-4" class="info-label">연령제한</span>
-                            <span id="left-val-4" class="info-val">만 7세 이상 관람가</span>
-                        </div>
-                        <div class="info-item">
-                            <span id="left-label-5" class="info-label">티켓가격</span>
-                            <span id="left-val-5" class="info-val">
-                                <span class="price-bullet vip">VIP석</span> 150,000원<br>
-                                <span class="price-bullet r">R석</span> 120,000원<br>
-                                <span class="price-bullet s">S석</span> 90,000원
-                            </span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Booking Purchase Actions -->
-                <div class="booking-checkout-box">
-                    <div class="selection-summary">
-                        <div class="summary-row">
-                            <span class="summary-label">선택 좌석:</span>
-                            <span id="detail-seat" class="summary-val">없음 (좌석을 선택하세요)</span>
-                        </div>
-                        <div class="summary-row">
-                            <span class="summary-label">결제 금액:</span>
-                            <span id="detail-price" class="summary-val price-val">0원</span>
-                        </div>
-                    </div>
-                    <button id="btn-submit" class="btn-ticketing-action" disabled>
-                        티켓 예매하기
-                    </button>
-                </div>
-            </section>
-
-            <!-- Right Section: Seating Arena Map -->
-            <section class="glass-card arena-panel">
-                <div class="panel-header">
-                    <h2 id="arena-panel-title">실시간 잔여석 선택</h2>
-                </div>
-                
-                <!-- Ticketing Seating Map Panel View -->
-                <div id="panel-view-ticketing">
-                    <div class="stage-container">
-                        <span class="stage-text">STAGE</span>
-                    </div>
-
-                    <div class="seating-map">
-                        <!-- VIP Section -->
-                        <div class="seat-section" id="section-vip">
-                            <span class="section-title" id="title-vip">VIP석 (150,000원)</span>
-                            <div id="grid-vip" class="seat-grid">
-                                <!-- Filled by JS -->
-                            </div>
-                        </div>
-
-                        <!-- R Section -->
-                        <div class="seat-section" id="section-r">
-                            <span class="section-title">R석 (120,000원)</span>
-                            <div id="grid-r" class="seat-grid">
-                                <!-- Filled by JS -->
-                            </div>
-                        </div>
-
-                        <!-- S Section -->
-                        <div class="seat-section" id="section-s">
-                            <span class="section-title">S석 (90,000원)</span>
-                            <div id="grid-s" class="seat-grid">
-                                <!-- Filled by JS -->
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="legend" id="legend-container">
-                        <div class="legend-item" id="legend-vip"><span class="legend-dot vip"></span> VIP석</div>
-                        <div class="legend-item" id="legend-r"><span class="legend-dot r-tier"></span> R석</div>
-                        <div class="legend-item" id="legend-s"><span class="legend-dot s-tier"></span> S석</div>
-                        <div class="legend-item"><span class="legend-dot selected"></span> 선택됨</div>
-                        <div class="legend-item"><span class="legend-dot occupied"></span> 판매됨</div>
-                    </div>
-                </div>
-
-                <!-- Draw Raffle Panel View -->
-                <div id="panel-view-draw" style="display:none; text-align:center; padding:20px;">
-                    <div style="background: white; border: 1px solid #e9ecef; border-radius: 12px; padding: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
-                        <img src="/jordan_sneakers.png" alt="Jordan Sneakers" style="max-width: 280px; height: auto; border-radius: 8px; margin-bottom: 15px; box-shadow: 0 4px 16px rgba(0,0,0,0.12);">
-                        <h3 id="draw-title" style="font-size: 1.3rem; font-weight: 800; color: #1e293b; margin-bottom: 6px;">나이키 에어 조던 1 레트로 한정판</h3>
-                        <p id="draw-desc" style="color: #64748b; font-size: 0.88rem; line-height: 1.4; margin-bottom: 12px;">전 세계 한정 수량 10족 선착순 드로우! 대기열을 뚫고 가장 빠르게 응모해 보세요.</p>
-                        <div id="draw-price" style="font-size: 1.25rem; font-weight: 800; color: var(--color-primary); margin-bottom: 20px;">응모가: 239,000원</div>
-                        
-                        <div style="display:flex; justify-content:center; gap:20px; background:#f8f9fa; border-radius:8px; padding:12px; margin-bottom:20px; font-size:0.85rem; border:1px solid #e9ecef;">
-                            <div>
-                                <div style="color:#64748b; margin-bottom:4px;">총 수량</div>
-                                <strong id="draw-qty-total" style="color:#1e293b; font-size:1rem;">10 족</strong>
-                            </div>
-                            <div style="border-left:1px solid #dee2e6; height:34px;"></div>
-                            <div>
-                                <div style="color:#64748b; margin-bottom:4px;">남은 수량</div>
-                                <strong id="draw-qty-left" style="color:var(--color-primary); font-size:1rem;">10 족</strong>
-                            </div>
-                        </div>
-
-                        <button id="btn-draw-submit" class="btn-ticketing-action" style="width: 100%;">
-                            드로우 응모하기
-                        </button>
-                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px;">
-                            <button id="btn-raffle-status" class="btn btn-outline" style="height:36px; font-size:0.78rem; font-weight:700;">당첨 상태 확인</button>
-                            <button id="btn-raffle-winner-checkout" class="btn-ticketing-action" style="height:36px; font-size:0.78rem;">당첨자 결제</button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Auction Panel View -->
-                <div id="panel-view-auction" style="display:none; padding:10px;">
-                    <div style="background: white; border: 1px solid #e9ecef; border-radius: 12px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); display:flex; flex-direction:column; gap:16px;">
-                        <div style="display:flex; gap:16px; align-items:center;">
-                            <img src="/rolex_watch.png" alt="Rolex Watch" style="width: 110px; height: 110px; object-fit: cover; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
-                            <div style="flex:1;">
-                                <h3 id="auction-title" style="font-size: 1.15rem; font-weight: 800; color: #1e293b; margin-bottom: 4px;">빈티지 롤렉스 서브마리너 경매</h3>
-                                <p id="auction-desc" style="color: #64748b; font-size: 0.78rem; line-height: 1.3; margin-bottom: 6px;">희소성 높은 빈티지 모델의 소유권을 쟁취해 보세요. 최소 입찰가 8,500,000원, 호가 단위 100,000원</p>
-                                <div style="font-size: 0.8rem; color: #e11d48; font-weight: 700; display:flex; align-items:center; gap:4px;">
-                                    <span style="display:inline-block; width:6px; height:6px; background:#e11d48; border-radius:50%; animation: pulse 1s infinite;"></span>
-                                    실시간 경매 진행 중
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Current Price Display -->
-                        <div style="background:#f8f9fa; border-radius:8px; padding:12px; border:1px solid #e9ecef; display:grid; grid-template-columns: 1fr 1fr; gap:12px; text-align:center;">
-                            <div>
-                                <span style="font-size:0.75rem; color:#64748b; display:block; margin-bottom:2px;">현재 최고 입찰가</span>
-                                <strong id="auction-highest-bid-val" style="font-size:1.2rem; color:#e11d48; font-weight:800;">8,500,000원</strong>
-                            </div>
-                            <div style="border-left: 1px solid #dee2e6;">
-                                <span style="font-size:0.75rem; color:#64748b; display:block; margin-bottom:2px;">최고 입찰자</span>
-                                <strong id="auction-highest-bidder-val" style="font-size:0.95rem; color:#1e293b; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block; margin-top:4px;">없음 (대기 중)</strong>
-                            </div>
-                        </div>
-
-                        <!-- Bid input & action -->
-                        <div style="display:flex; flex-direction:column; gap:6px;">
-                            <label style="font-size:0.75rem; color:#475569; font-weight:700;">입찰 금액 제안 (KRW)</label>
-                            <div style="display:flex; gap:8px;">
-                                <input type="number" id="input-auction-bid" class="form-control" style="flex:1; height:38px; font-size:0.9rem; font-weight:700;" placeholder="최소 입찰가 입력">
-                                <button id="btn-auction-bid-submit" class="btn btn-primary" style="height:38px; padding:0 16px; font-size:0.85rem; font-weight:700; background:var(--color-primary); border:none; color:white; border-radius:4px; cursor:pointer;">입찰하기</button>
-                            </div>
-                        </div>
-
-                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-                            <button id="btn-auction-close" class="btn btn-outline" style="height:36px; font-size:0.78rem; font-weight:700;">경매 마감</button>
-                            <button id="btn-auction-winner-checkout" class="btn-ticketing-action" style="height:36px; font-size:0.78rem;">낙찰자 결제</button>
-                        </div>
-
-                        <!-- Bid history ledger -->
-                        <div>
-                            <h4 style="font-size:0.8rem; color:#475569; font-weight:700; margin-bottom:6px; border-bottom:1px solid #edf2f7; padding-bottom:4px;">최근 입찰 기록 (최대 10개)</h4>
-                            <div id="auction-history-list" style="display:flex; flex-direction:column; gap:4px; max-height:110px; overflow-y:auto; font-size:0.75rem; color:#4a5568; font-family:monospace;">
-                                <!-- Filled dynamically -->
-                                <div style="color:#a0aec0; text-align:center; padding:10px 0;">아직 입찰 기록이 없습니다.</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
+    <!-- ══ 메인 콘텐츠 영역 ══ -->
+    <div style="max-width: 1024px; margin: 20px auto; padding: 0 20px;">
+        <!-- Banner Slider -->
+        <div class="bunjang-banner">
+            <div style="max-width: 65%;">
+                <h2 style="font-family:'Outfit', sans-serif; font-size:1.45rem; font-weight:800; margin-bottom:6px; line-height:1.25; letter-spacing:-0.5px;">에브리세일 (EverySale)<br>한정판 드로우 & 실시간 라이브 경매</h2>
+                <p style="font-size:0.82rem; opacity:0.95; font-weight:600;">초당 수천 건의 트래픽을 견디는 강력한 분산 임시 자원 선점 락(Redis)과 분산 트랜잭션(SAGA) 기술을 쇼핑몰에서 직접 체험해 보세요.</p>
+            </div>
+            <div style="font-size:3.5rem; opacity:0.85; user-select:none; animation: pulse 2s infinite; font-family:'Outfit',sans-serif; font-weight:800;">⚡</div>
         </div>
-    </div>
 
-    <!-- Tab 2: 파트너 콘솔 (Partner Console) -->
-    <div id="tab-content-partner" class="main-tab-content" style="display: none;">
-        <!-- Partner Operations Console Card -->
-        <section class="glass-card saas-partner-panel" style="padding: 20px; width: 100%; box-sizing: border-box;">
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--color-primary); padding-bottom: 8px; margin-bottom: 15px;">
-                <h2 style="font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 1.1rem; color: #1e293b; margin: 0; display:flex; align-items:center; gap:6px;">
-                    파트너 운영 콘솔
-                </h2>
-                <!-- Link Copy Button -->
-                <button type="button" id="btn-copy-share-link" class="btn" style="width: auto; font-size: 0.72rem; padding: 4px 10px; background: var(--color-primary); color: white; border: none; border-radius: 4px; display:flex; align-items:center; gap:4px; font-weight:700;">
-                    현재 상품 운영 링크 복사
-                </button>
-            </div>
+        <!-- Category Nav Icons -->
+        <div class="category-nav-grid">
+            <a class="category-nav-item" onclick="filterMarketplaceByType('ALL')">
+                <div class="category-icon-circle">🏠</div>
+                <span>전체보기</span>
+            </a>
+            <a class="category-nav-item" onclick="filterMarketplaceByType('TICKETING')">
+                <div class="category-icon-circle">🎫</div>
+                <span>티켓예매</span>
+            </a>
+            <a class="category-nav-item" onclick="filterMarketplaceByType('DRAW')">
+                <div class="category-icon-circle">👟</div>
+                <span>선착순래플</span>
+            </a>
+            <a class="category-nav-item" onclick="filterMarketplaceByType('AUCTION')">
+                <div class="category-icon-circle">⌚</div>
+                <span>실시간경매</span>
+            </a>
+            <a class="category-nav-item" onclick="filterMarketplaceByType('SOLD')">
+                <div class="category-icon-circle">🚫</div>
+                <span>품절상품</span>
+            </a>
+        </div>
 
-            <!-- Tab Switcher -->
-            <div style="display: flex; border-bottom: 1px solid #dee2e6; margin-bottom: 15px; gap:8px;">
-                <button type="button" id="tab-saas-register" style="flex: 1; padding: 8px; font-size: 0.8rem; font-weight: 700; border: none; background: none; cursor: pointer; border-bottom: 2px solid var(--color-primary); color: var(--color-primary);">신규 상품 등록</button>
-                <button type="button" id="tab-saas-orders" style="flex: 1; padding: 8px; font-size: 0.8rem; font-weight: 700; border: none; background: none; cursor: pointer; color: #64748b;">실시간 주문 모니터링</button>
-            </div>
-
-            <!-- Tab 1: Product Registration Form -->
-            <div id="content-saas-register" style="display: block;">
-                <form id="form-product-register" onsubmit="return false;" style="display: flex; flex-direction: column; gap: 8px;">
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                        <div>
-                            <label style="font-size: 0.7rem; font-weight: 700; color: #475569; display:block; margin-bottom:3px;">상품명 (Title)</label>
-                            <input type="text" id="reg-name" class="form-control" style="font-size: 0.75rem; height: 28px; padding: 2px 6px;" placeholder="예: BTS 월드 투어">
-                        </div>
-                        <div>
-                            <label style="font-size: 0.7rem; font-weight: 700; color: #475569; display:block; margin-bottom:3px;">판매 유형 (Type)</label>
-                            <select id="reg-category" class="form-control" style="font-size: 0.75rem; height: 28px; padding: 2px 6px; border-color:#cbd5e1;">
-                                <option value="TICKETING">티켓예매 (Ticketing)</option>
-                                <option value="DRAW">선착순래플 (Draw)</option>
-                                <option value="AUCTION">실시간경매 (Auction)</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                        <div>
-                            <label style="font-size: 0.7rem; font-weight: 700; color: #475569; display:block; margin-bottom:3px;">가격 (Price, KRW)</label>
-                            <input type="number" id="reg-price" class="form-control" style="font-size: 0.75rem; height: 28px; padding: 2px 6px;" placeholder="예: 150000">
-                        </div>
-                        <div>
-                            <label style="font-size: 0.7rem; font-weight: 700; color: #475569; display:block; margin-bottom:3px;">재고/좌석 수 (Inventory)</label>
-                            <input type="number" id="reg-qty" class="form-control" style="font-size: 0.75rem; height: 28px; padding: 2px 6px;" placeholder="예: 50" value="50">
-                        </div>
-                    </div>
-                    <div>
-                        <label style="font-size: 0.7rem; font-weight: 700; color: #475569; display:block; margin-bottom:3px;">상세 설명 (Description)</label>
-                        <input type="text" id="reg-desc" class="form-control" style="font-size: 0.75rem; height: 28px; padding: 2px 6px;" placeholder="예: 한정 래플 드로우입니다.">
-                    </div>
-                    <button type="button" id="btn-register-submit" class="btn" style="background: var(--color-primary); color: white; border: none; height: 32px; font-size: 0.8rem; font-weight: 700; margin-top: 5px; border-radius: 6px; cursor:pointer; width:100%;">
-                        신규 상품 등록 완료
-                    </button>
-                </form>
-                <div style="margin-top: 15px; border-top: 1px dashed #dee2e6; padding-top: 12px;">
-                    <label style="font-size: 0.72rem; font-weight: 700; color: #475569; display:block; margin-bottom:5px;">등록된 상품 현황</label>
-                    <div style="max-height: 120px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 6px; background: #ffffff;">
-                        <table class="inventory-table" style="margin: 0; font-size: 0.7rem; width: 100%;">
-                            <thead>
-                                <tr style="background: #f8f9fa;">
-                                    <th style="padding: 4px 6px; text-align:left;">ID</th>
-                                    <th style="padding: 4px 6px; text-align:left;">상품명</th>
-                                    <th style="padding: 4px 6px; text-align:left;">유형</th>
-                                    <th style="padding: 4px 6px; text-align:left;">가격</th>
-                                    <th style="padding: 4px 6px; text-align:left;">재고</th>
-                                    <th style="padding: 4px 6px; text-align:center;">검수/공유</th>
-                                </tr>
-                            </thead>
-                            <tbody id="saas-product-rows">
-                                <tr>
-                                    <td colspan="6" style="text-align: center; color: #94a3b8; padding: 10px;">등록된 상품이 없습니다.</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Tab 2: Live Order Monitoring Table -->
-            <div id="content-saas-orders" style="display: none;">
-                <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-                    <input type="text" id="order-search-cust" class="form-control" style="font-size: 0.75rem; height: 28px; padding: 2px 6px;" placeholder="고객 ID로 검색...">
-                </div>
-                <div style="max-height: 180px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 6px;">
-                    <table class="inventory-table" style="margin: 0; font-size: 0.7rem; width: 100%;">
-                        <thead>
-                            <tr style="background: #f8f9fa;">
-                                <th style="padding: 6px; text-align:left;">시간</th>
-                                <th style="padding: 6px; text-align:left;">고객 ID</th>
-                                <th style="padding: 6px; text-align:left;">상품명</th>
-                                <th style="padding: 6px; text-align:left;">좌석/입찰</th>
-                                <th style="padding: 6px; text-align:left;">금액</th>
-                                <th style="padding: 6px; text-align:left;">상태</th>
-                            </tr>
-                        </thead>
-                        <tbody id="saas-order-rows">
-                            <tr>
-                                <td colspan="6" style="text-align: center; color: #94a3b8; padding: 15px;">등록된 주문 내역이 없습니다.</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </section>
-    </div>
-
-    <!-- Tab 3: 마켓플레이스 -->
-    <div id="tab-content-marketplace" class="main-tab-content" style="display: none;">
-        <section class="glass-card" style="padding: 24px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <div>
-                    <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.3rem; font-weight: 800; color: var(--text-primary); margin-bottom: 4px;">마켓플레이스</h2>
-                    <p style="color: var(--text-secondary); font-size: 0.85rem;">파트너가 등록한 판매 이벤트를 검색하고, 운영 중인 예매·드로우·경매 채널로 전환합니다.</p>
-                </div>
-            </div>
-
-            <!-- Search & Filter Bar -->
-            <div style="display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;">
-                <input
-                    type="text"
-                    id="marketplace-search"
-                    class="form-control"
-                    placeholder="상품명으로 검색..."
-                    style="flex: 1; min-width: 200px; height: 40px; font-size: 0.9rem; border: 1.5px solid var(--border-color); border-radius: 10px; padding: 0 14px;"
-                >
-                <select
-                    id="marketplace-sort"
-                    class="form-control"
-                    style="width: 200px; height: 40px; font-size: 0.85rem; border: 1.5px solid var(--border-color); border-radius: 10px; padding: 0 10px; font-weight: 600;"
-                >
-                    <option value="default">기본 정렬</option>
+        <!-- Products Section -->
+        <section class="bunjang-products-section">
+            <div class="bunjang-section-title">
+                <span style="font-size: 1.1rem; font-weight: 800; display:flex; align-items:center; gap:6px;">🔥 오늘의 추천 상품 <span style="font-size:0.75rem; font-weight:600; color:var(--text-secondary); margin-top:3px;">실시간 업데이트</span></span>
+                <select id="marketplace-sort" style="height:32px; font-size:0.75rem; border:1.5px solid var(--border-color); border-radius:8px; padding:0 8px; font-weight:700; cursor:pointer; outline:none; background:white;">
+                    <option value="default">추천순 정렬</option>
                     <option value="name">이름순</option>
                     <option value="price-asc">가격 낮은순</option>
                     <option value="price-desc">가격 높은순</option>
-                    <option value="type-ticketing">티켓예매만</option>
-                    <option value="type-draw">드로우만</option>
-                    <option value="type-auction">경매만</option>
                 </select>
             </div>
-
-            <!-- Product Table -->
-            <div style="border-radius: 12px; overflow: hidden; border: 1px solid var(--border-color);">
-                <table style="width: 100%; border-collapse: collapse; background: white;">
-                    <thead>
-                        <tr style="background: linear-gradient(135deg, #EFF6FF, #E0F2FE);">
-                            <th style="padding: 12px 16px; text-align:left; font-size:0.8rem; font-weight:700; color:var(--text-secondary);">상품 ID</th>
-                            <th style="padding: 12px 16px; text-align:left; font-size:0.8rem; font-weight:700; color:var(--text-secondary);">상품명</th>
-                            <th style="padding: 12px 16px; text-align:left; font-size:0.8rem; font-weight:700; color:var(--text-secondary);">유형</th>
-                            <th style="padding: 12px 16px; text-align:left; font-size:0.8rem; font-weight:700; color:var(--text-secondary);">가격</th>
-                            <th style="padding: 12px 16px; text-align:left; font-size:0.8rem; font-weight:700; color:var(--text-secondary);">재고</th>
-                            <th style="padding: 12px 16px; text-align:center; font-size:0.8rem; font-weight:700; color:var(--text-secondary);">바로가기</th>
-                        </tr>
-                    </thead>
-                    <tbody id="marketplace-product-rows">
-                        <tr>
-                            <td colspan="6" style="text-align: center; color: #94a3b8; padding: 40px; font-size:0.9rem;">
-                                <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
-                                    <span style="font-size:2rem;">EverySale</span>
-                                    <span>상품을 불러오는 중입니다...</span>
-                                </div>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+            
+            <!-- Products Grid -->
+            <div id="marketplace-product-grid" class="product-grid">
+                <!-- Dynamically populated with Bunjang product cards via JS -->
             </div>
         </section>
     </div>
 
-    <!-- Collapsible Developer Debugging Panel (Drawer) -->
-    <div id="developer-drawer" class="dev-drawer collapsed">
-        <div class="drawer-header">
-            <div class="drawer-title">
-                <span>운영 진단 패널 (분산 트랜잭션 SAGA 흐름)</span>
+    <!-- ══ [NEW] 상품 상세 모달 (번개장터 스타일 상품 구매/참여 뷰) ══ -->
+    <div id="product-detail-modal" class="modal-overlay" style="display:none;" onclick="handleModalOverlayClick(event)">
+        <div class="product-detail-modal-content">
+            <button class="modal-close-btn" onclick="closeProductDetailModal()">&times;</button>
+            
+            <div class="ticketing-container" style="display:grid; grid-template-columns: 1fr 1.2fr; gap:24px; margin: 0; width: 100%;">
+                <!-- Left Section: Product Details & Purchase Controls -->
+                <section class="glass-card concert-detail-panel" style="margin:0; box-shadow:none; border:none; padding:0; background:none;">
+                    <div class="concert-header" style="margin-bottom:12px;">
+                        <span id="left-category-tag" class="category-tag">TICKETING</span>
+                        <h2 id="left-title" style="font-size:1.2rem; font-weight:800; line-height:1.25; color:var(--text-primary);">STARLIGHT WORLD TOUR 2026 - SEOUL</h2>
+                        <p id="left-subtitle" class="artist-name" style="font-size:0.8rem; color:#64748b; margin-top:3px;">Artist: STARLIGHT</p>
+                    </div>
+                    
+                    <div class="concert-info-body" style="display:flex; gap:16px; align-items:flex-start;">
+                        <div class="poster-container" style="flex:1; max-width:180px; width:100%;">
+                            <img id="left-poster" src="/concert_poster.png" alt="Product Poster" class="concert-poster" style="width:100%; border-radius:10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); object-fit: cover;">
+                        </div>
+                        <div class="info-details-list" style="flex:1.2; display:flex; flex-direction:column; gap:8px; font-size:0.75rem; width:100%;">
+                            <div class="info-item" style="display:flex; justify-content:space-between; border-bottom:1px solid #edf2f7; padding-bottom:6px;">
+                                <span id="left-label-1" class="info-label" style="color:#64748b; font-weight:600;">일시</span>
+                                <span id="left-val-1" class="info-val" style="font-weight:700; text-align:right;">2026년 8월 15일 (토) 19:00</span>
+                            </div>
+                            <div class="info-item" style="display:flex; justify-content:space-between; border-bottom:1px solid #edf2f7; padding-bottom:6px;">
+                                <span id="left-label-2" class="info-label" style="color:#64748b; font-weight:600;">장소</span>
+                                <span id="left-val-2" class="info-val" style="font-weight:700; text-align:right;">서울 올림픽 체조경기장</span>
+                            </div>
+                            <div class="info-item" style="display:flex; justify-content:space-between; border-bottom:1px solid #edf2f7; padding-bottom:6px;">
+                                <span id="left-label-3" class="info-label" style="color:#64748b; font-weight:600;">관람시간</span>
+                                <span id="left-val-3" class="info-val" style="font-weight:700; text-align:right;">150분</span>
+                            </div>
+                            <div class="info-item" style="display:flex; justify-content:space-between; border-bottom:1px solid #edf2f7; padding-bottom:6px;">
+                                <span id="left-label-4" class="info-label" style="color:#64748b; font-weight:600;">연령제한</span>
+                                <span id="left-val-4" class="info-val" style="font-weight:700; text-align:right;">만 7세 이상 관람가</span>
+                            </div>
+                            <div class="info-item" style="display:flex; justify-content:space-between; padding-bottom:4px;">
+                                <span id="left-label-5" class="info-label" style="color:#64748b; font-weight:600;">가격</span>
+                                <span id="left-val-5" class="info-val" style="font-weight:700; text-align:right; line-height:1.3;">
+                                    <span class="price-bullet vip" style="font-size:0.65rem; padding:1px 4px; border-radius:3px;">VIP석</span> 150,000원<br>
+                                    <span class="price-bullet r" style="font-size:0.65rem; padding:1px 4px; border-radius:3px;">R석</span> 120,000원<br>
+                                    <span class="price-bullet s" style="font-size:0.65rem; padding:1px 4px; border-radius:3px;">S석</span> 90,000원
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Booking Purchase Actions -->
+                    <div class="booking-checkout-box" style="margin-top:16px; background:#f8f9fa; border-radius:12px; padding:14px; border:1px solid #e2e8f0;">
+                         <div class="selection-summary" style="display:flex; flex-direction:column; gap:6px; margin-bottom:10px; font-size:0.8rem;">
+                             <div class="summary-row" style="display:flex; justify-content:space-between;">
+                                 <span class="summary-label" style="color:#64748b; font-weight:600;">선택 좌석:</span>
+                                 <span id="detail-seat" class="summary-val" style="font-weight:800; color:var(--text-primary);">없음 (좌석을 선택하세요)</span>
+                             </div>
+                             <div class="summary-row" style="display:flex; justify-content:space-between; align-items:center;">
+                                 <span class="summary-label" style="color:#64748b; font-weight:600;">결제 금액:</span>
+                                 <span id="detail-price" class="summary-val price-val" style="font-size:1.1rem; font-weight:800; color:var(--color-primary);">0원</span>
+                             </div>
+                         </div>
+                         <button id="btn-submit" class="btn-ticketing-action" style="width:100%; height:42px; font-size:0.9rem; background:var(--color-primary); border-radius:8px; font-weight:800; cursor:pointer;" disabled>
+                             티켓 예매하기
+                         </button>
+                    </div>
+                </section>
+
+                <!-- Right Section: Seating Arena Map / Draw / Auction Bidding Form -->
+                <section class="glass-card arena-panel" style="margin:0; box-shadow:none; border:none; padding:0; background:none; border-left:1px solid #edf2f7; padding-left:24px;">
+                    <div class="panel-header" style="margin-bottom:12px;">
+                        <h2 id="arena-panel-title" style="font-size:1.05rem; font-weight:800; color:var(--text-primary);">실시간 잔여석 선택</h2>
+                    </div>
+                    
+                    <!-- Ticketing Seating Map Panel View -->
+                    <div id="panel-view-ticketing">
+                        <div class="stage-container" style="height:26px; margin-bottom:10px; border-radius:6px; background:#e2e8f0; display:flex; align-items:center; justify-content:center;">
+                            <span class="stage-text" style="font-size:0.75rem; font-weight:800; letter-spacing:3px; color:#475569;">STAGE</span>
+                        </div>
+
+                        <div class="seating-map" style="max-height: 240px; overflow-y: auto; padding-right: 4px; display:flex; flex-direction:column; gap:10px;">
+                            <!-- VIP Section -->
+                            <div class="seat-section" id="section-vip" style="margin-bottom:0;">
+                                <span class="section-title" id="title-vip" style="font-size:0.7rem; font-weight:700; margin-bottom:4px; color:#475569;">VIP석</span>
+                                <div id="grid-vip" class="seat-grid" style="gap:3px;">
+                                    <!-- Filled by JS -->
+                                </div>
+                            </div>
+
+                            <!-- R Section -->
+                            <div class="seat-section" id="section-r" style="margin-bottom:0;">
+                                <span class="section-title" style="font-size:0.7rem; font-weight:700; margin-bottom:4px; color:#475569;">R석</span>
+                                <div id="grid-r" class="seat-grid" style="gap:3px;">
+                                    <!-- Filled by JS -->
+                                </div>
+                            </div>
+
+                            <!-- S Section -->
+                            <div class="seat-section" id="section-s" style="margin-bottom:0;">
+                                <span class="section-title" style="font-size:0.7rem; font-weight:700; margin-bottom:4px; color:#475569;">S석</span>
+                                <div id="grid-s" class="seat-grid" style="gap:3px;">
+                                    <!-- Filled by JS -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="legend" id="legend-container" style="margin-top:10px; font-size:0.68rem; justify-content:center; gap:8px;">
+                            <div class="legend-item" id="legend-vip"><span class="legend-dot vip"></span> VIP</div>
+                            <div class="legend-item" id="legend-r"><span class="legend-dot r-tier"></span> R석</div>
+                            <div class="legend-item" id="legend-s"><span class="legend-dot s-tier"></span> S석</div>
+                            <div class="legend-item"><span class="legend-dot selected"></span> 선택</div>
+                            <div class="legend-item"><span class="legend-dot occupied"></span> 판매됨</div>
+                        </div>
+                    </div>
+
+                    <!-- Draw Raffle Panel View -->
+                    <div id="panel-view-draw" style="display:none; text-align:center; padding:5px;">
+                        <div style="background: #f8f9fa; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px;">
+                            <img id="draw-item-img" src="/jordan_sneakers.png" alt="Jordan Sneakers" style="max-width: 160px; height: auto; border-radius: 8px; margin-bottom: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.06); object-fit: cover;">
+                            <h3 id="draw-title" style="font-size: 1.05rem; font-weight: 800; color: #1e293b; margin-bottom: 3px;">나이키 에어 조던 1 레트로 한정판</h3>
+                            <p id="draw-desc" style="color: #64748b; font-size: 0.75rem; line-height: 1.3; margin-bottom: 8px;">전 세계 한정 수량 선착순 드로우 응모!</p>
+                            <div id="draw-price" style="font-size: 1.1rem; font-weight: 800; color: var(--color-primary); margin-bottom: 10px;">응모가: 239,000원</div>
+                            
+                            <div style="display:flex; justify-content:center; gap:12px; background:white; border-radius:8px; padding:8px; margin-bottom:10px; font-size:0.72rem; border:1px solid #e2e8f0;">
+                                <div>
+                                    <div style="color:#64748b; margin-bottom:2px;">총 수량</div>
+                                    <strong id="draw-qty-total" style="color:#1e293b; font-size:0.85rem;">10 족</strong>
+                                </div>
+                                <div style="border-left:1px solid #dee2e6; height:24px;"></div>
+                                <div>
+                                    <div style="color:#64748b; margin-bottom:2px;">남은 수량</div>
+                                    <strong id="draw-qty-left" style="color:var(--color-primary); font-size:0.85rem;">10 족</strong>
+                                </div>
+                            </div>
+
+                            <button id="btn-draw-submit" class="btn-ticketing-action" style="width: 100%; height:38px; font-size:0.85rem; font-weight:800; border-radius:8px;">
+                                드로우 응모하기
+                            </button>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px;">
+                                <button id="btn-raffle-status" class="btn btn-outline" style="height:32px; font-size:0.72rem; font-weight:700; border-radius:6px;">당첨 상태 확인</button>
+                                <button id="btn-raffle-winner-checkout" class="btn-ticketing-action" style="height:32px; font-size:0.72rem; font-weight:700; border-radius:6px;">당첨자 결제</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Auction Panel View -->
+                    <div id="panel-view-auction" style="display:none; padding:0;">
+                        <div style="background: #f8f9fa; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; display:flex; flex-direction:column; gap:10px;">
+                            <div style="display:flex; gap:10px; align-items:center;">
+                                <img id="auction-item-img" src="/rolex_watch.png" alt="Rolex Watch" style="width: 70px; height: 70px; object-fit: cover; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.06);">
+                                <div style="flex:1;">
+                                    <h3 id="auction-title" style="font-size: 1rem; font-weight: 800; color: #1e293b; margin-bottom: 2px;">빈티지 롤렉스 서브마리너 경매</h3>
+                                    <p id="auction-desc" style="color: #64748b; font-size: 0.7rem; line-height: 1.25; margin-bottom: 3px;">희소성 높은 빈티지 모델의 소유권을 쟁취해 보세요.</p>
+                                    <div style="font-size: 0.7rem; color: #e11d48; font-weight: 700; display:flex; align-items:center; gap:2px;">
+                                        <span style="display:inline-block; width:5px; height:5px; background:#e11d48; border-radius:50%; animation: pulse 1s infinite;"></span>
+                                        실시간 경매 진행 중
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Current Price Display -->
+                            <div style="background:white; border-radius:8px; padding:8px; border:1px solid #e2e8f0; display:grid; grid-template-columns: 1fr 1fr; gap:8px; text-align:center;">
+                                <div>
+                                    <span style="font-size:0.68rem; color:#64748b; display:block; margin-bottom:1px;">현재 최고 입찰가</span>
+                                    <strong id="auction-highest-bid-val" style="font-size:1rem; color:#e11d48; font-weight:800;">8,500,000원</strong>
+                                </div>
+                                <div style="border-left: 1px solid #dee2e6;">
+                                    <span style="font-size:0.68rem; color:#64748b; display:block; margin-bottom:1px;">최고 입찰자</span>
+                                    <strong id="auction-highest-bidder-val" style="font-size:0.8rem; color:#1e293b; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block; margin-top:1px;">없음 (대기 중)</strong>
+                                </div>
+                            </div>
+
+                            <!-- Bid input & action -->
+                            <div style="display:flex; flex-direction:column; gap:4px;">
+                                <label style="font-size:0.68rem; color:#475569; font-weight:700;">입찰 금액 제안 (KRW)</label>
+                                <div style="display:flex; gap:6px;">
+                                    <input type="number" id="input-auction-bid" class="form-control" style="flex: 3; min-width: 0; height:34px; font-size:0.8rem; font-weight:700; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 0 8px;" placeholder="입찰할 금액 입력">
+                                    <button id="btn-auction-bid-submit" class="btn btn-primary" style="flex: 1; width: auto; min-width: 90px; height:34px; padding:0 8px; font-size:0.75rem; font-weight:700; background:var(--color-primary); border:none; color:white; border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center; margin:0;">입찰하기</button>
+                                </div>
+                            </div>
+
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:2px;">
+                                <button id="btn-auction-close" class="btn btn-outline" style="height:32px; font-size:0.72rem; font-weight:700; border-radius:8px;">경매 마감</button>
+                                <button id="btn-auction-winner-checkout" class="btn-ticketing-action" style="height:32px; font-size:0.72rem; font-weight:700; border-radius:8px;">낙찰자 결제</button>
+                            </div>
+
+                            <!-- Bid history ledger -->
+                            <div>
+                                <h4 style="font-size:0.72rem; color:#475569; font-weight:700; margin-bottom:4px; border-bottom:1px solid #edf2f7; padding-bottom:2px;">최근 입찰 기록 (최대 10개)</h4>
+                                <div id="auction-history-list" style="display:flex; flex-direction:column; gap:3px; max-height:70px; overflow-y:auto; font-size:0.68rem; color:#4a5568; font-family:monospace;">
+                                    <div style="color:#a0aec0; text-align:center; padding:4px 0;">아직 입찰 기록이 없습니다.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
             </div>
-            <div class="drawer-badges">
-                <div id="badge-redis" class="badge">
-                    <span class="badge-status-dot"></span> Redis 연결
+
+            <!-- SAGA Visualizer timeline -->
+            <div class="saga-timeline" id="saga-timeline-section" style="margin-top: 16px; padding:12px; background:#f8f9fa; border:1px solid #e2e8f0; border-radius:10px;">
+                <h4 class="saga-section-title" style="font-size:0.8rem; font-weight:800; color:var(--text-primary); margin-bottom:8px; border-bottom:1px solid #e2e8f0; padding-bottom:4px; display:flex; justify-content:space-between; align-items:center;">
+                    <span>SAGA 분산 트랜잭션 실시간 추적 (Orchestration)</span>
+                    <span id="badge-saga-status" class="badge" style="background:#f1f5f9; color:#475569;">IDLE</span>
+                </h4>
+                <div class="timeline-steps-grid" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:8px;">
+                    <div class="timeline-step-node" id="step-node-1" style="background:white; border:1px solid #e2e8f0; border-radius:6px; padding:6px; display:flex; flex-direction:column; gap:2px; font-size:0.68rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; font-weight:700; color:#475569;">
+                            <span>1. 자원 락</span>
+                            <span class="step-status-badge" id="step-badge-1" style="font-size:0.55rem; padding:1px 3px;">대기</span>
+                        </div>
+                        <p style="color:#64748b; font-size:0.58rem; line-height:1.2;">Redis 선점 락 검증</p>
+                    </div>
+                    <div class="timeline-step-node" id="step-node-2" style="background:white; border:1px solid #e2e8f0; border-radius:6px; padding:6px; display:flex; flex-direction:column; gap:2px; font-size:0.68rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; font-weight:700; color:#475569;">
+                            <span>2. 가상 주문</span>
+                            <span class="step-status-badge" id="step-badge-2" style="font-size:0.55rem; padding:1px 3px;">대기</span>
+                        </div>
+                        <p style="color:#64748b; font-size:0.58rem; line-height:1.2;">RDB 주문서 임시 기록</p>
+                    </div>
+                    <div class="timeline-step-node" id="step-node-3" style="background:white; border:1px solid #e2e8f0; border-radius:6px; padding:6px; display:flex; flex-direction:column; gap:2px; font-size:0.68rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; font-weight:700; color:#475569;">
+                            <span>3. 결제 승인</span>
+                            <span class="step-status-badge" id="step-badge-3" style="font-size:0.55rem; padding:1px 3px;">대기</span>
+                        </div>
+                        <p style="color:#64748b; font-size:0.58rem; line-height:1.2;">Toss PG 모의 승인</p>
+                    </div>
+                    <div class="timeline-step-node" id="step-node-4" style="background:white; border:1px solid #e2e8f0; border-radius:6px; padding:6px; display:flex; flex-direction:column; gap:2px; font-size:0.68rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; font-weight:700; color:#475569;">
+                            <span>4. 예매 확정</span>
+                            <span class="step-status-badge" id="step-badge-4" style="font-size:0.55rem; padding:1px 3px;">대기</span>
+                        </div>
+                        <p style="color:#64748b; font-size:0.58rem; line-height:1.2;">소유권 최종 확정</p>
+                    </div>
                 </div>
-                <div id="badge-integrity" class="badge">
-                    <span class="badge-status-dot"></span> DB 정합성
-                </div>
+            </div>
+
+            <!-- Unified Ticket Receipt / Compensation Drawer inside detail modal -->
+            <div id="booking-receipt-container" style="display: none; margin-top: 12px; padding: 12px; background: #fffbeb; border: 1px dashed #f59e0b; border-radius: 10px;">
+                <!-- Dynamic content -->
             </div>
         </div>
+    </div>
 
-        <div class="drawer-content">
-            <!-- Left: SAGA Visualizer timeline -->
-            <div class="drawer-col-saga glass-card">
-                <h3>SAGA 트랜잭션 타임라인</h3>
-                <div id="transaction-id-badge" class="badge" style="display:none; font-family:monospace; margin-bottom:10px;">TX: -</div>
+    <!-- ══ [NEW] Collapsible Simulation Console Drawer (개발자용 진단 도구) ══ -->
+    <div id="sim-console-drawer" class="sim-console-drawer">
+        <div class="drawer-header">
+            <h3 style="font-size:0.9rem; font-weight:800; display:flex; align-items:center; gap:6px; color:white; margin:0;">
+                <span>🛠️ 시뮬레이션 콘솔</span>
+                <span class="badge healthy" id="badge-integrity" style="font-size:0.62rem; background:rgba(16,185,129,0.15); color:#10B981; padding: 2px 6px; border-radius: 6px; font-weight:800;"><span class="badge-status-dot"></span> 정합성 최상</span>
+            </h3>
+            <div style="display:flex; align-items:center; gap:6px;">
+                <div id="badge-redis" class="badge healthy" style="font-size:0.62rem; background:rgba(16,185,129,0.15); color:#10B981; padding: 2px 6px; border-radius: 6px; font-weight:800;">
+                    <span class="badge-status-dot"></span> Redis 활성
+                </div>
+                <button type="button" onclick="toggleSimConsoleDrawer()" style="background:none; border:none; color:#cbd5e1; font-size:1.3rem; cursor:pointer; font-weight:bold; padding:0 4px; line-height:1;">&times;</button>
+            </div>
+        </div>
+        <div class="drawer-body">
+            <!-- Section 1: Event & Scenario Configuration -->
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:12px; border:1px solid rgba(255,255,255,0.06); display:flex; flex-direction:column; gap:10px;">
+                <h4 style="font-size:0.75rem; font-weight:800; color:#94a3b8; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:4px; margin:0;">시뮬레이션 설정 및 제어</h4>
                 
-                <div class="saga-timeline">
-                    <!-- Step 1 -->
-                    <div id="step-1" class="saga-step">
-                        <div class="saga-node"></div>
-                        <div class="step-info">
-                            <span class="step-title">1단계: Redis 가용 재고 선점</span>
-                            <span class="step-system">Redis</span>
-                        </div>
-                        <p class="step-desc">가용한 재고에서 수량만큼 선점 상태로 설정하고 임시 락(5분 TTL) 생성</p>
-                        <div class="step-compensation">보상: Redis 선점 재고 롤백 및 임시 락 해제</div>
-                    </div>
+                <div class="form-group" style="margin:0;">
+                    <label for="select-saas-event" style="color:var(--color-primary); font-weight:800; font-size:0.72rem; margin-bottom:4px; display:block;">판매 이벤트 전환</label>
+                    <select id="select-saas-event" class="form-control" style="font-size:0.75rem; height:30px; padding:2px 8px; background:#0f172a; color:white; border:1.5px solid var(--color-primary); border-radius:6px; width:100%; outline:none; font-weight:700;">
+                        <option value="CONCERT-IU">아이유 콘서트 (티켓 예매)</option>
+                        <option value="DRAW-NIKE">나이키 조던 드로우 (선착순 래플)</option>
+                        <option value="AUCTION-ROLEX">빈티지 롤렉스 서브마리너 (실시간 경매)</option>
+                    </select>
+                </div>
 
-                    <!-- Step 2 -->
-                    <div id="step-2" class="saga-step">
-                        <div class="saga-node"></div>
-                        <div class="step-info">
-                            <span class="step-title">2단계: PostgreSQL 주문 레코드 생성</span>
-                            <span class="step-system">PostgreSQL</span>
-                        </div>
-                        <p class="step-desc">PENDING 상태의 주문 데이터베이스 레코드 삽입</p>
-                        <div class="step-compensation">보상: 주문 상태 CANCELLED로 변경 및 보상 로깅</div>
+                <div class="form-group" style="margin:0; display:grid; grid-template-columns: 1.2fr 0.8fr; gap:8px;">
+                    <div>
+                        <label for="input-customer" style="font-size:0.7rem; font-weight:700; color:#cbd5e1; display:block; margin-bottom:4px;">고객 ID (Customer ID)</label>
+                        <input type="text" id="input-customer" class="form-control" style="height:28px; font-size:0.75rem; background:#0f172a; color:white; border:1px solid #475569; border-radius:6px; padding:0 8px; width:100%; outline:none; font-weight:700;" value="CUST-1049">
                     </div>
-
-                    <!-- Step 3 -->
-                    <div id="step-3" class="saga-step">
-                        <div class="saga-node"></div>
-                        <div class="step-info">
-                            <span class="step-title">3단계: 결제 처리 및 승인</span>
-                            <span class="step-system">PG Gateway</span>
-                        </div>
-                        <p class="step-desc">사용자 카드 대금 결제 요청 및 최종 승인 획득</p>
-                        <div class="step-compensation">보상: 결제 취소 요청 및 환불 처리</div>
+                    <div style="display:flex; align-items:flex-end;">
+                        <button type="button" id="btn-gen-cust" class="btn btn-outline" style="height:28px; font-size:0.7rem; border:1px solid #475569; color:white; width:100%; font-weight:700; background:rgba(255,255,255,0.05); cursor:pointer; border-radius:6px;">ID 생성</button>
                     </div>
+                </div>
 
-                    <!-- Step 4 -->
-                    <div id="step-4" class="saga-step">
-                        <div class="saga-node"></div>
-                        <div class="step-info">
-                            <span class="step-title">4단계: Redis 재고 확정</span>
-                            <span class="step-system">Redis</span>
-                        </div>
-                        <p class="step-desc">선점된 임시 재고를 영구 확정으로 마킹하고 락 제거</p>
+                <div class="form-group" style="margin:0;">
+                    <label style="font-size:0.7rem; font-weight:700; color:#cbd5e1; display:block; margin-bottom:4px;">실행 모드</label>
+                    <div class="simulation-mode-toggle" style="display:flex; background:#0f172a; border-radius:6px; padding:2px; border:1px solid #1e293b;">
+                        <button type="button" id="mode-auto" class="mode-tab active" style="flex:1; height:24px; font-size:0.7rem; font-weight:700; border:none; background:var(--color-primary); color:white; border-radius:4px; cursor:pointer; transition:all 0.2s;">자동 모드</button>
+                        <button type="button" id="mode-manual" class="mode-tab" style="flex:1; height:24px; font-size:0.7rem; font-weight:700; border:none; background:none; color:#94a3b8; border-radius:4px; cursor:pointer; transition:all 0.2s;">수동 모드 (인터랙티브)</button>
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin:0;">
+                    <label for="select-scenario" style="font-size:0.7rem; font-weight:700; color:#cbd5e1; display:block; margin-bottom:4px;">실험 시나리오</label>
+                    <select id="select-scenario" class="form-control" style="font-size:0.75rem; height:28px; padding:2px 6px; background:#0f172a; color:white; border:1px solid #475569; border-radius:6px; width:100%; outline:none; font-weight:600;">
+                        <option value="NORMAL">정상 시나리오 (예매 성공)</option>
+                        <option value="FAIL_ORDER">주문 단계 실패 시나리오 (SAGA 롤백 데모)</option>
+                        <option value="FAIL_PAYMENT">결제 단계 실패 시나리오 (SAGA 롤백 데모)</option>
+                    </select>
+                </div>
+
+                <!-- Manual Mode Stepper Actions (Hidden in Auto Mode) -->
+                <div id="manual-stepper-container" style="display:none; flex-direction:column; gap:6px; margin-top:4px;">
+                    <div id="reservation-timer-box" class="timer-box" style="display:none; justify-content:center; align-items:center; background:rgba(239,68,68,0.15); border:1px dashed #ef4444; border-radius:6px; padding:6px; font-size:0.7rem; color:#fca5a5; font-weight:700;">
+                        ⏱️ 선점 세션 만료 남은 시간: <span id="reservation-timer-val" style="font-family:monospace; margin-left:4px;">05:00</span>
+                    </div>
+                    <button type="button" id="btn-step-1" class="btn btn-outline-step" style="height:32px; font-size:0.7rem; font-weight:700; color:white; border:1px solid #475569; background:#0f172a; border-radius:6px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; padding:0 10px; outline:none;" disabled>
+                        <span>1단계: Redis 가용 재고 선점</span>
+                        <span id="badge-step-1" class="step-status-badge" style="font-size:0.6rem; padding:1px 4px; background:#475569; border-radius:4px; font-weight:800;">대기</span>
+                    </button>
+                    <button type="button" id="btn-step-2" class="btn btn-outline-step" style="height:32px; font-size:0.7rem; font-weight:700; color:white; border:1px solid #475569; background:#0f172a; border-radius:6px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; padding:0 10px; outline:none;" disabled>
+                        <span>2단계: PostgreSQL 주문서 작성</span>
+                        <span id="badge-step-2" class="step-status-badge" style="font-size:0.6rem; padding:1px 4px; background:#475569; border-radius:4px; font-weight:800;">대기</span>
+                    </button>
+                    <button type="button" id="btn-step-3" class="btn btn-outline-step" style="height:32px; font-size:0.7rem; font-weight:700; color:white; border:1px solid #475569; background:#0f172a; border-radius:6px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; padding:0 10px; outline:none;" disabled>
+                        <span>3단계: PG 결제 승인 요청</span>
+                        <span id="badge-step-3" class="step-status-badge" style="font-size:0.6rem; padding:1px 4px; background:#475569; border-radius:4px; font-weight:800;">대기</span>
+                    </button>
+                    <button type="button" id="btn-step-4" class="btn btn-outline-step" style="height:32px; font-size:0.7rem; font-weight:700; color:white; border:1px solid #475569; background:#0f172a; border-radius:6px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; padding:0 10px; outline:none;" disabled>
+                        <span>4단계: 최종 예약 확정</span>
+                        <span id="badge-step-4" class="step-status-badge" style="font-size:0.6rem; padding:1px 4px; background:#475569; border-radius:4px; font-weight:800;">대기</span>
+                    </button>
+                </div>
+
+                <!-- Dev Actions -->
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:4px;">
+                    <button type="button" id="btn-heal" class="btn btn-outline" style="border:1.5px solid rgba(16, 185, 129, 0.5); color:#10b981; background:rgba(16, 185, 129, 0.05); font-size:0.72rem; padding:6px; border-radius:6px; font-weight:700; cursor:pointer; outline:none;">🩺 자가 치유 (Heal)</button>
+                    <button type="button" id="btn-reset" class="btn btn-outline" style="border:1.5px solid rgba(239, 68, 68, 0.5); color:#ef4444; background:rgba(239, 68, 68, 0.05); font-size:0.72rem; padding:6px; border-radius:6px; font-weight:700; cursor:pointer; outline:none;">🔄 시스템 초기화</button>
+                </div>
+            </div>
+
+            <!-- Section 2: Load Generator -->
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:12px; border:1px solid rgba(255,255,255,0.06); display:flex; flex-direction:column; gap:8px;">
+                <h4 style="font-size:0.75rem; font-weight:800; color:#94a3b8; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:4px; margin:0;">가상 동시 접속 부하 테스트</h4>
+                <div style="font-size:0.65rem; color:#cbd5e1; line-height:1.35; margin:0;">k6 시뮬레이션으로 대규모 동시성 트래픽을 즉시 가동합니다.</div>
+                <div style="display:flex; justify-content:space-between; font-size:0.68rem; font-weight:700; margin:0;">
+                    <span>동시 접속(VUs): <strong id="sim-vus-val" style="color:var(--color-primary);">50명</strong></span>
+                    <span>테스트 시간: <strong id="sim-dur-val" style="color:var(--color-primary);">15초</strong></span>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center; margin:0;">
+                    <input type="range" id="slider-vus" min="10" max="10000" step="100" value="50" style="flex:1; accent-color:var(--color-primary); height:16px; cursor:pointer;">
+                    <input type="range" id="slider-duration" min="5" max="60" step="5" value="15" style="flex:1; accent-color:var(--color-primary); height:16px; cursor:pointer;">
+                </div>
+                <div style="display:flex; gap:6px; margin:0;">
+                    <button type="button" id="btn-start-saas-sim" class="btn btn-primary" style="flex:1; font-size:0.75rem; padding:6px; height:30px; background:var(--color-primary); border:none; color:white; border-radius:6px; font-weight:700; cursor:pointer; outline:none;">부하 테스트 시작</button>
+                    <button type="button" id="btn-stop-saas-sim" class="btn btn-outline" style="flex:1; border:1.5px solid #ef4444; color:#ef4444; background:none; font-size:0.75rem; padding:6px; height:30px; border-radius:6px; font-weight:700; cursor:pointer; outline:none; display:none;">⏹️ 부하 중지</button>
+                </div>
+                <!-- Canvas Real-time Chart -->
+                <div id="saas-perf-graph-container" style="display:none; flex-direction:column; gap:4px; background:#ffffff; border:1px solid #ced4da; border-radius:6px; padding:6px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.65rem; font-weight:700; color:#495057;">
+                        <span>실시간 모니터링 그래프</span>
+                        <span id="sim-progress-badge" class="step-status-badge" style="background:var(--color-primary); color:#fff; font-size:0.55rem; padding:1px 4px; font-weight:800; border-radius:3px;">RUNNING</span>
+                    </div>
+                    <canvas id="perf-canvas" width="280" height="80" style="width:100%; height:80px; background:#ffffff; border:1px solid #e9ecef; border-radius:3px;"></canvas>
+                    <div style="display:flex; justify-content:space-between; font-size:0.6rem; color:#868e96; font-weight:600;">
+                        <span>TPS (초록색): <span id="live-tps-val" style="color:#09ab4f; font-weight:700;">0.0</span></span>
+                        <span>지연시간 (노란색): <span id="live-lat-val" style="color:#f59f00; font-weight:700;">0</span>ms</span>
                     </div>
                 </div>
             </div>
 
-            <!-- Middle: Simulator Controls -->
-            <div class="drawer-col-controls glass-card">
-                <h3>시뮬레이션 설정 및 제어</h3>
-                
-                <div class="simulation-controls" style="background:none; border:none; padding:0; margin:0;">
-                    <!-- Product Operations Configurator -->
-                    <div class="form-group" style="background:var(--color-primary-glow); border:1px solid rgba(14,165,233,0.15); padding:10px; border-radius:8px; margin-bottom:12px;">
-                        <label for="select-saas-event" style="color:var(--color-primary); font-weight:800; font-size:0.82rem; margin-bottom:4px; display:block;">판매 이벤트 전환</label>
-                        <select id="select-saas-event" class="form-control" style="font-size:0.8rem; height:32px; padding:2px 8px; border-color:var(--color-primary);">
-                            <option value="CONCERT-IU">아이유 콘서트 (티켓 예매)</option>
-                            <option value="DRAW-NIKE">나이키 조던 드로우 (선착순 래플)</option>
-                            <option value="AUCTION-ROLEX">빈티지 롤렉스 서브마리너 (실시간 경매)</option>
-                        </select>
-                    </div>
-
-                    <!-- Programmatic No-Code Load Generator -->
-                    <div class="form-group" style="background:#f8f9fa; border:1px solid #dee2e6; padding:10px; border-radius:8px; margin-bottom:12px;">
-                        <label style="color:#1e293b; font-weight:800; font-size:0.8rem; margin-bottom:4px; display:block;">가상 동시 접속 테스트</label>
-                        <div style="font-size:0.7rem; color:#666666; margin-bottom:6px; line-height:1.3;">k6 설치 및 기동 없이 즉시 동시성 유저 부하를 실행합니다.</div>
-                        <div style="display:flex; justify-content:space-between; font-size:0.7rem; margin-bottom:4px; font-weight:600;">
-                            <span>가상 유저(VUs): <strong id="sim-vus-val" style="color:var(--color-primary);">50명</strong></span>
-                            <span>테스트 시간: <strong id="sim-dur-val" style="color:var(--color-primary);">15초</strong></span>
-                        </div>
-                        <div style="display:flex; gap:8px; margin-bottom:6px;">
-                            <input type="range" id="slider-vus" min="10" max="10000" step="100" value="50" style="flex:1; accent-color:var(--color-primary); height:18px;">
-                            <input type="range" id="slider-duration" min="5" max="60" step="5" value="15" style="flex:1; accent-color:var(--color-primary); height:18px;">
-                        </div>
-                        <div style="display:flex; gap:6px;">
-                            <button type="button" id="btn-start-saas-sim" class="btn btn-primary" style="font-size:0.75rem; padding:6px; height:28px;">부하 발생 시작</button>
-                            <button type="button" id="btn-stop-saas-sim" class="btn btn-outline" style="border-color:#fa5252; color:#fa5252; font-size:0.75rem; padding:6px; height:28px; display:none;">⏹️ 부하 중지</button>
-                        </div>
-                        <!-- Canvas Real-time Chart -->
-                        <div id="saas-perf-graph-container" style="display:none; flex-direction:column; gap:4px; margin-top:8px; background:#ffffff; border:1px solid #ced4da; border-radius:4px; padding:6px;">
-                            <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.65rem; font-weight:700; color:#495057;">
-                                <span>실시간 모니터링 그래프</span>
-                                <span id="sim-progress-badge" class="step-status-badge" style="background:var(--color-primary); color:#fff; font-size:0.55rem; padding:1px 4px;">RUNNING</span>
-                            </div>
-                            <canvas id="perf-canvas" width="280" height="80" style="width:100%; height:80px; background:#ffffff; border:1px solid #e9ecef; border-radius:3px;"></canvas>
-                            <div style="display:flex; justify-content:space-between; font-size:0.6rem; color:#868e96; font-weight:600;">
-                                <span>TPS (초록색): <span id="live-tps-val" style="color:#09ab4f;">0.0</span></span>
-                                <span>지연시간 (노란색): <span id="live-lat-val" style="color:#f59f00;">0</span>ms</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label for="input-customer">고객 ID (Customer ID)</label>
-                        <div style="display:flex; gap:8px;">
-                            <input type="text" id="input-customer" class="form-control" value="CUST-1049">
-                            <button type="button" id="btn-gen-cust" class="btn btn-outline" style="width:auto; padding:0 12px;">생성</button>
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label>실행 모드</label>
-                        <div class="simulation-mode-toggle">
-                            <button type="button" id="mode-auto" class="mode-tab active">자동 모드</button>
-                            <button type="button" id="mode-manual" class="mode-tab">수동 모드 (인터랙티브)</button>
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="select-scenario">실험 시나리오</label>
-                        <select id="select-scenario" class="form-control">
-                            <option value="NORMAL">정상 시나리오 (예매 성공)</option>
-                            <option value="FAIL_ORDER">주문 단계 실패 시나리오 (SAGA 롤백 데모)</option>
-                            <option value="FAIL_PAYMENT">결제 단계 실패 시나리오 (SAGA 롤백 데모)</option>
-                        </select>
-                    </div>
-
-                    <!-- Manual Mode Stepper Actions (Hidden in Auto Mode) -->
-                    <div id="manual-stepper-container" style="display:none; flex-direction:column; gap:8px; margin-top:8px;">
-                        <div id="reservation-timer-box" class="timer-box" style="display:none; margin-bottom:4px;">
-                            ⏱️ 선점 세션 만료 남은 시간: <span id="reservation-timer-val">05:00</span>
-                        </div>
-                        <button type="button" id="btn-step-1" class="btn btn-outline-step" disabled>
-                            <span>1단계: Redis 가용 재고 선점</span>
-                            <span id="badge-step-1" class="step-status-badge">대기</span>
-                        </button>
-                        <button type="button" id="btn-step-2" class="btn btn-outline-step" disabled>
-                            <span>2단계: PostgreSQL 주문서 작성</span>
-                            <span id="badge-step-2" class="step-status-badge">대기</span>
-                        </button>
-                        <button type="button" id="btn-step-3" class="btn btn-outline-step" disabled>
-                            <span>3단계: PG 결제 승인 요청</span>
-                            <span id="badge-step-3" class="step-status-badge">대기</span>
-                        </button>
-                        <button type="button" id="btn-step-4" class="btn btn-outline-step" disabled>
-                            <span>4단계: 최종 예약 확정</span>
-                            <span id="badge-step-4" class="step-status-badge">대기</span>
-                        </button>
-                    </div>
-
-                    <!-- Dev Actions -->
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px;">
-                        <button type="button" id="btn-heal" class="btn btn-outline" style="border-color:rgba(16, 185, 129, 0.4); color:#10b981; background:rgba(16, 185, 129, 0.05); font-size:0.8rem; padding:8px;">
-                            🩺 자가 치유(Reconcile)
-                        </button>
-                        <button type="button" id="btn-reset" class="btn btn-outline" style="border-color:rgba(239, 68, 68, 0.4); color:#ef4444; background:rgba(239, 68, 68, 0.05); font-size:0.8rem; padding:8px;">
-                            🔄 시스템 초기화
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Right: Database Status & Console Logs -->
-            <div class="drawer-col-monitor glass-card">
-                <h3>실시간 DB 상태 & 모니터</h3>
-                <table class="inventory-table" style="margin-top:0; margin-bottom:10px;">
+            <!-- Section 3: Real-time DB Status & Monitor -->
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:12px; border:1px solid rgba(255,255,255,0.06); display:flex; flex-direction:column; gap:8px;">
+                <h4 style="font-size:0.75rem; font-weight:800; color:#94a3b8; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:4px; margin:0;">실시간 DB 상태 & 모니터</h4>
+                <table class="inventory-table" style="margin:0; width:100%; border-collapse:collapse; font-size:0.68rem; color:white;">
                     <thead>
-                        <tr>
-                            <th>등급 (Product)</th>
-                            <th>Postgres (남음/선점)</th>
-                            <th>Redis (남음/선점)</th>
-                            <th>정합성</th>
+                        <tr style="border-bottom:1px solid rgba(255,255,255,0.1); text-align:left;">
+                            <th style="background:none; color:#94a3b8; padding:4px 0; font-weight:700;">등급 (Product)</th>
+                            <th style="background:none; color:#94a3b8; padding:4px 0; font-weight:700;">Postgres (남음/선점)</th>
+                            <th style="background:none; color:#94a3b8; padding:4px 0; font-weight:700;">Redis (남음/선점)</th>
+                            <th style="background:none; color:#94a3b8; padding:4px 0; font-weight:700; text-align:center;">정합성</th>
                         </tr>
                     </thead>
                     <tbody id="inventory-rows">
@@ -2264,19 +2471,27 @@
                         </tr>
                     </tbody>
                 </table>
+            </div>
 
-                <div class="console-log-header">
-                    <h3>운영 콘솔 로그</h3>
-                    <button type="button" id="btn-clear-logs" class="btn btn-outline" style="width:auto; padding:2px 8px; font-size:0.7rem; height:24px;">초기화</button>
+            <!-- Section 4: Operation Console Logs -->
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:12px; border:1px solid rgba(255,255,255,0.06); display:flex; flex-direction:column; gap:8px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:4px;">
+                    <h4 style="font-size:0.75rem; font-weight:800; color:#94a3b8; margin:0;">운영 콘솔 로그</h4>
+                    <button type="button" id="btn-clear-logs" class="btn btn-outline" style="width:auto; padding:1px 6px; font-size:0.65rem; height:20px; border:1px solid #475569; color:white; background:none; cursor:pointer; border-radius:4px; font-weight:700; outline:none;">로그 비우기</button>
                 </div>
-                <div class="console-log-container">
-                    <div id="terminal-body" class="terminal-body" style="height:120px;">
+                <div class="console-log-container" style="background:#0f172a; border-radius:6px; border:1px solid #1e293b; padding:8px; font-family:monospace; margin:0;">
+                    <div id="terminal-body" class="terminal-body" style="height:120px; overflow-y:auto; font-size:0.62rem; line-height:1.4; color:#a3e635;">
                         <!-- Logs -->
                     </div>
                 </div>
             </div>
         </div>
     </div>
+
+    <!-- Floating Gear Button to Toggle Simulation Console -->
+    <button type="button" id="btn-floating-gear" class="floating-gear-btn" onclick="toggleSimConsoleDrawer()" title="개발자 시뮬레이션 콘솔 열기">
+        ⚙️
+    </button>
 </div>
 
 <script>
@@ -2376,6 +2591,19 @@
             }
 
             const response = await confirmTossPaymentFromRedirect(params);
+
+            // Confirm seat as SOLD in Redis
+            if (pending && pending.requestBody && pending.requestBody.seatId) {
+                try {
+                    await fetch(`/api/system/seats/confirm?seatId=${encodeURIComponent(pending.requestBody.seatId)}`, {
+                        method: 'POST'
+                    });
+                    addLog(`[Toss] 좌석 ${pending.requestBody.seatId} 예매 완료 확정`, "success");
+                } catch (confirmErr) {
+                    console.error("Failed to confirm seat as SOLD:", confirmErr);
+                }
+            }
+
             localStorage.removeItem(TOSS_PENDING_CHECKOUT_KEY);
             addLog("[Toss] 결제 승인 및 에브리세일 예약 확정 완료", "success");
 
@@ -2795,24 +3023,24 @@
         const tabContentMarketplace = document.getElementById("tab-content-marketplace");
 
         window.switchMainTab = function(activeTabId) {
-            btnTabStorefront.classList.remove("active");
-            btnTabPartner.classList.remove("active");
-            btnTabMarketplace.classList.remove("active");
+            if (btnTabStorefront) btnTabStorefront.classList.remove("active");
+            if (btnTabPartner) btnTabPartner.classList.remove("active");
+            if (btnTabMarketplace) btnTabMarketplace.classList.remove("active");
 
-            tabContentStorefront.style.display = "none";
-            tabContentPartner.style.display = "none";
-            tabContentMarketplace.style.display = "none";
+            if (tabContentStorefront) tabContentStorefront.style.display = "none";
+            if (tabContentPartner) tabContentPartner.style.display = "none";
+            if (tabContentMarketplace) tabContentMarketplace.style.display = "none";
 
             if (activeTabId === 'storefront') {
-                btnTabStorefront.classList.add("active");
-                tabContentStorefront.style.display = "block";
+                if (btnTabStorefront) btnTabStorefront.classList.add("active");
+                if (tabContentStorefront) tabContentStorefront.style.display = "block";
                 updateActiveEventView();
             } else if (activeTabId === 'partner') {
-                btnTabPartner.classList.add("active");
-                tabContentPartner.style.display = "block";
+                if (btnTabPartner) btnTabPartner.classList.add("active");
+                if (tabContentPartner) tabContentPartner.style.display = "block";
             } else if (activeTabId === 'marketplace') {
-                btnTabMarketplace.classList.add("active");
-                tabContentMarketplace.style.display = "block";
+                if (btnTabMarketplace) btnTabMarketplace.classList.add("active");
+                if (tabContentMarketplace) tabContentMarketplace.style.display = "block";
                 renderMarketplaceProducts();
             }
         };
@@ -3202,6 +3430,105 @@
             });
         }
 
+        // Dynamic product registration fields manager
+        function getLocalDateTimeString(addHours = 0) {
+            const now = new Date();
+            if (addHours !== 0) {
+                now.setHours(now.getHours() + addHours);
+            }
+            const tzOffset = now.getTimezoneOffset() * 60000;
+            const localISOTime = (new Date(now.getTime() - tzOffset)).toISOString().slice(0, 16);
+            return localISOTime;
+        }
+
+        window.updateDynamicRegistrationFields = function(category) {
+            const container = document.getElementById("dynamic-options-container");
+            if (!container) return;
+            
+            if (category === "TICKETING") {
+                container.innerHTML = `
+                    <div style="display: grid; grid-template-columns: 1fr; gap: 6px;">
+                        <div>
+                            <label style="font-size: 0.65rem; font-weight: 700; color: #0284c7; display:block; margin-bottom:2px;">관람 등급 (Age Limit)</label>
+                            <select id="opt-age-limit" class="form-control" style="font-size: 0.75rem; height: 26px; padding: 2px 4px; border-color:#93c5fd;">
+                                <option value="전체 관람가">전체 관람가</option>
+                                <option value="만 7세 이상 관람가" selected>만 7세 이상 관람가</option>
+                                <option value="만 12세 이상 관람가">만 12세 이상 관람가</option>
+                                <option value="만 15세 이상 관람가">만 15세 이상 관람가</option>
+                                <option value="청소년 관람불가">청소년 관람불가</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px;">
+                        <div>
+                            <label style="font-size: 0.65rem; font-weight: 700; color: #0284c7; display:block; margin-bottom:2px;">예매 시작 일시</label>
+                            <input type="datetime-local" id="opt-starts-at" class="form-control" style="font-size: 0.75rem; height: 26px; padding: 2px 4px;" value="${getLocalDateTimeString(0)}">
+                        </div>
+                        <div>
+                            <label style="font-size: 0.65rem; font-weight: 700; color: #0284c7; display:block; margin-bottom:2px;">예매 종료 일시</label>
+                            <input type="datetime-local" id="opt-ends-at" class="form-control" style="font-size: 0.75rem; height: 26px; padding: 2px 4px;" value="${getLocalDateTimeString(24 * 7)}">
+                        </div>
+                    </div>
+                `;
+            } else if (category === "DRAW") {
+                container.innerHTML = `
+                    <div style="display: grid; grid-template-columns: 1fr; gap: 6px;">
+                        <div>
+                            <label style="font-size: 0.65rem; font-weight: 700; color: #0284c7; display:block; margin-bottom:2px;">상품 상태 (Condition)</label>
+                            <select id="opt-condition" class="form-control" style="font-size: 0.75rem; height: 26px; padding: 2px 4px; border-color:#93c5fd;">
+                                <option value="NEW" selected>NEW (새 상품)</option>
+                                <option value="LIKE_NEW">LIKE NEW (미개봉/새상품급)</option>
+                                <option value="USED">USED (중고 상품)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px;">
+                        <div>
+                            <label style="font-size: 0.65rem; font-weight: 700; color: #0284c7; display:block; margin-bottom:2px;">래플 시작 일시</label>
+                            <input type="datetime-local" id="opt-starts-at" class="form-control" style="font-size: 0.75rem; height: 26px; padding: 2px 4px;" value="${getLocalDateTimeString(0)}">
+                        </div>
+                        <div>
+                            <label style="font-size: 0.65rem; font-weight: 700; color: #0284c7; display:block; margin-bottom:2px;">래플 종료 일시</label>
+                            <input type="datetime-local" id="opt-ends-at" class="form-control" style="font-size: 0.75rem; height: 26px; padding: 2px 4px;" value="${getLocalDateTimeString(24)}">
+                        </div>
+                    </div>
+                `;
+            } else if (category === "AUCTION") {
+                container.innerHTML = `
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                        <div>
+                            <label style="font-size: 0.65rem; font-weight: 700; color: #0284c7; display:block; margin-bottom:2px;">최소 입찰 단위 (원)</label>
+                            <input type="number" id="opt-min-bid" class="form-control" style="font-size: 0.75rem; height: 26px; padding: 2px 4px;" placeholder="예: 100000" value="100000">
+                        </div>
+                        <div>
+                            <label style="font-size: 0.65rem; font-weight: 700; color: #0284c7; display:block; margin-bottom:2px;">최저 낙찰가/시작가 (원)</label>
+                            <input type="number" id="opt-reserve-price" class="form-control" style="font-size: 0.75rem; height: 26px; padding: 2px 4px;" placeholder="예: 8500000" value="8500000">
+                        </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px;">
+                        <div>
+                            <label style="font-size: 0.65rem; font-weight: 700; color: #0284c7; display:block; margin-bottom:2px;">경매 시작 일시</label>
+                            <input type="datetime-local" id="opt-starts-at" class="form-control" style="font-size: 0.75rem; height: 26px; padding: 2px 4px;" value="${getLocalDateTimeString(0)}">
+                        </div>
+                        <div>
+                            <label style="font-size: 0.65rem; font-weight: 700; color: #0284c7; display:block; margin-bottom:2px;">경매 종료 일시</label>
+                            <input type="datetime-local" id="opt-ends-at" class="form-control" style="font-size: 0.75rem; height: 26px; padding: 2px 4px;" value="${getLocalDateTimeString(2)}">
+                        </div>
+                    </div>
+                `;
+            }
+        };
+
+        // Wire up change listener on category dropdown
+        const regCategory = document.getElementById("reg-category");
+        if (regCategory) {
+            regCategory.addEventListener("change", (e) => {
+                window.updateDynamicRegistrationFields(e.target.value);
+            });
+            // Initial render
+            window.updateDynamicRegistrationFields(regCategory.value);
+        }
+
         // 3. Product creation
         const btnRegisterSubmit = document.getElementById("btn-register-submit");
         if (btnRegisterSubmit) {
@@ -3216,20 +3543,40 @@
                     alert("올바른 정보를 모두 입력해 주세요.");
                     return;
                 }
+
+                let requestBody = {
+                    name,
+                    category,
+                    price,
+                    quantity: qty,
+                    description: desc,
+                    saleType: mapLegacyCategoryToSaleType(category),
+                    publishImmediately: true
+                };
+
+                const startsAtVal = document.getElementById("opt-starts-at")?.value;
+                const endsAtVal = document.getElementById("opt-ends-at")?.value;
+                if (startsAtVal) requestBody.startsAt = startsAtVal;
+                if (endsAtVal) requestBody.endsAt = endsAtVal;
+
+                if (category === "TICKETING") {
+                    const ageLimit = document.getElementById("opt-age-limit")?.value;
+                    if (ageLimit) requestBody.itemCondition = ageLimit;
+                } else if (category === "DRAW") {
+                    const condition = document.getElementById("opt-condition")?.value;
+                    if (condition) requestBody.itemCondition = condition;
+                } else if (category === "AUCTION") {
+                    const minBid = parseFloat(document.getElementById("opt-min-bid")?.value);
+                    const reserve = parseFloat(document.getElementById("opt-reserve-price")?.value);
+                    if (!isNaN(minBid)) requestBody.minBidIncrement = minBid;
+                    if (!isNaN(reserve)) requestBody.reservePrice = reserve;
+                }
                 
                 try {
                     const res = await fetch(`/api/sellers/${encodeURIComponent(DEFAULT_SELLER_ID)}/listings`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            name,
-                            category,
-                            price,
-                            quantity: qty,
-                            description: desc,
-                            saleType: mapLegacyCategoryToSaleType(category),
-                            publishImmediately: true
-                        })
+                        body: JSON.stringify(requestBody)
                     });
                     
                     if (res.ok) {
@@ -3240,6 +3587,7 @@
                         document.getElementById("reg-qty").value = '50';
                         document.getElementById("reg-desc").value = '';
                         
+                        window.updateDynamicRegistrationFields(category);
                         await populateEventDropdown();
                         await renderRegisteredProducts();
                     } else {
@@ -4617,10 +4965,10 @@
             requestBody.paymentInfo.orderName = marketplaceEvent.title || requestBody.paymentInfo.orderName;
         }
 
-        const checkoutUrl = marketplaceIntentEndpoint || API_RESERVATION;
+        const checkoutUrl = marketplaceIntentEndpoint || API_TOSS_INTENTS;
 
         addLog(`API 요청 전송: POST ${checkoutUrl}`, "info");
-        if (checkoutUrl === API_RESERVATION || marketplaceIntentEndpoint) {
+        if (checkoutUrl === API_TOSS_INTENTS || marketplaceIntentEndpoint) {
             try {
                 addLog("[Toss] 결제창을 준비합니다.", "info");
                 await startTossPayment(requestBody, {
@@ -4631,7 +4979,8 @@
                     marketplaceEventId: marketplaceEvent ? marketplaceEvent.saleEventId : null
                 });
             } catch (e) {
-                addLog(`[Toss] 결제창 시작 실패: ${e.message}`, "error");
+                console.error("Detailed Toss Error:", e);
+                addLog(`[Toss] 결제창 시작 실패: ${e.message || e} (에러명: ${e.name || '알수없음'}, 코드: ${e.code || '없음'})`, "error");
                 try {
                     await fetch(`/api/system/seats/unlock?seatId=${encodeURIComponent(seatId)}&customerId=${encodeURIComponent(customerId)}`, {
                         method: 'POST'
@@ -5062,14 +5411,53 @@
         }
     }
 
+    // Global Category Filter
+    let currentCategoryFilter = 'ALL';
+    
+    // Product Image Resolver based on metadata/name
+    function getProductImage(event) {
+        const name = (event.title || "").toLowerCase();
+        const type = event.saleType || "";
+        if (name.includes("아이유") || name.includes("concert") || name.includes("콘서트") || type === "DROP" || event.productId.includes("CONCERT")) {
+            return "/concert_poster.png";
+        }
+        if (name.includes("나이키") || name.includes("조던") || name.includes("sneakers") || type === "RAFFLE" || event.productId.includes("DRAW")) {
+            return "/jordan_sneakers.png";
+        }
+        if (name.includes("롤렉스") || name.includes("시계") || name.includes("watch") || type === "AUCTION" || event.productId.includes("AUCTION")) {
+            return "/rolex_watch.png";
+        }
+        return "/concert_poster.png"; // Default fallback
+    }
+
+    // Category Filter Handler
+    window.filterMarketplaceByType = function(type) {
+        currentCategoryFilter = type;
+        
+        // Toggle active visual state on category navigation items
+        const categoryItems = document.querySelectorAll(".category-nav-item");
+        categoryItems.forEach(item => {
+            const onclickText = item.getAttribute("onclick") || "";
+            if (onclickText.includes(`'${type}'`)) {
+                item.classList.add("active");
+            } else {
+                item.classList.remove("active");
+            }
+        });
+        
+        renderMarketplaceProducts();
+    };
+
+    // Render Bunjang Cards Grid and Console Table
     async function renderMarketplaceProducts() {
         try {
             const res = await fetch("/api/marketplace/events");
             if (!res.ok) return;
             let events = await res.json();
             
-            // Get search filter value
-            const searchVal = document.getElementById("marketplace-search").value.trim().toLowerCase();
+            // 1. Filter by Search input
+            const searchInput = document.getElementById("marketplace-search");
+            const searchVal = searchInput ? searchInput.value.trim().toLowerCase() : "";
             if (searchVal) {
                 events = events.filter(e =>
                     (e.title || "").toLowerCase().includes(searchVal) ||
@@ -5078,70 +5466,130 @@
                 );
             }
             
-            // Get sort option
-            const sortVal = document.getElementById("marketplace-sort").value;
+            // 2. Filter by Category navigation
+            if (currentCategoryFilter === "TICKETING") {
+                events = events.filter(e => e.saleType === "DROP" || e.saleType === "FIXED_PRICE");
+            } else if (currentCategoryFilter === "DRAW") {
+                events = events.filter(e => e.saleType === "RAFFLE");
+            } else if (currentCategoryFilter === "AUCTION") {
+                events = events.filter(e => e.saleType === "AUCTION");
+            } else if (currentCategoryFilter === "SOLD") {
+                events = events.filter(e => {
+                    const pData = productsData[e.productId];
+                    return pData ? pData.redisAvailable <= 0 : e.availableQuantity <= 0;
+                });
+            }
+            
+            // 3. Sort by Sort dropdown
+            const sortSelect = document.getElementById("marketplace-sort");
+            const sortVal = sortSelect ? sortSelect.value : "default";
             if (sortVal === "name") {
                 events.sort((a, b) => a.title.localeCompare(b.title));
             } else if (sortVal === "price-asc") {
                 events.sort((a, b) => a.price - b.price);
             } else if (sortVal === "price-desc") {
                 events.sort((a, b) => b.price - a.price);
-            } else if (sortVal === "type-ticketing") {
-                events = events.filter(e => e.saleType === "DROP" || e.saleType === "FIXED_PRICE");
-            } else if (sortVal === "type-draw") {
-                events = events.filter(e => e.saleType === "RAFFLE");
-            } else if (sortVal === "type-auction") {
-                events = events.filter(e => e.saleType === "AUCTION");
             }
 
+            // Map events by product ID for quick access
             marketplaceEventByProductId = {};
             events.forEach(event => {
                 marketplaceEventByProductId[event.productId] = event;
             });
             
-            const rowsContainer = document.getElementById("marketplace-product-rows");
-            if (!rowsContainer) return;
-            
-            if (events.length === 0) {
-                rowsContainer.innerHTML = `
-                    <tr>
-                        <td colspan="6" style="text-align: center; color: #94a3b8; padding: 20px;">검색된 상품이 없습니다.</td>
-                    </tr>`;
-                return;
+            // 4. Render Bunjang Product Cards Grid on Storefront
+            const gridContainer = document.getElementById("marketplace-product-grid");
+            if (gridContainer) {
+                if (events.length === 0) {
+                    gridContainer.innerHTML = `
+                        <div style="grid-column:1/-1; text-align:center; color:var(--text-secondary); padding:40px; font-weight:700; font-size:0.85rem;">
+                            검색되거나 활성화된 상품이 없습니다.
+                        </div>`;
+                } else {
+                    gridContainer.innerHTML = events.map(event => {
+                        const imageSrc = getProductImage(event);
+                        const typeName = mapMarketplaceSaleTypeToLabel(event.saleType);
+                        
+                        let isSoldOut = false;
+                        let stockText = "";
+                        const pData = productsData[event.productId];
+                        if (pData) {
+                            isSoldOut = pData.redisAvailable <= 0;
+                            stockText = `남은 수량: ${pData.redisAvailable}개`;
+                        } else {
+                            isSoldOut = event.availableQuantity <= 0;
+                            stockText = `남은 수량: ${event.availableQuantity}개`;
+                        }
+                        
+                        let badgeClass = "";
+                        if (event.saleType === "RAFFLE") badgeClass = "raffle";
+                        else if (event.saleType === "AUCTION") badgeClass = "auction";
+                        if (isSoldOut) badgeClass = "sold";
+                        
+                        const badgeText = isSoldOut ? "품절" : typeName;
+                        
+                        return `
+                            <div class="bunjang-product-card" onclick="selectProductFromMarketplace('${event.productId}')">
+                                <div class="card-img-container">
+                                    <img src="${imageSrc}" alt="${event.title}">
+                                    <span class="card-badge ${badgeClass}">${badgeText}</span>
+                                </div>
+                                <div class="card-info">
+                                    <div class="card-title">${event.title}</div>
+                                    <div class="card-price-row">
+                                        <span class="card-price">${Number(event.price).toLocaleString()}원</span>
+                                        <span class="card-time">${stockText}</span>
+                                    </div>
+                                </div>
+                            </div>`;
+                    }).join('');
+                }
             }
             
-            rowsContainer.innerHTML = events.map(event => {
-                let typeName = mapMarketplaceSaleTypeToLabel(event.saleType);
-                let typeColor = event.saleType === 'AUCTION' ? '#ffa502' : event.saleType === 'RAFFLE' ? '#2ed573' : '#ff4757';
-                
-                // Inventory details from productsData if available
-                let stockText = "-";
-                const pData = productsData[event.productId];
-                if (pData) {
-                    stockText = `${pData.redisAvailable} / ${pData.redisTotal}`;
-                } else {
-                    stockText = `${event.availableQuantity} / ${event.totalQuantity}`;
+            // 5. Render DB Status table inside developer drawer
+            const rowsContainer = document.getElementById("marketplace-product-rows");
+            if (rowsContainer) {
+                if (events.length === 0) {
+                    rowsContainer.innerHTML = `
+                        <tr>
+                            <td colspan="6" style="text-align: center; color: #94a3b8; padding: 20px;">검색된 상품이 없습니다.</td>
+                        </tr>`;
+                    return;
                 }
+                
+                rowsContainer.innerHTML = events.map(event => {
+                    let typeName = mapMarketplaceSaleTypeToLabel(event.saleType);
+                    let typeColor = event.saleType === 'AUCTION' ? '#ffa502' : event.saleType === 'RAFFLE' ? '#2ed573' : '#ff4757';
+                    
+                    let stockText = "-";
+                    const pData = productsData[event.productId];
+                    if (pData) {
+                        stockText = `${pData.redisAvailable} / ${pData.redisTotal}`;
+                    } else {
+                        stockText = `${event.availableQuantity} / ${event.totalQuantity}`;
+                    }
 
-                return `
-                    <tr style="cursor: pointer;" onclick="selectProductFromMarketplace('${event.productId}')">
-                        <td style="padding: 12px 8px; font-weight:700; color:var(--text-secondary);">${event.productId}</td>
-                        <td style="padding: 12px 8px; font-weight:600;">${event.title}</td>
-                        <td style="padding: 12px 8px;">
-                            <span class="category-tag" style="padding: 2px 6px; font-size: 0.65rem; margin-bottom: 0; background-color: ${typeColor}; color: white;">${typeName}</span>
-                        </td>
-                        <td style="padding: 12px 8px; font-weight:700; color:var(--color-primary);">${Number(event.price).toLocaleString()}원</td>
-                        <td style="padding: 12px 8px; font-weight: 600;">${stockText}</td>
-                        <td style="padding: 12px 8px; text-align:center;">
-                            <button type="button" class="btn" style="width: auto; font-size: 0.7rem; padding: 4px 8px; background: var(--color-primary); color: white; border: none; border-radius: 4px; font-weight:700;">선택</button>
-                        </td>
-                    </tr>`;
-            }).join('');
+                    return `
+                        <tr style="cursor: pointer;" onclick="selectProductFromMarketplace('${event.productId}')">
+                            <td style="padding: 10px 4px; font-weight:700; color:#cbd5e1;">${event.productId}</td>
+                            <td style="padding: 10px 4px; font-weight:600; color:white;">${event.title}</td>
+                            <td style="padding: 10px 4px;">
+                                <span class="category-tag" style="padding: 2px 6px; font-size: 0.65rem; margin-bottom: 0; background-color: ${typeColor}; color: white; border-radius:4px;">${typeName}</span>
+                            </td>
+                            <td style="padding: 10px 4px; font-weight:700; color:var(--color-primary);">${Number(event.price).toLocaleString()}원</td>
+                            <td style="padding: 10px 4px; font-weight: 600; color:#e2e8f0;">${stockText}</td>
+                            <td style="padding: 10px 4px; text-align:center;">
+                                <button type="button" class="btn" style="width: auto; font-size: 0.65rem; padding: 2px 6px; background: var(--color-primary); color: white; border: none; border-radius: 4px; font-weight:700; cursor:pointer;">선택</button>
+                            </td>
+                        </tr>`;
+                }).join('');
+            }
         } catch (e) {
             console.error("Failed to render marketplace products:", e);
         }
     }
 
+    // Select Product from Storefront Card and Open Modal
     window.selectProductFromMarketplace = async function(eventId) {
         addLog(`[마켓플레이스] 상품 ${eventId} 선택 중...`, "info");
         try {
@@ -5168,12 +5616,39 @@
                 await updateActiveEventView();
                 await loadSystemStatus();
                 
-                switchMainTab('storefront');
+                // Open Bunjang detail modal
+                const modal = document.getElementById("product-detail-modal");
+                if (modal) {
+                    modal.style.display = "flex";
+                }
             } else {
                 addLog(`[마켓플레이스 선택 실패] ${data.message}`, "error");
             }
         } catch (e) {
             addLog(`[마켓플레이스 선택 오류] ${e.message}`, "error");
+        }
+    };
+
+    // Modal Close Helpers
+    window.closeProductDetailModal = function() {
+        const modal = document.getElementById("product-detail-modal");
+        if (modal) {
+            modal.style.display = "none";
+        }
+    };
+    
+    window.handleModalOverlayClick = function(event) {
+        const modal = document.getElementById("product-detail-modal");
+        if (event.target === modal) {
+            closeProductDetailModal();
+        }
+    };
+
+    // Collapsible Console Drawer Toggle
+    window.toggleSimConsoleDrawer = function() {
+        const drawer = document.getElementById("sim-console-drawer");
+        if (drawer) {
+            drawer.classList.toggle("open");
         }
     };
 
@@ -5215,7 +5690,23 @@
     async function checkAuthAndInit() {
         try {
             const res = await fetch("/api/simulation/auth/status");
-            if (!res.ok) return;
+            if (!res.ok) {
+                console.log("Simulation auth endpoint is disabled. Unlocking dashboard by default.");
+                const loginOverlay = document.getElementById("login-overlay");
+                const subOverlay = document.getElementById("subscribe-overlay");
+                if (loginOverlay) loginOverlay.style.display = "none";
+                if (subOverlay) subOverlay.style.display = "none";
+                isUnlocked = true;
+                
+                generateCustomer();
+                buildSeatMaps();
+                await populateEventDropdown();
+                await renderRegisteredProducts();
+                await updateActiveEventView();
+                await loadSystemStatus();
+                await pollMerchantOrders();
+                return;
+            }
             const data = await res.json();
             
             const loginOverlay = document.getElementById("login-overlay");
@@ -5244,7 +5735,20 @@
                 await pollMerchantOrders();
             }
         } catch(e) {
-            console.error("Auth check failed:", e);
+            console.error("Auth check failed, unlocking dashboard by default:", e);
+            const loginOverlay = document.getElementById("login-overlay");
+            const subOverlay = document.getElementById("subscribe-overlay");
+            if (loginOverlay) loginOverlay.style.display = "none";
+            if (subOverlay) subOverlay.style.display = "none";
+            isUnlocked = true;
+            
+            generateCustomer();
+            buildSeatMaps();
+            await populateEventDropdown();
+            await renderRegisteredProducts();
+            await updateActiveEventView();
+            await loadSystemStatus();
+            await pollMerchantOrders();
         }
     }
 
@@ -5304,6 +5808,12 @@
                     (prod.category === 'TICKETING' ? '티켓예매' : prod.category === 'DRAW' ? '드로우' : '경매');
                 const listingStatusLabel = mapListingStatusToLabel(prod.status);
                 const canShare = prod.status === "ACTIVE";
+                const isPending = prod.status === "PENDING_REVIEW";
+                
+                const actionButton = isPending ? 
+                    `<button type="button" class="btn" style="width: auto; font-size: 0.65rem; padding: 2px 6px; background: #10B981; color: white; border: none; border-radius: 4px; font-weight:700; cursor:pointer;" onclick="approveProductListing('${prod.listingId}')">즉시 승인</button>` :
+                    `<button type="button" class="btn" style="width: auto; font-size: 0.65rem; padding: 2px 6px; background: ${canShare ? 'var(--color-primary)' : '#cbd5e1'}; color: white; border: none; border-radius: 4px; font-weight:700; cursor:${canShare ? 'pointer' : 'not-allowed'};" ${canShare ? `onclick="copyCustomShareLink('${prod.productId}')"` : 'disabled'}>공유</button>`;
+
                 return `
                     <tr>
                         <td style="padding: 4px 6px; font-weight:700; color:var(--text-secondary);">${prod.productId}</td>
@@ -5314,13 +5824,38 @@
                         <td style="padding: 4px 6px; font-weight:700; color:var(--color-primary);">${Number(prod.price).toLocaleString()}원</td>
                         <td style="padding: 4px 6px;">${prod.availableQuantity} / ${prod.totalQuantity}</td>
                         <td style="padding: 4px 6px; text-align:center;">
-                            <div style="font-size:0.62rem; color:#64748b; font-weight:700; margin-bottom:4px;">${listingStatusLabel}</div>
-                            <button type="button" class="btn" style="width: auto; font-size: 0.65rem; padding: 2px 6px; background: ${canShare ? 'var(--color-primary)' : '#cbd5e1'}; color: white; border: none; border-radius: 4px; font-weight:700; cursor:${canShare ? 'pointer' : 'not-allowed'};" ${canShare ? `onclick="copyCustomShareLink('${prod.productId}')"` : 'disabled'}>공유</button>
+                            <div style="font-size:0.62rem; color:${isPending ? '#f59e0b' : '#64748b'}; font-weight:700; margin-bottom:4px;">${listingStatusLabel}</div>
+                            ${actionButton}
                         </td>
                     </tr>`;
             }).join('');
         } catch (e) {
             console.error("Failed to render registered products:", e);
+        }
+    }
+
+    window.approveProductListing = async function(listingId) {
+        try {
+            const res = await fetch(`/api/sellers/moderation/listings/${listingId}/approve`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    operatorId: "ADMIN-SIMULATOR",
+                    note: "시뮬레이터 자동 승인"
+                })
+            });
+            if (res.ok) {
+                alert("상품이 플랫폼 관리자에 의해 성공적으로 승인되어 활성화되었습니다!");
+                await renderRegisteredProducts();
+                await renderMarketplaceProducts();
+                await populateEventDropdown();
+            } else {
+                const data = await res.json();
+                alert(`승인 실패: ${data.message || "권한이 없거나 오류가 발생했습니다."}`);
+            }
+        } catch(e) {
+            console.error("Failed to approve listing:", e);
+            alert("통신 오류가 발생했습니다.");
         }
     }
 

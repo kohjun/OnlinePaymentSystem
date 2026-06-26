@@ -96,6 +96,9 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/", "/index.html", "/shared.html", "/*.css", "/*.js", "/*.png", "/*.ico", "/error").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/system/health", "/api/system/health/**", "/api/system/readiness", "/api/payments/health").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
+                        .requestMatchers("/actuator/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/payments/toss/webhooks/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/marketplace/events/**", "/api/simulation/events/**", "/api/simulation/auction/status").permitAll()
                         .requestMatchers("/api/simulation/auth/**").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")

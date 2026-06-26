@@ -36,9 +36,10 @@ import static org.mockito.Mockito.when;
  * 1. 결제 실패 시 -> 재고 롤백 검증
  * 2. 예약 성공 후 취소 시 -> 재고 롤백 및 환불 검증
  */
+@org.junit.jupiter.api.Tag("integration")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Transactional // 테스트 후 DB 롤백 (JPA 데이터)
-class SagaScenarioTest {
+class SagaScenarioTest extends TestcontainersIntegrationSupport {
 
     @LocalServerPort
     private int port;

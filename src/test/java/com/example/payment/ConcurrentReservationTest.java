@@ -31,9 +31,10 @@ import static org.mockito.Mockito.when;
  * [수정]
  * 1. MockPaymentGateway를 MockBean으로 만들어 10% 랜덤 실패를 제거 (테스트 안정성 확보)
  */
+@org.junit.jupiter.api.Tag("integration")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class ConcurrentReservationTest {
+class ConcurrentReservationTest extends TestcontainersIntegrationSupport {
 
     @LocalServerPort
     private int port;

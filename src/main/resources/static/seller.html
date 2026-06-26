@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>에브리세일 판매자 센터 - Partner 대시보드</title>
+    <!-- Google Fonts: Inter and Outfit -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Outfit:wght@600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --color-primary: #FF5058; /* 번개장터 크림슨 전문 색상 */
+            --color-primary-hover: #E0444C;
+            --color-success: #10B981;
+            --color-warning: #F59E0B;
+            --color-danger: #EF4444;
+            --color-bg: #F8F9FA;
+            --color-card: #FFFFFF;
+            --text-primary: #1E293B;
+            --text-secondary: #64748B;
+            --border-color: #E2E8F0;
+            --font-main: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-main);
+            background-color: var(--color-bg);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.5;
+        }
+
+        /* Premium Header */
+        header {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border-color);
+            padding: 14px 24px;
+        }
+
+        .header-container {
+            max-width: 1280px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .logo-badge {
+            background-color: var(--color-primary);
+            color: white;
+            padding: 4px 8px;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 800;
+            font-size: 0.85rem;
+            border-radius: 6px;
+            letter-spacing: 0.5px;
+        }
+
+        .logo-title {
+            font-size: 1.05rem;
+            font-weight: 800;
+            color: var(--text-primary);
+        }
+
+        .nav-links a {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: var(--color-primary);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 6px 12px;
+            border: 1.5px solid var(--color-primary);
+            border-radius: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .nav-links a:hover {
+            background-color: var(--color-primary);
+            color: white;
+            box-shadow: 0 4px 12px rgba(255, 80, 88, 0.2);
+        }
+
+        /* Main Layout */
+        main {
+            max-width: 1280px;
+            margin: 24px auto;
+            padding: 0 24px;
+            display: grid;
+            grid-template-columns: 1fr 1.6fr;
+            gap: 24px;
+        }
+
+        @media (max-width: 1024px) {
+            main {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Premium Cards */
+        .glass-card {
+            background: var(--color-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 4px 18px rgba(30, 41, 59, 0.03);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .card-heading {
+            font-size: 1.05rem;
+            font-weight: 800;
+            color: var(--text-primary);
+            border-bottom: 2px solid var(--color-bg);
+            padding-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* Form styling */
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        label {
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: #475569;
+        }
+
+        .form-control {
+            width: 100%;
+            height: 38px;
+            font-size: 0.85rem;
+            padding: 8px 12px;
+            border: 1.5px solid var(--border-color);
+            border-radius: 10px;
+            outline: none;
+            color: var(--text-primary);
+            background-color: white;
+            transition: border-color 0.2s ease;
+        }
+
+        .form-control:focus {
+            border-color: var(--color-primary);
+        }
+
+        select.form-control {
+            cursor: pointer;
+        }
+
+        /* Dynamic Options Panel */
+        #dynamic-options-container {
+            border: 1.5px solid rgba(255, 80, 88, 0.2);
+            background-color: rgba(255, 80, 88, 0.03);
+            border-radius: 12px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        /* Table styles */
+        .table-container {
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow: hidden;
+            background-color: white;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8rem;
+        }
+
+        th {
+            background-color: #f8f9fa;
+            padding: 10px 12px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border-color);
+            color: var(--text-primary);
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* Badges & Buttons */
+        .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            font-size: 0.68rem;
+            font-weight: 700;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .badge-type {
+            background-color: rgba(255, 80, 88, 0.1);
+            color: var(--color-primary);
+        }
+
+        .badge-status {
+            font-weight: 800;
+        }
+
+        .badge-pending {
+            color: var(--color-warning);
+        }
+
+        .badge-active {
+            color: var(--color-success);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 40px;
+            font-size: 0.9rem;
+            font-weight: 700;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-primary {
+            background-color: var(--color-primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: var(--color-primary-hover);
+            box-shadow: 0 4px 12px rgba(255, 80, 88, 0.2);
+        }
+
+        .btn-action {
+            height: 28px;
+            font-size: 0.72rem;
+            padding: 0 10px;
+            border-radius: 6px;
+            width: auto;
+        }
+
+        .btn-approve {
+            background-color: var(--color-success);
+            color: white;
+        }
+
+        .btn-approve:hover {
+            background-color: #059669;
+            box-shadow: 0 4px 10px rgba(16, 185, 129, 0.2);
+        }
+
+        .btn-share {
+            background-color: var(--color-primary);
+            color: white;
+        }
+
+        .btn-share:hover {
+            background-color: var(--color-primary-hover);
+        }
+
+        .btn-disabled {
+            background-color: #cbd5e1;
+            color: #94a3b8;
+            cursor: not-allowed;
+        }
+
+        .scrollable-card {
+            max-height: 280px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <header>
+        <div class="header-container">
+            <div class="logo-section">
+                <span class="logo-badge">EverySale</span>
+                <span class="logo-title">파트너 운영 콘솔</span>
+            </div>
+            <div class="nav-links">
+                <a href="index.html">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+                    쇼핑몰 홈 바로가기
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Grid -->
+    <main>
+        <!-- Left: Product Registration Form -->
+        <section class="glass-card">
+            <h2 class="card-heading">신규 상품 등록</h2>
+            <form id="form-product-register" onsubmit="return false;" style="display: flex; flex-direction: column; gap: 12px;">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="reg-name">상품명 (Title)</label>
+                        <input type="text" id="reg-name" class="form-control" placeholder="예: 유희왕 카드 한정판">
+                    </div>
+                    <div class="form-group">
+                        <label for="reg-category">판매 유형 (Type)</label>
+                        <select id="reg-category" class="form-control">
+                            <option value="TICKETING" selected>티켓예매 (Ticketing)</option>
+                            <option value="DRAW">선착순래플 (Draw)</option>
+                            <option value="AUCTION">실시간경매 (Auction)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="reg-price">가격 (Price, KRW)</label>
+                        <input type="number" id="reg-price" class="form-control" placeholder="예: 150000">
+                    </div>
+                    <div class="form-group">
+                        <label for="reg-qty">재고/좌석 수 (Inventory)</label>
+                        <input type="number" id="reg-qty" class="form-control" placeholder="예: 50" value="50">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="reg-desc">상세 설명 (Description)</label>
+                    <input type="text" id="reg-desc" class="form-control" placeholder="예: 미개봉 새제품 한정판 거래입니다.">
+                </div>
+
+                <!-- Dynamic Options Container -->
+                <div id="dynamic-options-container">
+                    <!-- Loaded dynamically via JS -->
+                </div>
+
+                <button type="button" id="btn-register-submit" class="btn btn-primary" style="margin-top: 6px;">
+                    신규 상품 등록 완료
+                </button>
+            </form>
+        </section>
+
+        <!-- Right: Registered Products and Live Orders -->
+        <div style="display: flex; flex-direction: column; gap: 24px;">
+            <!-- Registered Products List -->
+            <section class="glass-card">
+                <h2 class="card-heading">등록된 상품 현황</h2>
+                <div class="table-container scrollable-card" style="max-height: 240px;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width: 15%;">상품 ID</th>
+                                <th style="width: 25%;">상품명</th>
+                                <th style="width: 15%;">유형</th>
+                                <th style="width: 15%;">가격</th>
+                                <th style="width: 15%;">재고 현황</th>
+                                <th style="width: 15%; text-align: center;">상태/승인</th>
+                            </tr>
+                        </thead>
+                        <tbody id="saas-product-rows">
+                            <tr>
+                                <td colspan="6" style="text-align: center; color: #94a3b8; padding: 20px;">등록된 상품이 없습니다.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Real-time Order Monitoring -->
+            <section class="glass-card">
+                <div class="card-heading">
+                    <span>실시간 주문 모니터링</span>
+                    <input type="text" id="order-search-cust" class="form-control" style="width: 200px; height: 28px; font-size: 0.75rem; padding: 2px 8px; border-radius: 6px; margin: 0;" placeholder="고객 ID 검색...">
+                </div>
+                <div class="table-container scrollable-card" style="max-height: 260px;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width: 18%;">주문 시간</th>
+                                <th style="width: 18%;">고객 ID</th>
+                                <th style="width: 22%;">상품명</th>
+                                <th style="width: 16%;">선점/입찰</th>
+                                <th style="width: 14%;">금액</th>
+                                <th style="width: 12%;">상태</th>
+                            </tr>
+                        </thead>
+                        <tbody id="saas-order-rows">
+                            <tr>
+                                <td colspan="6" style="text-align: center; color: #94a3b8; padding: 20px;">등록된 주문 내역이 없습니다.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Business JS Logic -->
+    <script>
+        const DEFAULT_SELLER_ID = "SELLER-EVERYSALE-CURATED";
+
+        // Mappings
+        function mapLegacyCategoryToSaleType(cat) {
+            if (cat === "TICKETING") return "FIXED_PRICE";
+            if (cat === "DRAW") return "RAFFLE";
+            if (cat === "AUCTION") return "AUCTION";
+            return "FIXED_PRICE";
+        }
+
+        function mapMarketplaceSaleTypeToLabel(type) {
+            if (type === "FIXED_PRICE" || type === "DROP") return "티켓예매";
+            if (type === "RAFFLE") return "드로우";
+            if (type === "AUCTION") return "경매";
+            return type;
+        }
+
+        function mapListingStatusToLabel(status) {
+            if (status === "PENDING_REVIEW") return "검수 대기";
+            if (status === "ACTIVE") return "승인 완료";
+            if (status === "REJECTED") return "반려됨";
+            if (status === "PAUSED") return "판매 일시중지";
+            if (status === "ENDED") return "판매 종료";
+            return status;
+        }
+
+        // Helper to format currency
+        function formatKRW(val) {
+            return Number(val).toLocaleString() + "원";
+        }
+
+        // Timezone corrected local date string
+        function getLocalDateTimeString(addHours = 0) {
+            const now = new Date();
+            if (addHours !== 0) {
+                now.setHours(now.getHours() + addHours);
+            }
+            const tzOffset = now.getTimezoneOffset() * 60000;
+            const localISOTime = (new Date(now.getTime() - tzOffset)).toISOString().slice(0, 16);
+            return localISOTime;
+        }
+
+        // Render type-specific options
+        window.updateDynamicRegistrationFields = function(category) {
+            const container = document.getElementById("dynamic-options-container");
+            if (!container) return;
+
+            if (category === "TICKETING") {
+                container.innerHTML = `
+                    <div class="form-group">
+                        <label>관람 등급 (Age Limit)</label>
+                        <select id="opt-age-limit" class="form-control" style="height:32px; font-size:0.8rem; padding: 4px 8px;">
+                            <option value="전체 관람가">전체 관람가</option>
+                            <option value="만 7세 이상 관람가" selected>만 7세 이상 관람가</option>
+                            <option value="만 12세 이상 관람가">만 12세 이상 관람가</option>
+                            <option value="만 15세 이상 관람가">만 15세 이상 관람가</option>
+                            <option value="청소년 관람불가">청소년 관람불가</option>
+                        </select>
+                    </div>
+                    <div class="form-row" style="margin-top: 4px;">
+                        <div class="form-group">
+                            <label>예매 시작 일시</label>
+                            <input type="datetime-local" id="opt-starts-at" class="form-control" style="height:32px; font-size:0.8rem;" value="${getLocalDateTimeString(0)}">
+                        </div>
+                        <div class="form-group">
+                            <label>예매 종료 일시</label>
+                            <input type="datetime-local" id="opt-ends-at" class="form-control" style="height:32px; font-size:0.8rem;" value="${getLocalDateTimeString(24 * 7)}">
+                        </div>
+                    </div>
+                `;
+            } else if (category === "DRAW") {
+                container.innerHTML = `
+                    <div class="form-group">
+                        <label>상품 상태 (Condition)</label>
+                        <select id="opt-condition" class="form-control" style="height:32px; font-size:0.8rem; padding: 4px 8px;">
+                            <option value="NEW" selected>NEW (새 상품)</option>
+                            <option value="LIKE_NEW">LIKE NEW (미개봉/새상품급)</option>
+                            <option value="USED">USED (중고 상품)</option>
+                        </select>
+                    </div>
+                    <div class="form-row" style="margin-top: 4px;">
+                        <div class="form-group">
+                            <label>래플 시작 일시</label>
+                            <input type="datetime-local" id="opt-starts-at" class="form-control" style="height:32px; font-size:0.8rem;" value="${getLocalDateTimeString(0)}">
+                        </div>
+                        <div class="form-group">
+                            <label>래플 종료 일시</label>
+                            <input type="datetime-local" id="opt-ends-at" class="form-control" style="height:32px; font-size:0.8rem;" value="${getLocalDateTimeString(24)}">
+                        </div>
+                    </div>
+                `;
+            } else if (category === "AUCTION") {
+                container.innerHTML = `
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>최소 입찰 단위 (원)</label>
+                            <input type="number" id="opt-min-bid" class="form-control" style="height:32px; font-size:0.8rem;" placeholder="예: 100000" value="100000">
+                        </div>
+                        <div class="form-group">
+                            <label>최저 낙찰가/시작가 (원)</label>
+                            <input type="number" id="opt-reserve-price" class="form-control" style="height:32px; font-size:0.8rem;" placeholder="예: 8500000" value="8500000">
+                        </div>
+                    </div>
+                    <div class="form-row" style="margin-top: 4px;">
+                        <div class="form-group">
+                            <label>경매 시작 일시</label>
+                            <input type="datetime-local" id="opt-starts-at" class="form-control" style="height:32px; font-size:0.8rem;" value="${getLocalDateTimeString(0)}">
+                        </div>
+                        <div class="form-group">
+                            <label>경매 종료 일시</label>
+                            <input type="datetime-local" id="opt-ends-at" class="form-control" style="height:32px; font-size:0.8rem;" value="${getLocalDateTimeString(2)}">
+                        </div>
+                    </div>
+                `;
+            }
+        };
+
+        // Render Registered Listings Table
+        async function renderRegisteredProducts() {
+            try {
+                const res = await fetch(`/api/sellers/${encodeURIComponent(DEFAULT_SELLER_ID)}/listings`);
+                if (!res.ok) return;
+                const products = await res.json();
+                const rowsContainer = document.getElementById("saas-product-rows");
+                if (!rowsContainer) return;
+
+                if (products.length === 0) {
+                    rowsContainer.innerHTML = `
+                        <tr>
+                            <td colspan="6" style="text-align: center; color: #94a3b8; padding: 20px;">등록된 상품이 없습니다.</td>
+                        </tr>`;
+                    return;
+                }
+
+                rowsContainer.innerHTML = products.map(prod => {
+                    let typeName = prod.saleType ? mapMarketplaceSaleTypeToLabel(prod.saleType) :
+                        (prod.category === 'TICKETING' ? '티켓예매' : prod.category === 'DRAW' ? '드로우' : '경매');
+                    const listingStatusLabel = mapListingStatusToLabel(prod.status);
+                    const canShare = prod.status === "ACTIVE";
+                    const isPending = prod.status === "PENDING_REVIEW";
+
+                    const actionButton = isPending ?
+                        `<button type="button" class="btn btn-action btn-approve" onclick="approveProductListing('${prod.listingId}')">즉시 승인</button>` :
+                        `<button type="button" class="btn btn-action ${canShare ? 'btn-share' : 'btn-disabled'}" ${canShare ? `onclick="copyCustomShareLink('${prod.productId}')"` : 'disabled'}>공유</button>`;
+
+                    return `
+                        <tr>
+                            <td style="font-weight:700; color:var(--text-secondary);">${prod.productId}</td>
+                            <td style="font-weight:600;">${prod.name}</td>
+                            <td><span class="badge badge-type">${typeName}</span></td>
+                            <td style="font-weight:700; color:var(--color-primary);">${Number(prod.price).toLocaleString()}원</td>
+                            <td>${prod.availableQuantity} / ${prod.totalQuantity}</td>
+                            <td style="text-align:center;">
+                                <div class="badge badge-status ${isPending ? 'badge-pending' : 'badge-active'}" style="margin-bottom:4px;">${listingStatusLabel}</div>
+                                <div>${actionButton}</div>
+                            </td>
+                        </tr>`;
+                }).join('');
+            } catch (e) {
+                console.error("Failed to render registered products:", e);
+            }
+        }
+
+        // Approve Listing
+        window.approveProductListing = async function(listingId) {
+            try {
+                const res = await fetch(`/api/sellers/moderation/listings/${listingId}/approve`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        operatorId: "ADMIN-SIMULATOR",
+                        note: "시뮬레이터 자동 승인"
+                    })
+                });
+                if (res.ok) {
+                    alert("상품이 성공적으로 검수 승인되어 마켓플레이스에 활성화되었습니다!");
+                    await renderRegisteredProducts();
+                } else {
+                    const data = await res.json();
+                    alert(`승인 실패: ${data.message || "권한이 없거나 오류가 발생했습니다."}`);
+                }
+            } catch(e) {
+                console.error("Failed to approve listing:", e);
+                alert("통신 오류가 발생했습니다.");
+            }
+        }
+
+        // Copy Share Link
+        window.copyCustomShareLink = function(productId) {
+            const shareUrl = `${window.location.origin}/shared.html?productId=${productId}`;
+            navigator.clipboard.writeText(shareUrl).then(() => {
+                alert(`홍보 공유 링크가 복사되었습니다!\n${shareUrl}`);
+            }).catch(err => {
+                const textarea = document.createElement("textarea");
+                textarea.value = shareUrl;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand("copy");
+                document.body.removeChild(textarea);
+                alert(`홍보 공유 링크가 복사되었습니다!\n${shareUrl}`);
+            });
+        }
+
+        // Poll incoming orders
+        async function pollMerchantOrders() {
+            const listContainer = document.getElementById("saas-order-rows");
+            if (!listContainer) return;
+
+            try {
+                const res = await fetch(`/api/sellers/${encodeURIComponent(DEFAULT_SELLER_ID)}/orders`);
+                if (!res.ok) return;
+                const orders = await res.json();
+
+                const searchVal = document.getElementById("order-search-cust").value.trim().toLowerCase();
+                const filtered = orders.filter(o => {
+                    if (!searchVal) return true;
+                    return o.customerId.toLowerCase().includes(searchVal);
+                });
+
+                if (filtered.length === 0) {
+                    listContainer.innerHTML = `
+                        <tr>
+                            <td colspan="6" style="text-align: center; color: #94a3b8; padding: 20px;">주문 내역이 없습니다.</td>
+                        </tr>`;
+                    return;
+                }
+
+                listContainer.innerHTML = filtered.map(o => {
+                    const dateStr = o.createdAt ? o.createdAt.substring(11, 19) : "-"; // HH:mm:ss
+                    let statusBadge = "";
+                    if (o.status === "CONFIRMED") {
+                        statusBadge = `<span class="badge" style="background-color:rgba(16, 185, 129, 0.1); color:var(--color-success);">완료</span>`;
+                    } else if (o.status === "CANCELLED") {
+                        statusBadge = `<span class="badge" style="background-color:rgba(239, 68, 68, 0.1); color:var(--color-danger);">취소</span>`;
+                    } else {
+                        statusBadge = `<span class="badge" style="background-color:rgba(245, 158, 11, 0.1); color:var(--color-warning);">진행중</span>`;
+                    }
+
+                    return `
+                        <tr>
+                            <td style="color:var(--text-secondary);">${dateStr}</td>
+                            <td style="font-weight:700;">${o.customerId}</td>
+                            <td style="font-weight:600;">${o.productName}</td>
+                            <td><span class="badge badge-type" style="background-color:#f1f5f9; color:#475569;">${o.seatId || "일반"}</span></td>
+                            <td style="font-weight:700; color:var(--color-primary);">${Number(o.price).toLocaleString()}원</td>
+                            <td>${statusBadge}</td>
+                        </tr>`;
+                }).join('');
+            } catch (e) {
+                console.error("Failed to poll merchant orders:", e);
+            }
+        }
+
+        // Initialize Page
+        document.addEventListener("DOMContentLoaded", async () => {
+            const regCategory = document.getElementById("reg-category");
+            if (regCategory) {
+                regCategory.addEventListener("change", (e) => {
+                    window.updateDynamicRegistrationFields(e.target.value);
+                });
+                window.updateDynamicRegistrationFields(regCategory.value);
+            }
+
+            // Register Submit
+            const btnRegisterSubmit = document.getElementById("btn-register-submit");
+            if (btnRegisterSubmit) {
+                btnRegisterSubmit.addEventListener("click", async () => {
+                    const name = document.getElementById("reg-name").value.trim();
+                    const category = document.getElementById("reg-category").value;
+                    const price = parseFloat(document.getElementById("reg-price").value);
+                    const qty = parseInt(document.getElementById("reg-qty").value);
+                    const desc = document.getElementById("reg-desc").value.trim();
+
+                    if (!name || isNaN(price) || isNaN(qty)) {
+                        alert("올바른 정보를 모두 입력해 주세요.");
+                        return;
+                    }
+
+                    let requestBody = {
+                        name,
+                        category,
+                        price,
+                        quantity: qty,
+                        description: desc,
+                        saleType: mapLegacyCategoryToSaleType(category),
+                        publishImmediately: true
+                    };
+
+                    const startsAtVal = document.getElementById("opt-starts-at")?.value;
+                    const endsAtVal = document.getElementById("opt-ends-at")?.value;
+                    if (startsAtVal) requestBody.startsAt = startsAtVal;
+                    if (endsAtVal) requestBody.endsAt = endsAtVal;
+
+                    if (category === "TICKETING") {
+                        const ageLimit = document.getElementById("opt-age-limit")?.value;
+                        if (ageLimit) requestBody.itemCondition = ageLimit;
+                    } else if (category === "DRAW") {
+                        const condition = document.getElementById("opt-condition")?.value;
+                        if (condition) requestBody.itemCondition = condition;
+                    } else if (category === "AUCTION") {
+                        const minBid = parseFloat(document.getElementById("opt-min-bid")?.value);
+                        const reserve = parseFloat(document.getElementById("opt-reserve-price")?.value);
+                        if (!isNaN(minBid)) requestBody.minBidIncrement = minBid;
+                        if (!isNaN(reserve)) requestBody.reservePrice = reserve;
+                    }
+
+                    try {
+                        const res = await fetch(`/api/sellers/${encodeURIComponent(DEFAULT_SELLER_ID)}/listings`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(requestBody)
+                        });
+
+                        if (res.ok) {
+                            const data = await res.json();
+                            alert(`상품 등록 성공!\n등록된 상품 ID: ${data.productId}\n현재 상태: 검수 대기`);
+                            document.getElementById("reg-name").value = '';
+                            document.getElementById("reg-price").value = '';
+                            document.getElementById("reg-qty").value = '50';
+                            document.getElementById("reg-desc").value = '';
+
+                            window.updateDynamicRegistrationFields(category);
+                            await renderRegisteredProducts();
+                        } else {
+                            const data = await res.json();
+                            alert(`등록 실패: ${data.message}`);
+                        }
+                    } catch (e) {
+                        alert("등록 중 통신 장애가 발생했습니다.");
+                    }
+                });
+            }
+
+            // Bind search
+            const orderSearchCust = document.getElementById("order-search-cust");
+            if (orderSearchCust) {
+                orderSearchCust.addEventListener("input", pollMerchantOrders);
+            }
+
+            // Initial load & Polling
+            await renderRegisteredProducts();
+            await pollMerchantOrders();
+            setInterval(pollMerchantOrders, 4000);
+            setInterval(renderRegisteredProducts, 5000);
+        });
+    </script>
+</body>
+</html>

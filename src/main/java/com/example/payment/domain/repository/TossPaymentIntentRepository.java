@@ -17,6 +17,8 @@ public interface TossPaymentIntentRepository extends JpaRepository<TossPaymentIn
 
     Optional<TossPaymentIntent> findByOrderId(String orderId);
 
+    Optional<TossPaymentIntent> findByPaymentKey(String paymentKey);
+
     Optional<TossPaymentIntent> findByWorkflowId(String workflowId);
 
     @Query("""

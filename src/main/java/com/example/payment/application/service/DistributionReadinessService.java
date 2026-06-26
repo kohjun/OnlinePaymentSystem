@@ -50,6 +50,7 @@ public class DistributionReadinessService {
         ));
         checks.add(javaVersionCheck());
         checks.add(gatewayCheck());
+        checks.add(tossWebhookCheck(productionMode));
         checks.add(publicCompleteApiCheck(productionMode));
         checks.add(legacyMarketplaceCheckoutCheck(productionMode));
         checks.add(legacyPaymentApiCheck(productionMode));
@@ -189,6 +190,22 @@ public class DistributionReadinessService {
                 pass
                         ? "Direct /api/reservations/complete is disabled for public checkout."
                         : "Direct /api/reservations/complete is exposed and can bypass Toss confirm."
+        );
+    }
+
+    private ReadinessCheck tossWebhookCheck(boolean productionMode) {
+        boolean enabled = boolProperty("payment.toss.webhook.enabled", false);
+        String token = property("payment.toss.webhook.path-token", "");
+        boolean tokenStrong = hasText(token) && token.length() >= 32 && !looksUnresolved(token);
+        boolean pass = enabled && tokenStrong;
+        return new ReadinessCheck(
+                "toss-webhook-configured",
+                "Toss Payments webhook",
+                pass ? "PASS" : (productionMode ? "FAIL" : "WARN"),
+                productionMode && !pass,
+                pass
+                        ? "Toss webhook endpoint is enabled with a high-entropy path token."
+                        : "Toss webhook endpoint is not ready. Enable it and set TOSS_WEBHOOK_PATH_TOKEN to at least 32 characters."
         );
     }
 

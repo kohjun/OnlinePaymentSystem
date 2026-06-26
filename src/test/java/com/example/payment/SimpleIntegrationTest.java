@@ -29,6 +29,7 @@ import static org.mockito.ArgumentMatchers.any;
  * 2. WalLogJpaRepository MockBean 제거 (NPE 오류 수정)
  * 3. 연속 예약 테스트 제거 (단일 예약에 집중)
  */
+@org.junit.jupiter.api.Tag("integration")
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
@@ -37,7 +38,7 @@ import static org.mockito.ArgumentMatchers.any;
         }
 )
 @Transactional // 테스트 후 DB 롤백 (H2)
-class SimpleIntegrationTest {
+class SimpleIntegrationTest extends TestcontainersIntegrationSupport {
 
     @LocalServerPort
     private int port;

@@ -35,6 +35,10 @@ payment:
   allow-gateway-fallback: false
   legacy-api:
     enabled: false
+  toss:
+    webhook:
+      enabled: true
+      path-token: ${TOSS_WEBHOOK_PATH_TOKEN}
 ```
 
 ## Required Production Environment
@@ -55,6 +59,7 @@ TEMPORAL_TASK_QUEUE=payment-reservation-task-queue
 OIDC_ISSUER_URI=https://idp.example.com/realms/everysale
 TOSS_CLIENT_KEY=live_...
 TOSS_SECRET_KEY=live_...
+TOSS_WEBHOOK_PATH_TOKEN=at-least-32-random-characters
 CORS_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com
 DEFAULT_TENANT_ID=...
 DEFAULT_PARTNER_ID=...
@@ -90,6 +95,7 @@ Production blockers include:
 - Legacy WAL path enabled.
 - Java version below the required version.
 - Missing or mismatched Toss live keys.
+- Toss webhook disabled or missing a strong path token.
 - Public direct `/api/reservations/complete` enabled.
 - Legacy payment or marketplace checkout APIs enabled.
 - Demo auth API enabled.
@@ -120,12 +126,27 @@ X-Correlation-Id: request-or-trace-id
 - Confirm `/api/system/readiness` returns `READY` or intentionally reviewed `ATTENTION_REQUIRED` outside production.
 - Confirm `POST /api/payments/toss/intents` creates an intent with server-side price validation.
 - Complete Toss redirect and call `POST /api/payments/toss/confirm`.
+- Send a Toss payment status webhook to `POST /api/payments/toss/webhooks/{TOSS_WEBHOOK_PATH_TOKEN}` and confirm duplicate delivery is idempotent.
 - Confirm Temporal workflow status via `GET /api/reservations/workflows/{workflowId}`.
 - Confirm order, payment, reservation, refund, and outbox rows are written to Postgres.
 - Confirm sensitive admin actions write rows to `security_audit_events`.
 - Confirm raffle draw, auction close, queue clear, simulation reset, reconciliation, and refund APIs require admin role.
 - Confirm a non-owner customer cannot read another customer's order, payment, reservation, workflow, Toss intent, seat, or queue state.
 - Confirm outbox events progress through `PENDING`, `IN_PROGRESS`, and `PUBLISHED`, or retry to `FAILED` after max attempts.
+
+## Automated Verification
+
+Run the fast release gate before packaging:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-distribution.ps1
+```
+
+Run Docker-backed integration scenarios separately when Docker Desktop is available:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-integration.ps1
+```
 
 ## Remaining Platform Work
 

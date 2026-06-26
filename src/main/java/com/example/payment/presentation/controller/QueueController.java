@@ -4,6 +4,7 @@ import com.example.payment.infrastructure.security.AuthorizationGuard;
 import com.example.payment.infrastructure.security.SecurityAuditService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -20,18 +21,21 @@ public class QueueController {
     private final AuthorizationGuard authorizationGuard;
     private final SecurityAuditService securityAuditService;
 
+    @Value("${app.queue.enabled:true}")
+    private boolean queueEnabled;
+
     @PostMapping("/join")
     public ResponseEntity<Map<String, Object>> joinQueue(@RequestParam String customerId) {
         authorizationGuard.requireCustomerAccess(customerId);
+        if (!queueEnabled) {
+            return activeResponse("Queue is disabled; request may proceed immediately.");
+        }
+
         String activeKey = "active_user:" + customerId;
         Boolean isActive = redisTemplate.hasKey(activeKey);
         
         if (Boolean.TRUE.equals(isActive)) {
-            return ResponseEntity.ok(Map.of(
-                    "status", "ACTIVE",
-                    "rank", 0,
-                    "waitingTime", 0
-            ));
+            return activeResponse("Active queue token already exists.");
         }
 
         // Add to sorted set queue
@@ -52,15 +56,15 @@ public class QueueController {
     @GetMapping("/status")
     public ResponseEntity<Map<String, Object>> getQueueStatus(@RequestParam String customerId) {
         authorizationGuard.requireCustomerAccess(customerId);
+        if (!queueEnabled) {
+            return activeResponse("Queue is disabled; request may proceed immediately.");
+        }
+
         String activeKey = "active_user:" + customerId;
         Boolean isActive = redisTemplate.hasKey(activeKey);
         
         if (Boolean.TRUE.equals(isActive)) {
-            return ResponseEntity.ok(Map.of(
-                    "status", "ACTIVE",
-                    "rank", 0,
-                    "waitingTime", 0
-            ));
+            return activeResponse("Active queue token already exists.");
         }
 
         Long rank = redisTemplate.opsForZSet().rank("ticket_queue", customerId);
@@ -98,5 +102,15 @@ public class QueueController {
         // Assume we promote 50 users per second.
         // Wait time = rank / 50. Minimum 1 second.
         return Math.max(1, rank / 50);
+    }
+
+    private ResponseEntity<Map<String, Object>> activeResponse(String message) {
+        return ResponseEntity.ok(Map.of(
+                "status", "ACTIVE",
+                "rank", 0,
+                "waitingTime", 0,
+                "queueEnabled", queueEnabled,
+                "message", message
+        ));
     }
 }

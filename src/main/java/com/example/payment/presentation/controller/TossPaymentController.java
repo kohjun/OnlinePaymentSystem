@@ -3,6 +3,7 @@ package com.example.payment.presentation.controller;
 import com.example.payment.application.service.AmountMismatchException;
 import com.example.payment.application.service.IdempotencyConflictException;
 import com.example.payment.application.service.TossPaymentIntentService;
+import com.example.payment.application.service.TossWebhookService;
 import com.example.payment.infrastructure.security.AuthorizationGuard;
 import com.example.payment.presentation.dto.request.CompleteReservationRequest;
 import com.example.payment.presentation.dto.request.TossPaymentConfirmRequest;
@@ -14,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -26,7 +28,18 @@ import org.springframework.web.bind.annotation.RestController;
 public class TossPaymentController {
 
     private final TossPaymentIntentService tossPaymentIntentService;
+    private final TossWebhookService tossWebhookService;
     private final AuthorizationGuard authorizationGuard;
+
+    @PostMapping("/webhooks/{token}")
+    public ResponseEntity<?> receiveWebhook(@PathVariable String token, @RequestBody String rawPayload) {
+        TossWebhookService.WebhookReceipt receipt = tossWebhookService.receive(token, rawPayload);
+        return ResponseEntity.ok(java.util.Map.of(
+                "status", "RECEIVED",
+                "eventId", receipt.eventId(),
+                "processingStatus", receipt.processingStatus()
+        ));
+    }
 
     @PostMapping("/intents")
     public ResponseEntity<?> createIntent(@Valid @RequestBody CompleteReservationRequest request) {

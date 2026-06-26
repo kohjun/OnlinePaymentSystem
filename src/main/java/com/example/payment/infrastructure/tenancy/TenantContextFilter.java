@@ -84,7 +84,8 @@ public class TenantContextFilter extends OncePerRequestFilter {
         return path != null
                 && path.startsWith("/api/")
                 && !path.startsWith("/api/system/health")
-                && !path.startsWith("/api/system/readiness");
+                && !path.startsWith("/api/system/readiness")
+                && !path.startsWith("/api/payments/toss/webhooks/");
     }
 
     private boolean isSafeIdentifier(String value) {

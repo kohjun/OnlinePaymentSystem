@@ -42,10 +42,11 @@ import static org.mockito.Mockito.when;
  * 2. Inventory 엔티티 - 재고 수량 변화
  * 3. InventoryTransaction 엔티티 - 재고 변경 이력
  */
+@org.junit.jupiter.api.Tag("integration")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Transactional
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
-class DatabaseStateVerificationTest {
+class DatabaseStateVerificationTest extends TestcontainersIntegrationSupport {
 
     @LocalServerPort
     private int port;

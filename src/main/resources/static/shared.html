@@ -7,19 +7,19 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
     <style>
         :root {
-            --primary: #0EA5E9;
-            --primary-hover: #0284C7;
-            --primary-light: #38BDF8;
-            --primary-lighter: #7DD3FC;
-            --primary-glow: rgba(14, 165, 233, 0.35);
-            --text-main: #0F172A;
+            --primary: #FF5058; /* 번개장터 크림슨 레드 */
+            --primary-hover: #E0444C;
+            --primary-light: #FF8E94;
+            --primary-lighter: #FFA8AC;
+            --primary-glow: rgba(255, 80, 88, 0.35);
+            --text-main: #1E293B;
             --text-muted: #64748B;
-            --border: rgba(56, 189, 248, 0.2);
-            --card-bg: rgba(255, 255, 255, 0.8);
-            --card-shadow: 0 8px 32px rgba(14, 165, 233, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
-            --glass-border: rgba(255, 255, 255, 0.5);
-            --gradient-btn: linear-gradient(135deg, #0EA5E9 0%, #38BDF8 100%);
-            --gradient-btn-hover: linear-gradient(135deg, #0284C7 0%, #0EA5E9 100%);
+            --border: rgba(255, 80, 88, 0.15);
+            --card-bg: rgba(255, 255, 255, 0.9);
+            --card-shadow: 0 8px 32px rgba(255, 80, 88, 0.06), 0 2px 8px rgba(0, 0, 0, 0.04);
+            --glass-border: rgba(255, 255, 255, 0.6);
+            --gradient-btn: linear-gradient(135deg, #FF5058 0%, #FF8E94 100%);
+            --gradient-btn-hover: linear-gradient(135deg, #E0444C 0%, #FF5058 100%);
         }
 
         * {
@@ -30,7 +30,7 @@
 
         body {
             font-family: 'Inter', sans-serif;
-            background: linear-gradient(135deg, #F0F9FF 0%, #E0F2FE 50%, #BAE6FD 100%);
+            background: linear-gradient(135deg, #FFF5F5 0%, #F8F9FA 50%, #FFF0F1 100%);
             background-attachment: fixed;
             color: var(--text-main);
             line-height: 1.6;
@@ -87,7 +87,7 @@
             animation: fadeIn 0.5s ease;
         }
 
-        /* Sky-blue accent bar at top of header */
+        /* Bunjang Crimson accent bar at top of header */
         header::before {
             content: '';
             position: absolute;
@@ -95,7 +95,7 @@
             left: 0;
             right: 0;
             height: 3px;
-            background: linear-gradient(90deg, #0EA5E9, #38BDF8, #7DD3FC, #38BDF8, #0EA5E9);
+            background: linear-gradient(90deg, #FF5058, #FF8E94, #FFA8AC, #FF8E94, #FF5058);
             background-size: 200% 100%;
             animation: shimmer 4s linear infinite;
         }

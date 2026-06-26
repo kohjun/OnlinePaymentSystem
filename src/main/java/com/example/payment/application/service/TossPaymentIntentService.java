@@ -227,6 +227,41 @@ public class TossPaymentIntentService {
         return recovered;
     }
 
+    @Transactional
+    public CompleteReservationResponse recoverIntentByProviderReference(String paymentKey, String orderId) {
+        TossPaymentIntent intent = findIntentByProviderReference(paymentKey, orderId);
+        if (hasText(paymentKey) && !paymentKey.equals(intent.getPaymentKey())) {
+            intent.setPaymentKey(paymentKey);
+            intent.setStatus("AUTHENTICATED");
+            repository.save(intent);
+        }
+
+        if (intent.getResponseBody() != null && !intent.getResponseBody().isBlank()) {
+            return readResponse(intent.getResponseBody());
+        }
+
+        CompleteReservationResponse response = recoverIntent(intent);
+        if (response != null) {
+            return response;
+        }
+        return CompleteReservationResponse.builder()
+                .workflowId(intent.getWorkflowId())
+                .status(defaultText(intent.getStatus(), "PENDING"))
+                .message("Toss payment intent recovery is pending.")
+                .timestamp(LocalDateTime.now())
+                .build();
+    }
+
+    @Transactional
+    public void markProviderTerminalStatus(String paymentKey, String orderId, String providerStatus) {
+        TossPaymentIntent intent = findIntentByProviderReference(paymentKey, orderId);
+        if (hasText(paymentKey) && !paymentKey.equals(intent.getPaymentKey())) {
+            intent.setPaymentKey(paymentKey);
+        }
+        intent.setStatus(mapProviderStatus(providerStatus));
+        repository.save(intent);
+    }
+
     private CompleteReservationResponse recoverIntent(TossPaymentIntent intent) {
         CompleteReservationResponse response = null;
         if (hasText(intent.getWorkflowId())) {
@@ -243,6 +278,33 @@ public class TossPaymentIntentService {
         recordMarketplaceCheckout(intent, response);
         repository.save(intent);
         return response;
+    }
+
+    private TossPaymentIntent findIntentByProviderReference(String paymentKey, String orderId) {
+        if (hasText(paymentKey)) {
+            java.util.Optional<TossPaymentIntent> byPaymentKey = repository.findByPaymentKey(paymentKey);
+            if (byPaymentKey.isPresent()) {
+                return byPaymentKey.get();
+            }
+        }
+        if (hasText(orderId)) {
+            return repository.findByOrderId(orderId)
+                    .orElseThrow(() -> new IllegalArgumentException("TOSS_PAYMENT_INTENT_NOT_FOUND"));
+        }
+        throw new IllegalArgumentException("TOSS_PAYMENT_REFERENCE_REQUIRED");
+    }
+
+    private String mapProviderStatus(String providerStatus) {
+        if ("DONE".equals(providerStatus)) {
+            return "SUCCESS";
+        }
+        if ("CANCELED".equals(providerStatus) || "PARTIAL_CANCELED".equals(providerStatus)) {
+            return "CANCELLED";
+        }
+        if ("ABORTED".equals(providerStatus) || "EXPIRED".equals(providerStatus)) {
+            return "FAILED";
+        }
+        return "UNKNOWN";
     }
 
     private void validateConfirm(TossPaymentConfirmRequest request, TossPaymentIntent intent) {

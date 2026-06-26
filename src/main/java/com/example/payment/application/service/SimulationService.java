@@ -299,11 +299,18 @@ public class SimulationService {
                     HttpRequest request = null;
                     try {
                         if ("TICKETING".equals(eventType)) {
-                            // Pick random VIP, R, S seat
-                            String[] prefixes = {"V", "R", "S"};
-                            int[] maxSeats = {24, 36, 48};
-                            int pick = rand.nextInt(3);
-                            String seatId = prefixes[pick] + "-" + (rand.nextInt(maxSeats[pick]) + 1);
+                            String seatId;
+                            if ("CONCERT-IU".equals(activeEventId)) {
+                                // 아이유 콘서트: 3개 등급(VIP, R, S) 총 108석
+                                String[] prefixes = {"V", "R", "S"};
+                                int[] maxSeats = {24, 36, 48};
+                                int pick = rand.nextInt(3);
+                                seatId = prefixes[pick] + "-" + (rand.nextInt(maxSeats[pick]) + 1);
+                            } else {
+                                // 일반/커스텀 티켓팅 상품: 단일 등급(S) 총 재고 수량만큼의 좌석
+                                int totalQty = (activeEvent != null) ? activeEvent.getTotalInventory() : 50;
+                                seatId = "S-" + (rand.nextInt(totalQty) + 1);
+                            }
                             
                             request = HttpRequest.newBuilder()
                                     .uri(URI.create("http://localhost:8080/api/system/seats/lock?seatId=" + seatId + "&customerId=" + customerId))

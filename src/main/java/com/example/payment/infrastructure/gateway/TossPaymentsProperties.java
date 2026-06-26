@@ -14,4 +14,21 @@ public class TossPaymentsProperties {
     private String mode = "test";
     private String apiVersion = "2022-11-16";
     private String testCode;
+    private Webhook webhook = new Webhook();
+    private Reconciliation reconciliation = new Reconciliation();
+
+    @Data
+    public static class Webhook {
+        private boolean enabled = false;
+        private String pathToken;
+        private long retryFixedDelayMs = 30000;
+        private int maxRetry = 7;
+    }
+
+    @Data
+    public static class Reconciliation {
+        private boolean enabled = true;
+        private long fixedDelayMs = 60000;
+        private long staleSeconds = 300;
+    }
 }
