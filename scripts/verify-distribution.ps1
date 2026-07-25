@@ -10,6 +10,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $gradle = Join-Path $repoRoot "gradlew.bat"
 $desktopApp = Join-Path $repoRoot "desktop-app"
+$frontendApp = Join-Path $repoRoot "frontend"
 
 function New-TextFromCodePoints {
     param([Parameter(Mandatory = $true)] [int[]] $CodePoints)
@@ -136,6 +137,23 @@ Invoke-Step "Gradle compile" {
     Invoke-Native $gradle @("compileJava", "compileTestJava", "--no-daemon", "--no-problems-report")
 }
 
+Invoke-Step "React marketplace quality gate" {
+    $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
+    if (-not $npm) {
+        throw "npm was not found. Install Node.js before running the distribution quality gate."
+    }
+    $previousNpmCache = $env:npm_config_cache
+    $env:npm_config_cache = Join-Path $repoRoot "build_sim_new\npm-cache"
+    Push-Location $frontendApp
+    try {
+        Invoke-Native $npm.Source @("ci", "--no-audit", "--no-fund")
+        Invoke-Native $npm.Source @("run", "verify")
+    } finally {
+        Pop-Location
+        $env:npm_config_cache = $previousNpmCache
+    }
+}
+
 if (-not $SkipTests) {
     Invoke-Step "Focused quality tests" {
         Clear-GradleProblemsReport
@@ -153,6 +171,14 @@ if (-not $SkipTests) {
             "--tests", "*CompleteReservationWorkflowTest",
             "--tests", "*OutboxPublisherTest",
             "--tests", "*InventoryReconciliationJobTest",
+            "--tests", "*MarketplaceRealtimeServiceTest",
+            "--tests", "*RedisMarketplaceRealtimeBridgeTest",
+            "--tests", "*StandbyQueueServiceTest",
+            "--tests", "*TicketingServiceTest",
+            "--tests", "*TossPaymentIntentServiceTest",
+            "--tests", "*SellerPayoutTransferCoordinatorTest",
+            "--tests", "*ApiExceptionHandlerTest",
+            "--tests", "*MarketplaceFrontendControllerTest",
             "--no-daemon",
             "--no-problems-report"
         )
@@ -160,8 +186,14 @@ if (-not $SkipTests) {
 }
 
 $sourcePaths = @(
-    "src\main\resources\static\index.html",
-    "src\main\resources\static\shared.html",
+    "frontend\index.html",
+    "frontend\src\App.tsx",
+    "frontend\src\AdminOperations.tsx",
+    "frontend\src\EventCard.tsx",
+    "frontend\src\EventDetail.tsx",
+    "frontend\src\SellerCenter.tsx",
+    "frontend\src\SellerOperations.tsx",
+    "frontend\src\TicketPanel.tsx",
     "desktop-app\main.js",
     "desktop-app\package.json",
     "desktop-app\package-lock.json",
@@ -200,9 +232,9 @@ Invoke-Step "Brand and encoding regression scan" {
     }
 
     $expectedTerms = @(
-        (New-TextFromCodePoints @(0xC5D0, 0xBE0C, 0xB9AC, 0xC138, 0xC77C, 0x0020, 0x007C, 0x0020, 0xC5D4, 0xD130, 0xD504, 0xB77C, 0xC774, 0xC988, 0x0020, 0xCEE4, 0xBA38, 0xC2A4, 0x0020, 0xC6B4, 0xC601, 0x0020, 0xD50C, 0xB7AB, 0xD3FC)),
-        (New-TextFromCodePoints @(0xC5D0, 0xBE0C, 0xB9AC, 0xC138, 0xC77C, 0x0020, 0xC811, 0xC18D, 0x0020, 0xB300, 0xAE30, 0xC5F4)),
-        (New-TextFromCodePoints @(0xD30C, 0xD2B8, 0xB108, 0x0020, 0xC6B4, 0xC601, 0x0020, 0xCF58, 0xC194, 0x0020, 0xB85C, 0xADF8, 0xC778))
+        (New-TextFromCodePoints @(0xC5D0, 0xBE0C, 0xB9AC, 0xC138, 0xC77C)),
+        (New-TextFromCodePoints @(0x0043, 0x0032, 0x0043, 0x0020, 0xB9C8, 0xCF13, 0xD50C, 0xB808, 0xC774, 0xC2A4)),
+        (New-TextFromCodePoints @(0xC5D0, 0xBE0C, 0xB9AC, 0xC138, 0xC77C, 0x0020, 0xB9C8, 0xCF13, 0xD50C, 0xB808, 0xC774, 0xC2A4))
     )
 
     foreach ($term in $expectedTerms) {
@@ -212,14 +244,20 @@ Invoke-Step "Brand and encoding regression scan" {
 
 Invoke-Step "Frontend checkout flow scan" {
     $frontendPaths = @(
-        "src\main\resources\static\index.html",
-        "src\main\resources\static\shared.html"
+        "frontend\src\api.ts",
+        "frontend\src\EventDetail.tsx",
+        "frontend\src\TicketPanel.tsx"
     )
 
     Assert-NoLiteralMatch "/api/reservations/complete" $frontendPaths "public frontend direct complete reservation call"
     Assert-NoLiteralMatch "/api/payments/process" $frontendPaths "public frontend legacy payment process call"
+    Assert-NoLiteralMatch "/api/simulation/events/active" $frontendPaths "marketplace UI simulation event selection call"
+    Assert-NoLiteralMatch "/api/simulation/products" $frontendPaths "marketplace UI simulation product lookup"
     Assert-LiteralMatch "/api/payments/toss/intents" $frontendPaths "Toss payment intent endpoint"
     Assert-LiteralMatch "/api/payments/toss/confirm" $frontendPaths "Toss payment confirm endpoint"
+    Assert-NoLiteralMatch "MOCK 결제" $frontendPaths "user-visible mock payment window"
+    Assert-LiteralMatch "/auction/stream" $frontendPaths "auction SSE endpoint"
+    Assert-LiteralMatch "/raffle/stream" $frontendPaths "raffle SSE endpoint"
 }
 
 Invoke-Step "Toss payment configuration scan" {
@@ -230,13 +268,33 @@ Invoke-Step "Toss payment configuration scan" {
     Assert-LiteralMatch 'client-key: ${TOSS_CLIENT_KEY:}' $configPaths "Toss client key environment binding"
     Assert-LiteralMatch 'secret-key: ${TOSS_SECRET_KEY:}' $configPaths "Toss secret key environment binding"
     Assert-LiteralMatch "public-complete-enabled: false" $configPaths "direct complete reservation API disabled"
-    Assert-LiteralMatch "legacy-marketplace-enabled: false" $configPaths "legacy marketplace checkout disabled"
-    Assert-LiteralMatch "legacy-api:" $configPaths "legacy payment API toggle"
     Assert-LiteralMatch "enabled: false" $configPaths "disabled legacy/mock defaults"
+    Assert-NoLiteralMatch '@PostMapping("/process")' @("src\main\java\com\example\payment\presentation\controller\PaymentController.java") "removed legacy payment process endpoint"
+    Assert-NoLiteralMatch '@PostMapping("/events/{eventId}/checkout")' @("src\main\java\com\example\payment\presentation\controller\MarketplaceController.java") "removed non-Toss marketplace checkout endpoint"
     Assert-LiteralMatch "mode: live" @("src\main\resources\application-prod.yml") "production Toss live mode"
+    Assert-NoLiteralMatch "/api/simulation" @("src\main\java", "frontend\src") "removed simulation API exposure"
     Assert-LiteralMatch "webhook:" $configPaths "Toss webhook configuration block"
     Assert-LiteralMatch 'path-token: ${TOSS_WEBHOOK_PATH_TOKEN' $configPaths "Toss webhook path token environment binding"
     Assert-LiteralMatch "toss-webhook-configured" @("src\main\java\com\example\payment\application\service\DistributionReadinessService.java") "Toss webhook readiness check"
+    Assert-LiteralMatch 'audience: ${OIDC_AUDIENCE}' @("src\main\resources\application-prod.yml") "production JWT audience binding"
+    Assert-LiteralMatch "bind-token-claims: true" @("src\main\resources\application-prod.yml") "production tenant token binding"
+    Assert-LiteralMatch "mode: SINGLE_TENANT" @("src\main\resources\application-prod.yml") "production single-tenant deployment boundary"
+    Assert-LiteralMatch 'allowed-tenant-id: ${EVERYSALE_TENANT_ID}' @("src\main\resources\application-prod.yml") "production allowed tenant binding"
+    Assert-LiteralMatch "MULTI_TENANT_RLS" @("src\main\java\com\example\payment\application\service\DistributionReadinessService.java") "multi-tenant RLS readiness blocker"
+    Assert-LiteralMatch "verify-toss-sandbox.ps1" @("README.md") "Toss sandbox preflight documentation"
+    Assert-LiteralMatch "temporal-worker-enabled" @("src\main\java\com\example\payment\application\service\DistributionReadinessService.java") "Temporal worker readiness check"
+    Assert-LiteralMatch "inventory-reconciliation-enabled" @("src\main\java\com\example\payment\application\service\DistributionReadinessService.java") "inventory reconciliation readiness check"
+    Assert-LiteralMatch "toss-reconciliation-enabled" @("src\main\java\com\example\payment\application\service\DistributionReadinessService.java") "Toss reconciliation readiness check"
+    Assert-LiteralMatch "auction-auto-close-enabled" @("src\main\java\com\example\payment\application\service\DistributionReadinessService.java") "auction auto-close readiness check"
+    Assert-LiteralMatch "marketplace-realtime-broadcast-enabled" @("src\main\java\com\example\payment\application\service\DistributionReadinessService.java") "distributed marketplace realtime readiness check"
+    Assert-LiteralMatch "MarketplaceConcurrencyIntegrationTest" @("README.md", "src\test\java\com\example\payment\MarketplaceConcurrencyIntegrationTest.java") "commercial concurrency integration gate"
+    Assert-LiteralMatch "redis-broadcast-enabled: true" @("src\main\resources\application-prod.yml") "production distributed marketplace realtime broadcast"
+    Assert-LiteralMatch "seller-payout-transfer-provider" @("src\main\java\com\example\payment\application\service\DistributionReadinessService.java") "seller payout transfer readiness check"
+    Assert-LiteralMatch "seller-payout-reconciliation-enabled" @("src\main\java\com\example\payment\application\service\DistributionReadinessService.java") "seller payout reconciliation readiness check"
+    Assert-LiteralMatch 'provider: ${PAYOUT_TRANSFER_PROVIDER:}' @("src\main\resources\application-prod.yml") "production payout transfer provider binding"
+    Assert-LiteralMatch "verify-production-env.ps1" @("README.md") "production environment preflight documentation"
+    Assert-LiteralMatch "TOSS_SECRET_KEY" @(".env.prod.example", "scripts\verify-production-env.ps1") "production secret-key inventory"
+    Assert-LiteralMatch "ddl-auto: validate" @("src\main\resources\application-prod.yml") "production schema validation mode"
 }
 
 if (-not $SkipDesktopPackage) {

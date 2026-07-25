@@ -10,12 +10,14 @@ $gradle = Join-Path $repoRoot "gradlew.bat"
 Set-Location $repoRoot
 
 function Clear-GradleProblemsReport {
-    $problemReport = Join-Path $repoRoot "build_sim\reports\problems\problems-report.html"
-    if (Test-Path $problemReport) {
-        try {
-            Remove-Item -LiteralPath $problemReport -Force
-        } catch {
-            Write-Warning "Could not remove existing Gradle problems report; continuing with --no-problems-report."
+    foreach ($buildDirectory in @("build_sim", "build_sim_new")) {
+        $problemReport = Join-Path $repoRoot "$buildDirectory\reports\problems\problems-report.html"
+        if (Test-Path $problemReport) {
+            try {
+                Remove-Item -LiteralPath $problemReport -Force
+            } catch {
+                Write-Warning "Could not remove existing Gradle problems report; continuing with --no-problems-report."
+            }
         }
     }
 }

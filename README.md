@@ -1,6 +1,8 @@
-# OnlinePaymentSystem
+# 에브리세일 (EverySale)
 
-OnlinePaymentSystem powers EverySale, a commerce operations simulator that combines inventory reservation, order creation, Toss Payments checkout, compensation, and reliable event publication.
+에브리세일은 일반 판매, 선착순 한정 판매, 좌석형 티켓 예매, 실시간 경매, 무작위 래플을 지원하는 C2C 마켓플레이스입니다. Redis 재고 선점, Temporal Saga, Toss Payments 결제, 보상 트랜잭션, Outbox 이벤트 발행을 하나의 거래 흐름으로 연결합니다.
+
+공식 웹 화면은 React 기반 `http://localhost:8080/app/`입니다. 루트 URL과 과거 `index.html`, `shared.html`, `seller.html` 진입점도 모두 `/app/`으로 이동합니다. 구매, 판매자 상품 등록·주문·배송·정산, 관리자 검수 기능은 같은 애플리케이션에서 권한에 따라 표시됩니다. 판매 방식에서 `DROP`은 선착순 한정 판매, `RAFFLE`은 중복 응모를 막은 무작위 추첨을 뜻합니다.
 
 The public checkout path is Toss Payments intent/confirm:
 
@@ -22,7 +24,7 @@ Reserve inventory in Redis
 -> Publish outbox events to Kafka
 ```
 
-`/api/reservations/complete`, `/api/payments/process`, `/api/payments/{paymentId}/retry`, and `/api/payments/{paymentId}/refund` are retained only as compatibility/internal paths. The default configuration disables them with `app.checkout.public-complete-enabled=false` and `payment.legacy-api.enabled=false`. Demo simulation authentication is also disabled by default with `app.simulation.auth.enabled=false`; the local mock-auth filter is demo-only and is disabled by the `prod` profile.
+`/api/reservations/complete` remains an internal Saga test hook and is disabled by default with `app.checkout.public-complete-enabled=false`. The former public payment process/retry/refund, non-Toss marketplace checkout, simulation, and demo-auth APIs have been removed. The local mock-auth filter is development-only and is disabled by the `prod` profile.
 
 ## Stack
 
@@ -34,7 +36,9 @@ Reserve inventory in Redis
 - Temporal for Saga orchestration
 - Kafka for event publication
 - Flyway for schema migration
+- Atomic Redis Lua holds and DB active-seat uniqueness for ticket booking
 - JMeter and Python scripts for load-test analysis
+- React, TypeScript, and Vite for the consumer marketplace
 
 ## Local Requirements
 
@@ -43,7 +47,8 @@ Install a JDK and set `JAVA_HOME` before running Gradle.
 PowerShell example:
 
 ```powershell
-$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+$java = (Get-Command java.exe).Source
+$env:JAVA_HOME = Split-Path (Split-Path $java -Parent) -Parent
 $env:Path = "$env:JAVA_HOME\bin;$env:Path"
 java -version
 ```
@@ -64,7 +69,8 @@ docker compose up -d
 
 Services:
 
-- App: `http://localhost:8080`
+- EverySale marketplace and operations app: `http://localhost:8080/app/`
+- Root compatibility redirect: `http://localhost:8080/` -> `/app/`
 - Postgres: `localhost:5434`, database/user/password `payment`
 - Redis: `localhost:6379`
 - Kafka: `localhost:9092`
@@ -74,8 +80,26 @@ Services:
 Start the application:
 
 ```powershell
-.\gradlew.bat bootRun
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-local.ps1 -StartInfrastructure
 ```
+
+The script resolves JDK 17, loads `.env` values without printing them, verifies required Docker services, and runs Spring Boot in the foreground. If infrastructure is already running, omit `-StartInfrastructure`.
+
+## Frontend Development
+
+```powershell
+cd .\frontend
+npm.cmd ci
+npm.cmd run dev
+```
+
+The Vite development server runs at `http://localhost:5173/app/` and proxies `/api` to Spring Boot on port 8080. Build and accessibility checks are combined in one command:
+
+```powershell
+npm.cmd run verify
+```
+
+The production build is written to `src/main/resources/static/app`. Gradle also exposes `frontendInstall` and `frontendBuild` tasks for packaging workflows.
 
 
 ## Production Profile
@@ -92,11 +116,17 @@ REDIS_HOST=redis.example.com
 KAFKA_BOOTSTRAP_SERVERS=kafka-1.example.com:9092,kafka-2.example.com:9092
 TEMPORAL_TARGET=temporal.example.com:7233
 OIDC_ISSUER_URI=https://idp.example.com/realms/everysale
+OIDC_AUDIENCE=everysale-api
+EVERYSALE_TENANT_ID=everysale
 TOSS_CLIENT_KEY=live_...
 TOSS_SECRET_KEY=live_...
 TOSS_WEBHOOK_PATH_TOKEN=at-least-32-random-characters
 CORS_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com
+PAYOUT_TRANSFER_PROVIDER=your-provider-bean-name
+PAYOUT_TRANSFER_ADAPTER_ENABLED=true
 ```
+
+Use `.env.prod.example` as the deployment-variable inventory. Do not load it as credentials. After injecting real values from the deployment secret manager, run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-production-env.ps1`; the preflight validates required values without printing secrets.
 
 `GET /api/system/readiness` blocks production when DB, Redis, Kafka, or Temporal still point at localhost, when CORS allows wildcard/local/insecure HTTP origins, when mock auth is enabled, when Toss live keys or webhook token are missing/mismatched, or when external auth/tenant isolation is not configured.
 ## Toss Checkout API
@@ -163,6 +193,14 @@ POST /api/payments/toss/webhooks/{TOSS_WEBHOOK_PATH_TOKEN}
 
 The endpoint stores the raw event first and processes it idempotently. Supported events are `PAYMENT_STATUS_CHANGED` and `CANCEL_STATUS_CHANGED`.
 
+Validate the configured Toss test credentials without creating or approving a payment:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-toss-sandbox.ps1
+```
+
+The script loads `.env` into the child process without printing values, requires `test_` keys, and performs only a lookup for a random nonexistent order ID.
+
 ## Lookup APIs
 
 Useful read endpoints:
@@ -201,7 +239,7 @@ Supported sale types:
 
 The current seed data publishes limited-goods events for raffle, auction, and drop flows so the consumer marketplace can render real catalog data without using `/api/simulation/*`.
 Public marketplace checkout creates a Toss intent first, opens the Toss payment window, then calls `POST /api/payments/toss/confirm`; confirm records the marketplace order ledger and seller payout for successful Saga responses.
-Legacy non-Toss marketplace checkout endpoints are disabled by default with `app.checkout.legacy-marketplace-enabled=false`.
+Non-Toss marketplace checkout endpoints have been removed; all public checkout variants create a Toss intent first.
 
 Admin refund path:
 
@@ -214,7 +252,7 @@ POST /api/admin/payments/{paymentId}/refund
 ```
 
 Manual refunds are admin-only, idempotent by `(paymentId, idempotencyKey)`, recorded in the `refunds` ledger, and emitted through the outbox publisher.
-Raffle draw, auction close, simulation reset/run, queue clear, and reconciliation endpoints are admin-only and audited.
+Raffle draw, auction close, queue clear, and reconciliation endpoints are admin-only and audited.
 Raffle flow:
 
 ```text
@@ -303,7 +341,7 @@ Focused unit tests:
   --no-daemon
 ```
 
-Some older integration tests expect local Redis/Kafka and use `app.temporal.enabled=false` from `src/test/resources/application.yml`.
+The integration suite uses Testcontainers PostgreSQL 16 and Redis. It verifies Flyway migrations, reservation compensation, 50 concurrent auction bids, 30 duplicate raffle entries, 100 distinct raffle entries, and 100 concurrent queue joins.
 
 ## Distribution Quality Gate
 
@@ -331,6 +369,23 @@ Docker/Testcontainers-backed scenarios are separated from the default unit test 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-integration.ps1
 ```
 
+Docker Desktop must be running. The suite starts isolated PostgreSQL and Redis containers and does not reuse the local application database.
+
+If an older local Docker volume reports the known V19 checksum mismatch, run the guarded dry-run first. The apply mode creates a custom-format PostgreSQL backup before changing the local index and the single V19 history row:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\repair-local-flyway-v19.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\repair-local-flyway-v19.ps1 -Apply
+```
+
+C2C seller onboarding, review, listing publication, Toss intent creation, and operations audit can be exercised against a running local server:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-c2c-commercial-smoke.ps1
+```
+
+See [docs/c2c-commercial-e2e.md](docs/c2c-commercial-e2e.md) for the two-browser auction/raffle scenarios and final success criteria.
+
 Operational readiness is also exposed by:
 
 ```text
@@ -341,7 +396,7 @@ See [docs/distribution-readiness.md](docs/distribution-readiness.md) for B2B Saa
 
 ## Load Test
 
-The historical JMeter scenario targets `POST /api/reservations/complete`; for release validation, prefer the Toss intent/confirm flow and poll workflow status when confirm returns `202 PENDING`.
+The historical JMeter scenario targets the internal-only `POST /api/reservations/complete` endpoint and is not a production release gate. Production payment load tests must use the Toss intent/confirm flow and poll workflow status when confirm returns `202 PENDING`.
 
 Accepted final load-test outcomes:
 
@@ -365,9 +420,13 @@ Use Temporal UI to inspect workflow duration and activity retries. Use the `outb
 - Authorization denials and sensitive admin actions are recorded in `security_audit_events`; production readiness blocks startup if `app.audit.enabled=false`.
 - CORS is explicit allowlist based; production readiness blocks wildcard, localhost, unresolved, or plain HTTP origins.
 - Local mock authentication grants `CUSTOMER` only by default. Use `X-EverySale-Roles: ADMIN` only for local admin testing; production must use `spring.profiles.active=prod` with external JWT/OIDC auth and `OIDC_ISSUER_URI`. Readiness blocks production when mock auth is enabled.
-- The legacy demo auth API is off by default and is treated as a readiness blocker in production when `app.simulation.auth.enabled=true`; local demo credentials must come from `SIMULATION_AUTH_USERNAME` and `SIMULATION_AUTH_PASSWORD`.
+- The former simulation runner and static demo-auth API have been removed. Local identity headers are accepted only while the development mock-auth filter is enabled.
 - Order, payment, reservation, workflow, Toss intent, queue, seat, seller, and admin APIs perform ownership or role checks server-side; do not rely on client-provided `customerId` alone.
 - Inventory counters are maintained in Redis and mirrored in Postgres.
 - `app.inventory.reconciliation.enabled=true` enables scheduled mismatch detection between Redis and Postgres.
 - `app.outbox.enabled=true` enables scheduled outbox publishing to Kafka.
+- Production enables Redis Pub/Sub broadcast for marketplace SSE so auction and raffle updates cross application instances.
+- Local payout transfer uses `LEDGER_ONLY` for workflow testing. Production readiness blocks until `PAYOUT_TRANSFER_PROVIDER` and a real external adapter are configured.
+- Production also requires the seller payout reconciliation worker. Stale `PROCESSING` or `UNKNOWN` transfers are resolved through provider status lookup with the original idempotency key; they are never submitted as a second transfer.
+- The first commercial deployment uses `SINGLE_TENANT` mode. `EVERYSALE_TENANT_ID` pins anonymous storefront traffic and authenticated JWT tenant claims to one marketplace; spoofed tenant headers are rejected. `MULTI_TENANT_RLS` remains blocked until database row-level security is explicitly implemented and enabled.
 - `app.kafka.listeners.payment-events.enabled=false` keeps the sample payment-event listener disabled by default.
