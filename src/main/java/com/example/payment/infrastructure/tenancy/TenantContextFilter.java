@@ -24,6 +24,12 @@ public class TenantContextFilter extends OncePerRequestFilter {
     @Value("${app.tenancy.default-tenant-id:everysale-demo}")
     private String defaultTenantId;
 
+    @Value("${app.tenancy.mode:DEMO}")
+    private String tenancyMode;
+
+    @Value("${app.tenancy.allowed-tenant-id:}")
+    private String allowedTenantId;
+
     @Value("${app.tenancy.default-partner-id:demo-partner}")
     private String defaultPartnerId;
 
@@ -41,7 +47,18 @@ public class TenantContextFilter extends OncePerRequestFilter {
         String partnerId = trimToNull(request.getHeader("X-Partner-Id"));
         String correlationId = trimToNull(request.getHeader("X-Correlation-Id"));
 
-        if (requiresTenantHeader(request) && tenantId == null) {
+        if (isSingleTenantMode()) {
+            String configuredTenantId = trimToNull(allowedTenantId);
+            if (configuredTenantId == null || !isSafeIdentifier(configuredTenantId)) {
+                writeServiceUnavailable(response, "Single-tenant mode requires a valid app.tenancy.allowed-tenant-id.");
+                return;
+            }
+            if (tenantId != null && !configuredTenantId.equals(tenantId)) {
+                writeForbidden(response, "The requested tenant is not available on this EverySale deployment.");
+                return;
+            }
+            tenantId = configuredTenantId;
+        } else if (requiresTenantHeader(request) && tenantId == null) {
             writeBadRequest(response, "X-Tenant-Id header is required for B2B SaaS API requests.");
             return;
         }
@@ -88,6 +105,10 @@ public class TenantContextFilter extends OncePerRequestFilter {
                 && !path.startsWith("/api/payments/toss/webhooks/");
     }
 
+    private boolean isSingleTenantMode() {
+        return "SINGLE_TENANT".equalsIgnoreCase(trimToNull(tenancyMode));
+    }
+
     private boolean isSafeIdentifier(String value) {
         return value != null && SAFE_IDENTIFIER.matcher(value).matches();
     }
@@ -102,6 +123,18 @@ public class TenantContextFilter extends OncePerRequestFilter {
 
     private void writeBadRequest(HttpServletResponse response, String message) throws IOException {
         response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write("{\"status\":\"FAILED\",\"message\":\"" + message + "\"}");
+    }
+
+    private void writeForbidden(HttpServletResponse response, String message) throws IOException {
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write("{\"status\":\"FAILED\",\"message\":\"" + message + "\"}");
+    }
+
+    private void writeServiceUnavailable(HttpServletResponse response, String message) throws IOException {
+        response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
         response.setContentType("application/json;charset=UTF-8");
         response.getWriter().write("{\"status\":\"FAILED\",\"message\":\"" + message + "\"}");
     }

@@ -2,6 +2,8 @@ package com.example.payment.infrastructure.security;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
@@ -13,6 +15,13 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtDecoders;
+import org.springframework.security.oauth2.jwt.JwtValidators;
+import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2TokenValidator;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
@@ -21,7 +30,9 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 @Configuration
 @EnableWebSecurity
@@ -33,6 +44,18 @@ public class SecurityConfig {
 
     @Value("${app.security.external-auth.enabled:false}")
     private boolean externalAuthEnabled;
+
+    @Value("${app.security.external-auth.audience:}")
+    private String externalAuthAudience;
+
+    @Value("${app.tenancy.bind-token-claims:false}")
+    private boolean bindTokenClaims;
+
+    @Value("${app.tenancy.require-token-tenant-claim:false}")
+    private boolean requireTokenTenantClaim;
+
+    @Value("${app.tenancy.require-token-partner-claim:false}")
+    private boolean requireTokenPartnerClaim;
 
     @Value("${app.security.mock-auth.enabled:false}")
     private boolean mockAuthEnabled;
@@ -48,7 +71,44 @@ public class SecurityConfig {
 
     @Bean
     Converter<Jwt, AbstractAuthenticationToken> jwtAuthenticationConverter() {
-        return new EverySaleJwtAuthenticationConverter();
+        return new EverySaleJwtAuthenticationConverter(firstCsvValue(externalAuthAudience));
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "app.security.external-auth.enabled", havingValue = "true")
+    JwtDecoder jwtDecoder(
+            @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}") String issuerUri) {
+        Set<String> audiences = new LinkedHashSet<>(splitCsv(externalAuthAudience));
+        if (audiences.isEmpty()) {
+            throw new IllegalStateException("app.security.external-auth.audience is required when external auth is enabled.");
+        }
+        JwtDecoder decoder = JwtDecoders.fromIssuerLocation(issuerUri);
+        if (!(decoder instanceof NimbusJwtDecoder nimbusJwtDecoder)) {
+            throw new IllegalStateException("NimbusJwtDecoder is required for EverySale audience validation.");
+        }
+        OAuth2TokenValidator<Jwt> issuerValidator = JwtValidators.createDefaultWithIssuer(issuerUri);
+        nimbusJwtDecoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
+                issuerValidator,
+                new JwtAudienceValidator(audiences)
+        ));
+        return nimbusJwtDecoder;
+    }
+
+    @Bean
+    JwtTenantAuthorizationFilter jwtTenantAuthorizationFilter() {
+        return new JwtTenantAuthorizationFilter(
+                bindTokenClaims,
+                requireTokenTenantClaim,
+                requireTokenPartnerClaim
+        );
+    }
+
+    @Bean
+    FilterRegistrationBean<JwtTenantAuthorizationFilter> jwtTenantAuthorizationFilterRegistration(
+            JwtTenantAuthorizationFilter filter) {
+        FilterRegistrationBean<JwtTenantAuthorizationFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
     }
 
     @Bean
@@ -73,9 +133,11 @@ public class SecurityConfig {
                 "X-Partner-Id",
                 "X-Correlation-Id",
                 "Idempotency-Key",
+                "X-EverySale-User-Id",
                 "X-EverySale-Customer-Id",
                 "X-EverySale-Seller-Id",
                 "X-EverySale-Roles",
+                "X-User-Id",
                 "X-Customer-Id",
                 "X-Seller-Id",
                 "X-Roles"
@@ -90,28 +152,31 @@ public class SecurityConfig {
     }
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http,
+                                            JwtTenantAuthorizationFilter jwtTenantAuthorizationFilter) throws Exception {
         http.csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/", "/index.html", "/shared.html", "/*.css", "/*.js", "/*.png", "/*.ico", "/error").permitAll()
+                        .requestMatchers("/", "/index.html", "/shared.html", "/seller.html", "/app", "/app/**", "/*.css", "/*.js", "/*.png", "/*.ico", "/error").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/system/health", "/api/system/health/**", "/api/system/readiness", "/api/payments/health").permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/payments/toss/webhooks/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/marketplace/events/**", "/api/simulation/events/**", "/api/simulation/auction/status").permitAll()
-                        .requestMatchers("/api/simulation/auth/**").permitAll()
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/marketplace/events",
+                                "/api/marketplace/events/page",
+                                "/api/marketplace/events/*",
+                                "/api/marketplace/events/*/raffle/status",
+                                "/api/marketplace/events/*/raffle/stream",
+                                "/api/marketplace/events/*/auction/status",
+                                "/api/marketplace/events/*/auction/stream").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.POST, "/api/system/dashboard/reset", "/api/system/inventory/reconcile").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/system/inventory/reconcile").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/queue/clear").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/marketplace/events/*/raffle/draw", "/api/marketplace/events/*/auction/close").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.POST, "/api/simulation/bid").authenticated()
-                        .requestMatchers(HttpMethod.GET, "/api/simulation/status", "/api/simulation/orders").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.POST, "/api/simulation/**").hasRole("ADMIN")
-                        .requestMatchers("/api/system/dashboard/**", "/api/reservations/system/**").hasRole("ADMIN")
+                        .requestMatchers("/api/reservations/system/**").hasRole("ADMIN")
                         .requestMatchers("/api/sellers/moderation/**", "/api/sellers/*/payouts/*/release").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.POST, "/api/payments/*/refund").hasRole("ADMIN")
-                        .requestMatchers("/api/payments/toss/**", "/api/reservations/workflows/**", "/api/reservations/customer/**", "/api/system/customer/**", "/api/queue/**").authenticated()
+                        .requestMatchers("/api/payments/toss/**", "/api/reservations/workflows/**", "/api/reservations/customer/**", "/api/queue/**").authenticated()
                         .anyRequest().authenticated()
                 );
 
@@ -123,6 +188,7 @@ public class SecurityConfig {
         }
         if (externalAuthEnabled) {
             http.oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())));
+            http.addFilterAfter(jwtTenantAuthorizationFilter, BearerTokenAuthenticationFilter.class);
         }
         return http.build();
     }
@@ -135,5 +201,10 @@ public class SecurityConfig {
                 .map(String::trim)
                 .filter(entry -> !entry.isEmpty())
                 .toList();
+    }
+
+    private String firstCsvValue(String value) {
+        List<String> values = splitCsv(value);
+        return values.isEmpty() ? null : values.get(0);
     }
 }

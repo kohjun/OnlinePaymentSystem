@@ -30,6 +30,12 @@ public class SellerProfile {
     @Column(name = "display_name", nullable = false)
     private String displayName;
 
+    @Column(name = "owner_user_id")
+    private String ownerUserId;
+
+    @Column(name = "owner_customer_id")
+    private String ownerCustomerId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private SellerStatus status;
@@ -37,6 +43,21 @@ public class SellerProfile {
     @Enumerated(EnumType.STRING)
     @Column(name = "verification_status", nullable = false)
     private SellerVerificationStatus verificationStatus;
+
+    @Column(name = "verification_evidence_ref", length = 500)
+    private String verificationEvidenceRef;
+
+    @Column(name = "verification_note", length = 1000)
+    private String verificationNote;
+
+    @Column(name = "verification_submitted_at")
+    private LocalDateTime verificationSubmittedAt;
+
+    @Column(name = "verification_reviewed_by", length = 100)
+    private String verificationReviewedBy;
+
+    @Column(name = "verification_reviewed_at")
+    private LocalDateTime verificationReviewedAt;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;

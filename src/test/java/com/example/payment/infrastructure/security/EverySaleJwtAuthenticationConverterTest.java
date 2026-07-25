@@ -54,6 +54,23 @@ class EverySaleJwtAuthenticationConverterTest {
         assertTrue(authorities.contains("SCOPE_admin"));
     }
 
+    @Test
+    void onlyImportsRolesFromConfiguredResource() {
+        EverySaleJwtAuthenticationConverter scopedConverter = new EverySaleJwtAuthenticationConverter("everysale-api");
+        Jwt jwt = jwt(Map.of(
+                "sub", "subject-1",
+                "resource_access", Map.of(
+                        "everysale-api", Map.of("roles", List.of("seller")),
+                        "unrelated-admin", Map.of("roles", List.of("admin"))
+                )
+        ));
+
+        Set<String> authorities = authorities(scopedConverter.convert(jwt));
+
+        assertTrue(authorities.contains("ROLE_SELLER"));
+        assertTrue(!authorities.contains("ROLE_ADMIN"));
+    }
+
     private Jwt jwt(Map<String, Object> claims) {
         return new Jwt(
                 "token",

@@ -4,9 +4,11 @@ import com.example.payment.domain.entity.InventoryReservationRecord;
 import com.example.payment.domain.entity.OrderRecord;
 import com.example.payment.domain.entity.PaymentRecord;
 import com.example.payment.domain.entity.TossPaymentIntent;
+import com.example.payment.domain.model.marketplace.SellerProfile;
 import com.example.payment.domain.repository.InventoryReservationRecordRepository;
 import com.example.payment.domain.repository.OrderRecordRepository;
 import com.example.payment.domain.repository.PaymentRecordRepository;
+import com.example.payment.domain.repository.SellerProfileRepository;
 import com.example.payment.domain.repository.TossPaymentIntentRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -25,6 +27,7 @@ public class AuthorizationGuard {
     private final InventoryReservationRecordRepository reservationRepository;
     private final OrderRecordRepository orderRecordRepository;
     private final TossPaymentIntentRepository tossPaymentIntentRepository;
+    private final SellerProfileRepository sellerProfileRepository;
     private final SecurityAuditService securityAuditService;
 
     public void requireAuthenticated() {
@@ -62,10 +65,19 @@ public class AuthorizationGuard {
             return;
         }
         String authenticatedSellerId = sellerId(authentication);
-        if (authenticatedSellerId == null || !authenticatedSellerId.equals(sellerId)) {
-            securityAuditService.recordDenied("SELLER_ACCESS", "SELLER", sellerId, "Seller ownership mismatch.");
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Seller ownership mismatch.");
+        if (authenticatedSellerId != null && authenticatedSellerId.equals(sellerId)) {
+            return;
         }
+        String authenticatedUserId = userId(authentication);
+        String authenticatedCustomerId = customerId(authentication);
+        SellerProfile seller = sellerProfileRepository.findById(sellerId).orElse(null);
+        if (seller != null
+                && ((authenticatedUserId != null && authenticatedUserId.equals(seller.getOwnerUserId()))
+                || (authenticatedCustomerId != null && authenticatedCustomerId.equals(seller.getOwnerCustomerId())))) {
+            return;
+        }
+        securityAuditService.recordDenied("SELLER_ACCESS", "SELLER", sellerId, "Seller ownership mismatch.");
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Seller ownership mismatch.");
     }
 
     public void requirePaymentAccess(String paymentId) {
@@ -122,6 +134,37 @@ public class AuthorizationGuard {
         requireCustomerAccess(intent.getCustomerId());
     }
 
+    public EverySalePrincipal currentPrincipal() {
+        requireAuthenticated();
+        Authentication authentication = authentication();
+        if (authentication.getPrincipal() instanceof EverySalePrincipal principal) {
+            return principal;
+        }
+        return new EverySalePrincipal(
+                userId(authentication),
+                customerId(authentication),
+                sellerId(authentication),
+                authentication.getAuthorities().stream()
+                        .map(GrantedAuthority::getAuthority)
+                        .map(authority -> authority.startsWith("ROLE_") ? authority.substring(5) : authority)
+                        .collect(java.util.stream.Collectors.toUnmodifiableSet())
+        );
+    }
+
+    public String currentCustomerId() {
+        EverySalePrincipal principal = currentPrincipal();
+        if (principal.customerId() == null || principal.customerId().isBlank()) {
+            securityAuditService.recordDenied(
+                    "CUSTOMER_IDENTITY_REQUIRED",
+                    "CUSTOMER",
+                    null,
+                    "Authenticated principal does not contain a customer identity."
+            );
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Customer identity is required.");
+        }
+        return principal.customerId();
+    }
+
     private Authentication authentication() {
         return SecurityContextHolder.getContext().getAuthentication();
     }
@@ -143,6 +186,14 @@ public class AuthorizationGuard {
             return principal.customerId();
         }
         Object claim = detailsClaim(authentication, "customerId", "customer_id", "cid");
+        return claim != null ? claim.toString() : authentication.getName();
+    }
+
+    private String userId(Authentication authentication) {
+        if (authentication.getPrincipal() instanceof EverySalePrincipal principal) {
+            return principal.userId();
+        }
+        Object claim = detailsClaim(authentication, "userId", "user_id", "uid", "sub");
         return claim != null ? claim.toString() : authentication.getName();
     }
 

@@ -2,5 +2,7 @@ package com.example.payment.domain.model.marketplace;
 
 public enum SellerVerificationStatus {
     UNVERIFIED,
-    VERIFIED
+    PENDING_REVIEW,
+    VERIFIED,
+    REJECTED
 }

@@ -26,6 +26,9 @@ public class MockAuthenticationFilter extends OncePerRequestFilter {
     @Value("${app.security.mock-auth.default-customer-id:demo-customer}")
     private String defaultCustomerId;
 
+    @Value("${app.security.mock-auth.default-user-id:}")
+    private String defaultUserId;
+
     @Value("${app.security.mock-auth.default-roles:CUSTOMER}")
     private String defaultRoles;
 
@@ -34,12 +37,15 @@ public class MockAuthenticationFilter extends OncePerRequestFilter {
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
         if (enabled && SecurityContextHolder.getContext().getAuthentication() == null) {
-            String customerId = firstHeader(request, "X-EverySale-Customer-Id", "X-Customer-Id", "X-User-Id");
+            String customerId = firstHeader(request, "X-EverySale-Customer-Id", "X-Customer-Id");
+            String resolvedCustomerId = defaultText(customerId, defaultCustomerId);
+            String userId = firstHeader(request, "X-EverySale-User-Id", "X-User-Id");
             String sellerId = firstHeader(request, "X-EverySale-Seller-Id", "X-Seller-Id");
             String rolesHeader = firstHeader(request, "X-EverySale-Roles", "X-Roles");
             Set<String> roles = roles(defaultText(rolesHeader, defaultRoles));
             EverySalePrincipal principal = new EverySalePrincipal(
-                    defaultText(customerId, defaultCustomerId),
+                    defaultText(userId, defaultText(defaultUserId, "USER-" + resolvedCustomerId)),
+                    resolvedCustomerId,
                     sellerId,
                     roles
             );

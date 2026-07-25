@@ -16,6 +16,15 @@ import java.util.Set;
 public class EverySaleJwtAuthenticationConverter implements Converter<Jwt, AbstractAuthenticationToken> {
 
     private final JwtGrantedAuthoritiesConverter scopeAuthoritiesConverter = new JwtGrantedAuthoritiesConverter();
+    private final String resourceId;
+
+    public EverySaleJwtAuthenticationConverter() {
+        this(null);
+    }
+
+    public EverySaleJwtAuthenticationConverter(String resourceId) {
+        this.resourceId = resourceId == null || resourceId.isBlank() ? null : resourceId.trim();
+    }
 
     @Override
     public AbstractAuthenticationToken convert(Jwt jwt) {
@@ -42,6 +51,13 @@ public class EverySaleJwtAuthenticationConverter implements Converter<Jwt, Abstr
 
     private void addResourceAccessAuthorities(Set<GrantedAuthority> authorities, Object claim) {
         if (!(claim instanceof Map<?, ?> resources)) {
+            return;
+        }
+        if (resourceId != null) {
+            Object resource = resources.get(resourceId);
+            if (resource instanceof Map<?, ?> map) {
+                addRoleAuthorities(authorities, map.get("roles"));
+            }
             return;
         }
         for (Object resource : resources.values()) {

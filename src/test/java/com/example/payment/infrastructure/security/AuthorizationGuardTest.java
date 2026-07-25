@@ -1,9 +1,13 @@
 package com.example.payment.infrastructure.security;
 
 import com.example.payment.domain.entity.OrderRecord;
+import com.example.payment.domain.model.marketplace.SellerProfile;
+import com.example.payment.domain.model.marketplace.SellerStatus;
+import com.example.payment.domain.model.marketplace.SellerVerificationStatus;
 import com.example.payment.domain.repository.InventoryReservationRecordRepository;
 import com.example.payment.domain.repository.OrderRecordRepository;
 import com.example.payment.domain.repository.PaymentRecordRepository;
+import com.example.payment.domain.repository.SellerProfileRepository;
 import com.example.payment.domain.repository.TossPaymentIntentRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +42,7 @@ class AuthorizationGuardTest {
     private InventoryReservationRecordRepository reservationRepository;
     private OrderRecordRepository orderRecordRepository;
     private TossPaymentIntentRepository tossPaymentIntentRepository;
+    private SellerProfileRepository sellerProfileRepository;
     private SecurityAuditService securityAuditService;
     private AuthorizationGuard authorizationGuard;
 
@@ -47,12 +52,14 @@ class AuthorizationGuardTest {
         reservationRepository = mock(InventoryReservationRecordRepository.class);
         orderRecordRepository = mock(OrderRecordRepository.class);
         tossPaymentIntentRepository = mock(TossPaymentIntentRepository.class);
+        sellerProfileRepository = mock(SellerProfileRepository.class);
         securityAuditService = mock(SecurityAuditService.class);
         authorizationGuard = new AuthorizationGuard(
                 paymentRecordRepository,
                 reservationRepository,
                 orderRecordRepository,
                 tossPaymentIntentRepository,
+                sellerProfileRepository,
                 securityAuditService
         );
     }
@@ -113,6 +120,21 @@ class AuthorizationGuardTest {
     }
 
     @Test
+    void requireSellerAccess_allowsSellerOwnedByAuthenticatedUser() {
+        when(sellerProfileRepository.findById("SELLER-1")).thenReturn(Optional.of(SellerProfile.builder()
+                .sellerId("SELLER-1")
+                .displayName("Seller One")
+                .ownerUserId("USER-CUS-1")
+                .ownerCustomerId("CUS-1")
+                .status(SellerStatus.ACTIVE)
+                .verificationStatus(SellerVerificationStatus.VERIFIED)
+                .build()));
+        authenticate("CUS-1", "CUSTOMER");
+
+        assertDoesNotThrow(() -> authorizationGuard.requireSellerAccess("SELLER-1"));
+    }
+
+    @Test
     void requireAdmin_allowsJwtAdminRole() {
         authenticateJwt(Map.of("sub", "admin-1", "customer_id", "ADMIN-1"), "ROLE_ADMIN");
 
@@ -120,7 +142,7 @@ class AuthorizationGuardTest {
     }
 
     private void authenticate(String customerId, String... roles) {
-        EverySalePrincipal principal = new EverySalePrincipal(customerId, null, Set.of(roles));
+        EverySalePrincipal principal = new EverySalePrincipal("USER-" + customerId, customerId, null, Set.of(roles));
         UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                 principal,
                 "test",
