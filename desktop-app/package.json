@@ -2,7 +2,7 @@
   "name": "everysale-commerce-operations",
   "productName": "에브리세일 (EverySale)",
   "version": "1.0.0",
-  "description": "에브리세일 — 엔터프라이즈 커머스 운영 플랫폼",
+  "description": "에브리세일 C2C 커머스 마켓플레이스",
   "main": "main.js",
   "scripts": {
     "start": "electron .",

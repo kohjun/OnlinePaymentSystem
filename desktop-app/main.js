@@ -13,6 +13,18 @@ const PORT = 8080;
 const HEALTH_URL = `http://localhost:${PORT}/api/system/health`;
 
 function getJavaExecutable() {
+    const executableName = process.platform === 'win32' ? 'java.exe' : 'java';
+    const bundledJava = process.resourcesPath
+        ? path.join(process.resourcesPath, 'jre', 'bin', executableName)
+        : null;
+    const configuredJava = process.env.JAVA_HOME
+        ? path.join(process.env.JAVA_HOME, 'bin', executableName)
+        : null;
+    for (const candidate of [bundledJava, configuredJava]) {
+        if (candidate && fs.existsSync(candidate)) {
+            return candidate;
+        }
+    }
     return 'java';
 }
 
@@ -20,7 +32,7 @@ function startSpringBoot() {
     let jarPath = path.join(__dirname, 'payment-0.0.1-SNAPSHOT.jar');
 
     if (!fs.existsSync(jarPath)) {
-        jarPath = path.join(__dirname, '../build_sim/libs/payment-0.0.1-SNAPSHOT.jar');
+        jarPath = path.join(__dirname, '../build_sim_new/libs/payment-0.0.1-SNAPSHOT.jar');
     }
 
     const logPath = path.join(app.getPath('userData'), 'spring-boot.log');
@@ -38,14 +50,8 @@ function startSpringBoot() {
     const javaCmd = getJavaExecutable();
     const args = ['-jar', jarPath];
 
-    const env = { ...process.env };
-    const jbrBin = "C:\\Program Files\\Android\\Android Studio\\jbr\\bin";
-    const oracleBin = "C:\\Program Files\\oracleJdk-25\\bin";
-    env.PATH = `${jbrBin};${oracleBin};${env.PATH}`;
-    env.JAVA_HOME = "C:\\Program Files\\Android\\Android Studio\\jbr";
-
     springBootProcess = spawn(javaCmd, args, {
-        env: env,
+        env: { ...process.env },
         cwd: path.dirname(jarPath)
     });
 
@@ -101,7 +107,7 @@ function createMainWindow() {
         minWidth: 1024,
         minHeight: 680,
         show: false,
-        title: '에브리세일 | 엔터프라이즈 커머스 운영 플랫폼',
+        title: '에브리세일 | C2C 마켓플레이스',
         // ─── Remove OS frame; we paint our own title bar ───
         frame: false,
         titleBarStyle: 'hidden',
@@ -114,7 +120,7 @@ function createMainWindow() {
     });
 
     mainWindow.setMenu(null);
-    mainWindow.loadURL(`http://localhost:${PORT}/`);
+    mainWindow.loadURL(`http://localhost:${PORT}/app/`);
 
     // Notify renderer when maximize state changes
     mainWindow.on('maximize',   () => { if (mainWindow) mainWindow.webContents.send('window-maximized-change', true); });
