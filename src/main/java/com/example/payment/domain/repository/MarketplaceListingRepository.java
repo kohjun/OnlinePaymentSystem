@@ -2,6 +2,7 @@ package com.example.payment.domain.repository;
 
 import com.example.payment.domain.model.marketplace.ListingStatus;
 import com.example.payment.domain.model.marketplace.MarketplaceListing;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -14,4 +15,8 @@ public interface MarketplaceListingRepository extends JpaRepository<MarketplaceL
     List<MarketplaceListing> findByStatus(ListingStatus status);
 
     List<MarketplaceListing> findByStatusOrderByCreatedAtAsc(ListingStatus status);
+
+    long countByStatus(ListingStatus status);
+
+    List<MarketplaceListing> findByStatusOrderByCreatedAtAsc(ListingStatus status, Pageable pageable);
 }

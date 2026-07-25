@@ -1,43 +1,44 @@
 package com.example.payment.presentation.dto.request;
 
-import com.example.payment.domain.model.marketplace.SaleType;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 
 @Data
-public class CreateSellerListingRequest {
-    @NotBlank(message = "name is required")
+public class UpdateC2CListingRequest {
+    @Size(max = 255)
     private String name;
 
+    @Size(max = 1000)
     private String description;
 
-    @NotNull(message = "price is required")
     @DecimalMin(value = "0.01", message = "price must be greater than 0")
     private BigDecimal price;
 
-    @NotBlank(message = "category is required")
+    @Size(max = 100)
     private String category;
 
-    @NotNull(message = "quantity is required")
     @Min(value = 1, message = "quantity must be greater than 0")
     private Integer quantity;
 
-    private SaleType saleType;
+    @Size(max = 1000)
     private String imageUrl;
+
+    @Size(max = 100)
     private String itemCondition;
+
+    @Size(max = 255)
     private String brand;
+
+    @Size(max = 1000)
     private String tags;
+
+    @Size(max = 1000)
     private String authenticityNote;
+
+    @Size(max = 1000)
     private String defectDescription;
-    private Boolean publishImmediately;
-    private LocalDateTime startsAt;
-    private LocalDateTime endsAt;
-    private BigDecimal minBidIncrement;
-    private BigDecimal reservePrice;
 }

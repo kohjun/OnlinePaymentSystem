@@ -13,8 +13,20 @@ import java.time.LocalDateTime;
 public class SellerResponse {
     private String sellerId;
     private String displayName;
+    private String ownerUserId;
+    private String ownerCustomerId;
     private SellerStatus status;
     private SellerVerificationStatus verificationStatus;
+    private String verificationEvidenceRef;
+    private String verificationNote;
+
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    private LocalDateTime verificationSubmittedAt;
+
+    private String verificationReviewedBy;
+
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    private LocalDateTime verificationReviewedAt;
 
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime createdAt;

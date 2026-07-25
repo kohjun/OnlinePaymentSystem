@@ -16,59 +16,50 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "marketplace_listings")
+@Table(name = "seller_payout_accounts")
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class MarketplaceListing {
+public class SellerPayoutAccount {
 
     @Id
-    @Column(name = "listing_id")
-    private String listingId;
+    @Column(name = "payout_account_id")
+    private String payoutAccountId;
 
     @Column(name = "seller_id", nullable = false)
     private String sellerId;
 
-    @Column(name = "product_id", nullable = false)
-    private String productId;
+    @Column(name = "account_ref", nullable = false, length = 500)
+    private String accountRef;
 
-    @Column(nullable = false)
-    private String title;
+    @Column(name = "bank_code", nullable = false, length = 50)
+    private String bankCode;
 
-    @Column(length = 1000)
-    private String description;
+    @Column(name = "bank_name", nullable = false, length = 100)
+    private String bankName;
 
-    @Column(name = "image_url", length = 1000)
-    private String imageUrl;
+    @Column(name = "account_holder_name", nullable = false, length = 100)
+    private String accountHolderName;
 
-    @Column(name = "item_condition")
-    private String itemCondition;
-
-    @Column(length = 255)
-    private String brand;
-
-    @Column(length = 1000)
-    private String tags;
-
-    @Column(name = "authenticity_note", length = 1000)
-    private String authenticityNote;
-
-    @Column(name = "defect_description", length = 1000)
-    private String defectDescription;
+    @Column(name = "account_last4", nullable = false, length = 4)
+    private String accountLast4;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private ListingStatus status;
+    private SellerPayoutAccountStatus status;
 
-    @Column(name = "reviewed_by")
+    @Column(name = "review_note", length = 1000)
+    private String reviewNote;
+
+    @Column(name = "submitted_at", nullable = false)
+    private LocalDateTime submittedAt;
+
+    @Column(name = "reviewed_by", length = 100)
     private String reviewedBy;
 
     @Column(name = "reviewed_at")
     private LocalDateTime reviewedAt;
-
-    @Column(name = "review_note", length = 1000)
-    private String reviewNote;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
@@ -82,10 +73,13 @@ public class MarketplaceListing {
         if (createdAt == null) {
             createdAt = now;
         }
-        updatedAt = now;
-        if (status == null) {
-            status = ListingStatus.DRAFT;
+        if (submittedAt == null) {
+            submittedAt = now;
         }
+        if (status == null) {
+            status = SellerPayoutAccountStatus.PENDING_REVIEW;
+        }
+        updatedAt = now;
     }
 
     @PreUpdate

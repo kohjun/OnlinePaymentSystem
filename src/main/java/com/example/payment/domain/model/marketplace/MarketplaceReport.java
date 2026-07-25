@@ -16,59 +16,49 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "marketplace_listings")
+@Table(name = "marketplace_reports")
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class MarketplaceListing {
+public class MarketplaceReport {
 
     @Id
-    @Column(name = "listing_id")
-    private String listingId;
+    @Column(name = "report_id")
+    private String reportId;
 
-    @Column(name = "seller_id", nullable = false)
-    private String sellerId;
+    @Column(name = "reporter_user_id", nullable = false)
+    private String reporterUserId;
 
-    @Column(name = "product_id", nullable = false)
-    private String productId;
+    @Column(name = "reporter_customer_id", nullable = false)
+    private String reporterCustomerId;
 
-    @Column(nullable = false)
-    private String title;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "target_type", nullable = false)
+    private ReportTargetType targetType;
 
-    @Column(length = 1000)
-    private String description;
-
-    @Column(name = "image_url", length = 1000)
-    private String imageUrl;
-
-    @Column(name = "item_condition")
-    private String itemCondition;
-
-    @Column(length = 255)
-    private String brand;
-
-    @Column(length = 1000)
-    private String tags;
-
-    @Column(name = "authenticity_note", length = 1000)
-    private String authenticityNote;
-
-    @Column(name = "defect_description", length = 1000)
-    private String defectDescription;
+    @Column(name = "target_id", nullable = false)
+    private String targetId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private ListingStatus status;
+    private ReportReason reason;
+
+    @Column(length = 2000)
+    private String details;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private ReportStatus status;
 
     @Column(name = "reviewed_by")
     private String reviewedBy;
 
-    @Column(name = "reviewed_at")
-    private LocalDateTime reviewedAt;
-
-    @Column(name = "review_note", length = 1000)
+    @Column(name = "review_note", length = 2000)
     private String reviewNote;
+
+    @Column(name = "resolved_at")
+    private LocalDateTime resolvedAt;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
@@ -84,7 +74,7 @@ public class MarketplaceListing {
         }
         updatedAt = now;
         if (status == null) {
-            status = ListingStatus.DRAFT;
+            status = ReportStatus.OPEN;
         }
     }
 

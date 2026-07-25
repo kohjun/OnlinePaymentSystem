@@ -53,6 +53,9 @@ public class CompleteReservationRequest extends BaseReservationDto {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class ShippingInfo {
+        private String addressId;
+        private String recipientName;
+        private String postalCode;
         private String address;
         private String method;
         private String specialInstructions;

@@ -19,7 +19,10 @@ import com.example.payment.infrastructure.util.ResourceReservationService;
 import com.example.payment.presentation.dto.request.CreateSaleEventRequest;
 import com.example.payment.presentation.dto.request.CreateSellerListingRequest;
 import com.example.payment.presentation.dto.request.CreateSellerRequest;
+import com.example.payment.presentation.dto.request.ReviewSellerVerificationRequest;
 import com.example.payment.presentation.dto.request.ReviewListingRequest;
+import com.example.payment.presentation.dto.request.SubmitSellerVerificationRequest;
+import com.example.payment.presentation.dto.request.UpdateC2CListingRequest;
 import com.example.payment.presentation.dto.response.SellerListingResponse;
 import com.example.payment.presentation.dto.response.SellerResponse;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -53,6 +57,241 @@ public class SellerMarketplaceService {
                 .updatedAt(LocalDateTime.now())
                 .build());
         return toSellerResponse(seller);
+    }
+
+    @Transactional
+    public SellerResponse createSellerForOwner(String ownerUserId, String ownerCustomerId, CreateSellerRequest request) {
+        Optional<SellerProfile> existing = findSellerByOwner(ownerUserId, ownerCustomerId);
+        if (existing.isPresent()) {
+            return toSellerResponse(existing.get());
+        }
+        SellerProfile seller = sellerProfileRepository.save(SellerProfile.builder()
+                .sellerId("SELLER-" + shortId())
+                .displayName(request.getDisplayName().trim())
+                .ownerUserId(ownerUserId)
+                .ownerCustomerId(ownerCustomerId)
+                .status(SellerStatus.PENDING)
+                .verificationStatus(SellerVerificationStatus.UNVERIFIED)
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build());
+        return toSellerResponse(seller);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<SellerResponse> getSellerByOwner(String ownerUserId, String ownerCustomerId) {
+        return findSellerByOwner(ownerUserId, ownerCustomerId).map(this::toSellerResponse);
+    }
+
+    @Transactional
+    public SellerResponse approveSeller(String sellerId) {
+        SellerProfile seller = requireSeller(sellerId);
+        seller.setStatus(SellerStatus.ACTIVE);
+        seller.setVerificationStatus(SellerVerificationStatus.VERIFIED);
+        seller.setVerificationReviewedAt(LocalDateTime.now());
+        seller.setVerificationReviewedBy("system-admin");
+        seller.setVerificationNote(defaultText(seller.getVerificationNote(), "Approved"));
+        return toSellerResponse(sellerProfileRepository.save(seller));
+    }
+
+    @Transactional
+    public SellerResponse submitSellerVerification(String ownerUserId,
+                                                   String ownerCustomerId,
+                                                   SubmitSellerVerificationRequest request) {
+        SellerProfile seller = requireSellerForOwner(ownerUserId, ownerCustomerId);
+        if (seller.getStatus() == SellerStatus.SUSPENDED) {
+            throw new IllegalArgumentException("Suspended seller cannot submit verification: " + seller.getSellerId());
+        }
+        if (seller.getVerificationStatus() == SellerVerificationStatus.VERIFIED) {
+            return toSellerResponse(seller);
+        }
+        seller.setVerificationStatus(SellerVerificationStatus.PENDING_REVIEW);
+        seller.setVerificationEvidenceRef(request.getEvidenceRef().trim());
+        seller.setVerificationNote(trimToNull(request.getNote()));
+        seller.setVerificationSubmittedAt(LocalDateTime.now());
+        seller.setVerificationReviewedBy(null);
+        seller.setVerificationReviewedAt(null);
+        return toSellerResponse(sellerProfileRepository.save(seller));
+    }
+
+    @Transactional
+    public SellerResponse reviewSellerVerification(String sellerId,
+                                                   String operatorId,
+                                                   ReviewSellerVerificationRequest request) {
+        SellerProfile seller = requireSeller(sellerId);
+        if (seller.getVerificationStatus() != SellerVerificationStatus.PENDING_REVIEW) {
+            throw new IllegalArgumentException("Seller verification is not waiting for review: " + sellerId);
+        }
+
+        seller.setVerificationReviewedBy(defaultText(operatorId, "admin"));
+        seller.setVerificationReviewedAt(LocalDateTime.now());
+        seller.setVerificationNote(defaultText(request.getNote(), Boolean.TRUE.equals(request.getApproved())
+                ? "Seller verification approved."
+                : "Seller verification rejected."));
+        if (Boolean.TRUE.equals(request.getApproved())) {
+            seller.setStatus(SellerStatus.ACTIVE);
+            seller.setVerificationStatus(SellerVerificationStatus.VERIFIED);
+        } else {
+            seller.setStatus(SellerStatus.PENDING);
+            seller.setVerificationStatus(SellerVerificationStatus.REJECTED);
+        }
+        return toSellerResponse(sellerProfileRepository.save(seller));
+    }
+
+    @Transactional
+    public SellerListingResponse createDraftListingForOwner(String ownerUserId,
+                                                            String ownerCustomerId,
+                                                            CreateSellerListingRequest request) {
+        SellerProfile seller = requireSellerForOwner(ownerUserId, ownerCustomerId);
+        requireSellerCanDraft(seller);
+
+        String productId = "PROD-" + shortId();
+        String listingId = "LIST-" + shortId();
+
+        Product product = productRepository.save(Product.builder()
+                .id(productId)
+                .name(request.getName().trim())
+                .description(request.getDescription())
+                .price(request.getPrice())
+                .category(normalizeCategory(request.getCategory()))
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build());
+
+        Inventory inventory = inventoryRepository.save(Inventory.builder()
+                .productId(productId)
+                .totalQuantity(request.getQuantity())
+                .availableQuantity(request.getQuantity())
+                .reservedQuantity(0)
+                .version(0L)
+                .lastUpdatedAt(LocalDateTime.now())
+                .build());
+        resourceReservationService.initializeResource("inventory:" + productId, request.getQuantity(), request.getQuantity());
+
+        MarketplaceListing listing = marketplaceListingRepository.save(MarketplaceListing.builder()
+                .listingId(listingId)
+                .sellerId(seller.getSellerId())
+                .productId(productId)
+                .title(request.getName().trim())
+                .description(request.getDescription())
+                .imageUrl(request.getImageUrl())
+                .itemCondition(defaultText(request.getItemCondition(), "GOOD"))
+                .brand(trimToNull(request.getBrand()))
+                .tags(trimToNull(request.getTags()))
+                .authenticityNote(trimToNull(request.getAuthenticityNote()))
+                .defectDescription(trimToNull(request.getDefectDescription()))
+                .status(ListingStatus.DRAFT)
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build());
+
+        return toListingResponse(listing, product, inventory, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<SellerListingResponse> getListingsByOwner(String ownerUserId, String ownerCustomerId) {
+        SellerProfile seller = requireSellerForOwner(ownerUserId, ownerCustomerId);
+        return getListings(seller.getSellerId());
+    }
+
+    @Transactional
+    public SellerListingResponse updateDraftListingForOwner(String ownerUserId,
+                                                            String ownerCustomerId,
+                                                            String listingId,
+                                                            UpdateC2CListingRequest request) {
+        SellerProfile seller = requireSellerForOwner(ownerUserId, ownerCustomerId);
+        MarketplaceListing listing = requireOwnedListing(seller.getSellerId(), listingId);
+        requireEditableListing(listing);
+
+        Product product = productRepository.findById(listing.getProductId())
+                .orElseThrow(() -> new IllegalArgumentException("Product not found: " + listing.getProductId()));
+        Inventory inventory = inventoryRepository.findById(listing.getProductId())
+                .orElseThrow(() -> new IllegalArgumentException("Inventory not found: " + listing.getProductId()));
+
+        if (hasText(request.getName())) {
+            product.setName(request.getName().trim());
+            listing.setTitle(request.getName().trim());
+        }
+        if (request.getDescription() != null) {
+            product.setDescription(request.getDescription());
+            listing.setDescription(request.getDescription());
+        }
+        if (request.getPrice() != null) {
+            product.setPrice(request.getPrice());
+        }
+        if (hasText(request.getCategory())) {
+            product.setCategory(normalizeCategory(request.getCategory()));
+        }
+        if (request.getQuantity() != null) {
+            inventory.setTotalQuantity(request.getQuantity());
+            inventory.setAvailableQuantity(request.getQuantity());
+            inventory.setReservedQuantity(0);
+            resourceReservationService.initializeResource("inventory:" + product.getId(), request.getQuantity(), request.getQuantity());
+        }
+        if (request.getImageUrl() != null) {
+            listing.setImageUrl(request.getImageUrl());
+        }
+        if (request.getItemCondition() != null) {
+            listing.setItemCondition(defaultText(request.getItemCondition(), "GOOD"));
+        }
+        if (request.getBrand() != null) {
+            listing.setBrand(trimToNull(request.getBrand()));
+        }
+        if (request.getTags() != null) {
+            listing.setTags(trimToNull(request.getTags()));
+        }
+        if (request.getAuthenticityNote() != null) {
+            listing.setAuthenticityNote(trimToNull(request.getAuthenticityNote()));
+        }
+        if (request.getDefectDescription() != null) {
+            listing.setDefectDescription(trimToNull(request.getDefectDescription()));
+        }
+        listing.setReviewNote(null);
+        listing.setReviewedBy(null);
+        listing.setReviewedAt(null);
+
+        Product savedProduct = productRepository.save(product);
+        Inventory savedInventory = inventoryRepository.save(inventory);
+        MarketplaceListing savedListing = marketplaceListingRepository.save(listing);
+        return toListingResponse(savedListing, savedProduct, savedInventory, latestSaleEvent(savedListing));
+    }
+
+    @Transactional
+    public SellerListingResponse submitListingForReview(String ownerUserId, String ownerCustomerId, String listingId) {
+        SellerProfile seller = requireSellerForOwner(ownerUserId, ownerCustomerId);
+        requireSellerCanDraft(seller);
+        MarketplaceListing listing = requireOwnedListing(seller.getSellerId(), listingId);
+        requireEditableListing(listing);
+
+        Product product = productRepository.findById(listing.getProductId())
+                .orElseThrow(() -> new IllegalArgumentException("Product not found: " + listing.getProductId()));
+        Inventory inventory = inventoryRepository.findById(listing.getProductId())
+                .orElseThrow(() -> new IllegalArgumentException("Inventory not found: " + listing.getProductId()));
+        validateListingReadyForReview(listing, product, inventory);
+
+        listing.setStatus(ListingStatus.PENDING_REVIEW);
+        listing.setReviewNote(null);
+        listing.setReviewedBy(null);
+        listing.setReviewedAt(null);
+        MarketplaceListing savedListing = marketplaceListingRepository.save(listing);
+        return toListingResponse(savedListing, product, inventory, latestSaleEvent(savedListing));
+    }
+
+    @Transactional
+    public SellerListingResponse createSaleEventForOwner(String ownerUserId,
+                                                         String ownerCustomerId,
+                                                         String listingId,
+                                                         CreateSaleEventRequest request) {
+        SellerProfile seller = requireSellerForOwner(ownerUserId, ownerCustomerId);
+        return createSaleEvent(seller.getSellerId(), listingId, request);
+    }
+
+    @Transactional
+    public SellerListingResponse publishSaleEventForOwner(String ownerUserId,
+                                                          String ownerCustomerId,
+                                                          String eventId) {
+        SellerProfile seller = requireSellerForOwner(ownerUserId, ownerCustomerId);
+        return publishSaleEvent(seller.getSellerId(), eventId);
     }
 
     @Transactional(readOnly = true)
@@ -97,6 +336,10 @@ public class SellerMarketplaceService {
                 .description(product.getDescription())
                 .imageUrl(request.getImageUrl())
                 .itemCondition(defaultText(request.getItemCondition(), "NEW"))
+                .brand(trimToNull(request.getBrand()))
+                .tags(trimToNull(request.getTags()))
+                .authenticityNote(trimToNull(request.getAuthenticityNote()))
+                .defectDescription(trimToNull(request.getDefectDescription()))
                 .status(ListingStatus.PENDING_REVIEW)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
@@ -148,6 +391,10 @@ public class SellerMarketplaceService {
 
         Inventory inventory = inventoryRepository.findById(listing.getProductId())
                 .orElseThrow(() -> new IllegalArgumentException("Inventory not found for product: " + listing.getProductId()));
+        int availableQuantity = Optional.ofNullable(inventory.getAvailableQuantity()).orElse(0);
+        if (request.getStockQuantity() > availableQuantity) {
+            throw new IllegalArgumentException("Sale event stock cannot exceed available inventory: " + listingId);
+        }
 
         SaleEvent event = saleEventRepository.save(SaleEvent.builder()
                 .saleEventId("EVT-" + shortId())
@@ -273,12 +520,66 @@ public class SellerMarketplaceService {
                 .orElseThrow(() -> new IllegalArgumentException("Seller not found: " + sellerId));
     }
 
+    private Optional<SellerProfile> findSellerByOwner(String ownerUserId, String ownerCustomerId) {
+        if (ownerUserId != null && !ownerUserId.isBlank()) {
+            Optional<SellerProfile> byUser = sellerProfileRepository.findByOwnerUserId(ownerUserId);
+            if (byUser.isPresent()) {
+                return byUser;
+            }
+        }
+        if (ownerCustomerId != null && !ownerCustomerId.isBlank()) {
+            return sellerProfileRepository.findByOwnerCustomerId(ownerCustomerId);
+        }
+        return Optional.empty();
+    }
+
     private SellerProfile requireActiveSeller(String sellerId) {
         SellerProfile seller = requireSeller(sellerId);
         if (seller.getStatus() != SellerStatus.ACTIVE) {
             throw new IllegalArgumentException("Seller is not active: " + sellerId);
         }
         return seller;
+    }
+
+    private SellerProfile requireSellerForOwner(String ownerUserId, String ownerCustomerId) {
+        return findSellerByOwner(ownerUserId, ownerCustomerId)
+                .orElseThrow(() -> new IllegalArgumentException("Seller profile has not been created for the current user."));
+    }
+
+    private void requireSellerCanDraft(SellerProfile seller) {
+        if (seller.getStatus() == SellerStatus.SUSPENDED) {
+            throw new IllegalArgumentException("Seller is suspended: " + seller.getSellerId());
+        }
+    }
+
+    private MarketplaceListing requireOwnedListing(String sellerId, String listingId) {
+        MarketplaceListing listing = marketplaceListingRepository.findById(listingId)
+                .orElseThrow(() -> new IllegalArgumentException("Listing not found: " + listingId));
+        if (!sellerId.equals(listing.getSellerId())) {
+            throw new IllegalArgumentException("Listing does not belong to seller: " + listingId);
+        }
+        return listing;
+    }
+
+    private void requireEditableListing(MarketplaceListing listing) {
+        if (listing.getStatus() != ListingStatus.DRAFT && listing.getStatus() != ListingStatus.REJECTED) {
+            throw new IllegalArgumentException("Only draft or rejected listings can be edited or submitted: " + listing.getListingId());
+        }
+        if (!saleEventRepository.findByListingIdOrderByStartsAtDesc(listing.getListingId()).isEmpty()) {
+            throw new IllegalArgumentException("Listing already has a sale event and cannot be edited as a C2C draft: " + listing.getListingId());
+        }
+    }
+
+    private void validateListingReadyForReview(MarketplaceListing listing, Product product, Inventory inventory) {
+        if (!hasText(listing.getTitle()) || !hasText(product.getCategory())) {
+            throw new IllegalArgumentException("Listing title and category are required before review submission.");
+        }
+        if (product.getPrice() == null || product.getPrice().signum() <= 0) {
+            throw new IllegalArgumentException("Listing price must be greater than 0 before review submission.");
+        }
+        if (inventory.getTotalQuantity() == null || inventory.getTotalQuantity() <= 0) {
+            throw new IllegalArgumentException("Listing quantity must be greater than 0 before review submission.");
+        }
     }
 
     private SellerListingResponse toListingResponse(MarketplaceListing listing) {
@@ -303,6 +604,11 @@ public class SellerMarketplaceService {
                 .description(listing.getDescription())
                 .imageUrl(listing.getImageUrl())
                 .category(product.getCategory())
+                .itemCondition(listing.getItemCondition())
+                .brand(listing.getBrand())
+                .tags(listing.getTags())
+                .authenticityNote(listing.getAuthenticityNote())
+                .defectDescription(listing.getDefectDescription())
                 .status(listing.getStatus())
                 .price(event != null ? event.getPrice() : product.getPrice())
                 .totalQuantity(inventory.getTotalQuantity())
@@ -322,8 +628,15 @@ public class SellerMarketplaceService {
         return SellerResponse.builder()
                 .sellerId(seller.getSellerId())
                 .displayName(seller.getDisplayName())
+                .ownerUserId(seller.getOwnerUserId())
+                .ownerCustomerId(seller.getOwnerCustomerId())
                 .status(seller.getStatus())
                 .verificationStatus(seller.getVerificationStatus())
+                .verificationEvidenceRef(seller.getVerificationEvidenceRef())
+                .verificationNote(seller.getVerificationNote())
+                .verificationSubmittedAt(seller.getVerificationSubmittedAt())
+                .verificationReviewedBy(seller.getVerificationReviewedBy())
+                .verificationReviewedAt(seller.getVerificationReviewedAt())
                 .createdAt(seller.getCreatedAt())
                 .build();
     }
@@ -379,6 +692,14 @@ public class SellerMarketplaceService {
 
     private String defaultText(String value, String fallback) {
         return value == null || value.trim().isEmpty() ? fallback : value.trim();
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
+    }
+
+    private String trimToNull(String value) {
+        return hasText(value) ? value.trim() : null;
     }
 
     private String shortId() {

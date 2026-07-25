@@ -20,6 +20,11 @@ public class SellerListingResponse {
     private String description;
     private String imageUrl;
     private String category;
+    private String itemCondition;
+    private String brand;
+    private String tags;
+    private String authenticityNote;
+    private String defectDescription;
     private ListingStatus status;
     private BigDecimal price;
     private Integer totalQuantity;
