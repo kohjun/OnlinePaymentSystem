@@ -99,13 +99,11 @@ payment:
     timeout-seconds: 60
   default-gateway: TOSS_PAYMENTS
   allow-gateway-fallback: false
-  legacy-api:
-    enabled: false
   mock:
     enabled: false
   toss:
-    client-key: ${TOSS_CLIENT_KEY}
-    secret-key: ${TOSS_SECRET_KEY}
+    client-key: ${TOSS_CLIENT_KEY:}
+    secret-key: ${TOSS_SECRET_KEY:}
     base-url: ${TOSS_BASE_URL:https://api.tosspayments.com}
     mode: ${TOSS_MODE:test}
     api-version: ${TOSS_API_VERSION:2022-11-16}
@@ -123,7 +121,30 @@ app:
     enabled: true
   checkout:
     public-complete-enabled: false
-    legacy-marketplace-enabled: false
+  marketplace:
+    winner-checkout-ttl-minutes: 30
+    lifecycle:
+      enabled: true
+      fixed-delay-ms: 5000
+    realtime:
+      redis-broadcast-enabled: false
+      heartbeat-ms: 15000
+      reconnect-ms: 1000
+      stream-timeout-ms: 1800000
+  payout:
+    transfer:
+      provider: LEDGER_ONLY
+      external-adapter-enabled: false
+      reconciliation:
+        enabled: false
+        stale-seconds: 300
+        batch-size: 50
+        fixed-delay-ms: 60000
+        initial-delay-ms: 30000
+  auction:
+    auto-close-enabled: true
+    auto-close-fixed-delay-ms: 5000
+    anti-sniping-extension-seconds: 30
   distribution:
     brand-name: EverySale
     mode: DEMO
@@ -134,17 +155,25 @@ app:
     require-external-auth: false
     require-tenant-isolation: false
   tenancy:
+    mode: DEMO
+    allowed-tenant-id: ""
+    database-rls-enabled: false
     default-tenant-id: everysale-demo
     default-partner-id: demo-partner
     require-tenant-header: false
+    bind-token-claims: false
+    require-token-tenant-claim: false
+    require-token-partner-claim: false
     response-headers-enabled: true
   security:
     mock-auth:
       enabled: true
+      default-user-id: USER-CUST-1049
       default-customer-id: CUST-1049
       default-roles: CUSTOMER,ADMIN
     external-auth:
       enabled: false
+      audience: ${OIDC_AUDIENCE:}
     cors:
       enabled: true
       allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:8080,http://127.0.0.1:8080}
@@ -179,10 +208,12 @@ app:
     refill-rate: 2
     client-window-seconds: 60
     client-max-requests: 120
-  simulation:
-    auth:
-      enabled: false
-      username: ${SIMULATION_AUTH_USERNAME:}
-      password: ${SIMULATION_AUTH_PASSWORD:}
   queue:
     enabled: false
+    promote-size: 50
+    max-active-users: 50
+    active-lease-seconds: 60
+    promotion-fixed-delay-ms: 1000
+  ticketing:
+    hold-seconds: 600
+    max-seats-per-event: 500

@@ -7,6 +7,11 @@ spring:
     hikari:
       maximum-pool-size: ${DATABASE_MAX_POOL_SIZE:50}
       minimum-idle: ${DATABASE_MIN_IDLE:5}
+  flyway:
+    enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
   data:
     redis:
       host: ${REDIS_HOST}
@@ -33,7 +38,38 @@ app:
     enabled: true
   checkout:
     public-complete-enabled: false
-    legacy-marketplace-enabled: false
+  auction:
+    auto-close-enabled: true
+  inventory:
+    reconciliation:
+      enabled: true
+  marketplace:
+    lifecycle:
+      enabled: true
+      fixed-delay-ms: ${MARKETPLACE_LIFECYCLE_DELAY_MS:5000}
+    realtime:
+      redis-broadcast-enabled: true
+      heartbeat-ms: ${MARKETPLACE_SSE_HEARTBEAT_MS:15000}
+      reconnect-ms: ${MARKETPLACE_SSE_RECONNECT_MS:1000}
+      stream-timeout-ms: ${MARKETPLACE_SSE_TIMEOUT_MS:1800000}
+  outbox:
+    enabled: true
+  payout:
+    transfer:
+      provider: ${PAYOUT_TRANSFER_PROVIDER:}
+      external-adapter-enabled: ${PAYOUT_TRANSFER_ADAPTER_ENABLED:false}
+      reconciliation:
+        enabled: true
+        stale-seconds: ${PAYOUT_TRANSFER_STALE_SECONDS:300}
+        batch-size: ${PAYOUT_TRANSFER_RECONCILIATION_BATCH_SIZE:50}
+        fixed-delay-ms: ${PAYOUT_TRANSFER_RECONCILIATION_DELAY_MS:60000}
+        initial-delay-ms: ${PAYOUT_TRANSFER_RECONCILIATION_INITIAL_DELAY_MS:30000}
+  queue:
+    enabled: true
+    promote-size: ${QUEUE_PROMOTE_SIZE:50}
+    max-active-users: ${QUEUE_MAX_ACTIVE_USERS:500}
+    active-lease-seconds: ${QUEUE_ACTIVE_LEASE_SECONDS:60}
+    promotion-fixed-delay-ms: ${QUEUE_PROMOTION_FIXED_DELAY_MS:1000}
   distribution:
     mode: PRODUCTION
     release-channel: production
@@ -41,23 +77,29 @@ app:
     require-real-payment-gateway: true
     require-external-auth: true
     require-tenant-isolation: true
-  simulation:
-    auth:
-      enabled: false
   security:
     mock-auth:
       enabled: false
     external-auth:
       enabled: true
+      audience: ${OIDC_AUDIENCE}
     cors:
       enabled: true
       allowed-origins: ${CORS_ALLOWED_ORIGINS:}
       allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:}
   tenancy:
-    require-tenant-header: true
-    default-tenant-id: ${DEFAULT_TENANT_ID:}
-    default-partner-id: ${DEFAULT_PARTNER_ID:}
+    mode: SINGLE_TENANT
+    allowed-tenant-id: ${EVERYSALE_TENANT_ID}
+    database-rls-enabled: false
+    require-tenant-header: false
+    bind-token-claims: true
+    require-token-tenant-claim: true
+    require-token-partner-claim: false
+    default-tenant-id: ${EVERYSALE_TENANT_ID}
+    default-partner-id: ${DEFAULT_PARTNER_ID:everysale-marketplace}
   temporal:
+    enabled: true
+    worker-enabled: true
     target: ${TEMPORAL_TARGET}
     namespace: ${TEMPORAL_NAMESPACE:payment}
     task-queue: ${TEMPORAL_TASK_QUEUE:payment-reservation-task-queue}
@@ -65,8 +107,6 @@ app:
 payment:
   default-gateway: TOSS_PAYMENTS
   allow-gateway-fallback: false
-  legacy-api:
-    enabled: false
   mock:
     enabled: false
   toss:

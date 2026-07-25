@@ -106,4 +106,20 @@ tasks.register('tossSandboxTest', Test) {
     shouldRunAfter test
 }
 
-layout.buildDirectory.set(file('build_sim'))
+layout.buildDirectory.set(file('build_sim_new'))
+
+def npmCommand = System.getProperty('os.name').toLowerCase().contains('windows') ? 'npm.cmd' : 'npm'
+
+tasks.register('frontendInstall', Exec) {
+    group = 'frontend'
+    description = 'Installs the EverySale marketplace frontend dependencies.'
+    workingDir file('frontend')
+    commandLine npmCommand, 'ci'
+}
+
+tasks.register('frontendBuild', Exec) {
+    group = 'frontend'
+    description = 'Builds the EverySale React marketplace into Spring static resources.'
+    workingDir file('frontend')
+    commandLine npmCommand, 'run', 'build'
+}
