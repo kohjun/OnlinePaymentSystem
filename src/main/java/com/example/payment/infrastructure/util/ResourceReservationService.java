@@ -169,6 +169,8 @@ public class ResourceReservationService {
                     resourceKey, total, available, total - available);
         } catch (Exception e) {
             log.error("Error initializing resource {}: {}", resourceKey, e.getMessage());
+            throw new ResourceReservationInfrastructureException(
+                    "Redis inventory initialization failed: " + resourceKey, e);
         }
     }
 
@@ -183,7 +185,8 @@ public class ResourceReservationService {
             return result;
         } catch (Exception e) {
             log.error("Error getting resource status {}: {}", resourceKey, e.getMessage());
-            return new HashMap<>();
+            throw new ResourceReservationInfrastructureException(
+                    "Redis inventory status read failed: " + resourceKey, e);
         }
     }
 

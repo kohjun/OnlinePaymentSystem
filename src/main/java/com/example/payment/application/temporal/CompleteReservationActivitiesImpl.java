@@ -2,6 +2,7 @@ package com.example.payment.application.temporal;
 
 import com.example.payment.application.dto.PaymentGatewayRequest;
 import com.example.payment.application.dto.PaymentGatewayResult;
+import com.example.payment.application.service.InventorySyncIssueService;
 import com.example.payment.domain.entity.InventoryReservationRecord;
 import com.example.payment.domain.entity.OrderRecord;
 import com.example.payment.domain.entity.PaymentRecord;
@@ -42,6 +43,7 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
     private final RefundRecordRepository refundRepository;
     private final PaymentGatewayFactory paymentGatewayFactory;
     private final OutboxEventService outboxEventService;
+    private final InventorySyncIssueService inventorySyncIssueService;
 
     @Override
     @Transactional
@@ -69,22 +71,38 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
         }
 
         LocalDateTime expiresAt = LocalDateTime.now().plusSeconds(RESERVATION_TTL_SECONDS);
-        InventoryReservationRecord record = reservationRepository.save(InventoryReservationRecord.builder()
-                .reservationId(command.getReservationId())
-                .productId(command.getProductId())
-                .customerId(command.getCustomerId())
-                .quantity(command.getQuantity())
-                .seatId(command.getSeatId())
-                .status("RESERVED")
-                .expiresAt(expiresAt)
-                .createdAt(LocalDateTime.now())
-                .build());
+        InventoryReservationRecord record;
+        try {
+            record = reservationRepository.saveAndFlush(InventoryReservationRecord.builder()
+                    .reservationId(command.getReservationId())
+                    .productId(command.getProductId())
+                    .customerId(command.getCustomerId())
+                    .quantity(command.getQuantity())
+                    .seatId(command.getSeatId())
+                    .status("RESERVED")
+                    .expiresAt(expiresAt)
+                    .createdAt(LocalDateTime.now())
+                    .build());
 
-        inventoryRepository.findById(command.getProductId()).ifPresent(inventory -> {
+            Inventory inventory = inventoryRepository.findById(command.getProductId())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Inventory not found: " + command.getProductId()));
+            if (inventory.getAvailableQuantity() < command.getQuantity()) {
+                throw new IllegalStateException("Postgres inventory is lower than the Redis reservation result.");
+            }
             inventory.setAvailableQuantity(inventory.getAvailableQuantity() - command.getQuantity());
             inventory.setReservedQuantity(inventory.getReservedQuantity() + command.getQuantity());
-            inventoryRepository.save(inventory);
-        });
+            inventoryRepository.saveAndFlush(inventory);
+        } catch (RuntimeException databaseFailure) {
+            try {
+                resourceReservationService.releaseResource(
+                        inventoryKey(command), command.getQuantity(), command.getReservationId());
+            } catch (RuntimeException compensationFailure) {
+                databaseFailure.addSuppressed(compensationFailure);
+                recordInventoryIssue(command, "RESERVE_RELEASE_REQUIRED", compensationFailure);
+            }
+            throw databaseFailure;
+        }
 
         outboxEventService.record("RESERVATION", command.getReservationId(), "RESERVATION_CREATED",
                 "reservation-events", command.getProductId(), payload(command, "RESERVATION_CREATED"));
@@ -244,15 +262,21 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
             return ReservationWorkflowStepResult.failure("Redis 예약 확정 실패");
         }
 
-        reservation.setStatus("CONFIRMED");
-        reservation.setOrderId(command.getOrderId());
-        reservation.setPaymentId(command.getPaymentId());
-        reservationRepository.save(reservation);
+        try {
+            reservation.setStatus("CONFIRMED");
+            reservation.setOrderId(command.getOrderId());
+            reservation.setPaymentId(command.getPaymentId());
+            reservationRepository.saveAndFlush(reservation);
 
-        inventoryRepository.findById(command.getProductId()).ifPresent(inventory -> {
+            Inventory inventory = inventoryRepository.findById(command.getProductId())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Inventory not found: " + command.getProductId()));
             inventory.setReservedQuantity(Math.max(0, inventory.getReservedQuantity() - command.getQuantity()));
-            inventoryRepository.save(inventory);
-        });
+            inventoryRepository.saveAndFlush(inventory);
+        } catch (RuntimeException databaseFailure) {
+            recordInventoryIssue(command, "CONFIRM_DB_APPLY_REQUIRED", databaseFailure);
+            throw databaseFailure;
+        }
 
         outboxEventService.record("RESERVATION", command.getReservationId(), "RESERVATION_CONFIRMED",
                 "reservation-events", command.getProductId(), payload(command, "RESERVATION_CONFIRMED"));
@@ -299,16 +323,22 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
             throw new IllegalStateException("Redis reservation release failed: " + command.getReservationId());
         }
 
-        reservation.setStatus("CANCELLED");
-        reservationRepository.save(reservation);
+        try {
+            reservation.setStatus("CANCELLED");
+            reservationRepository.saveAndFlush(reservation);
 
-        inventoryRepository.findById(command.getProductId()).ifPresent(inventory -> {
+            Inventory inventory = inventoryRepository.findById(command.getProductId())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Inventory not found: " + command.getProductId()));
             inventory.setAvailableQuantity(inventory.getAvailableQuantity() + command.getQuantity());
             if ("RESERVED".equals(previousStatus)) {
                 inventory.setReservedQuantity(Math.max(0, inventory.getReservedQuantity() - command.getQuantity()));
             }
-            inventoryRepository.save(inventory);
-        });
+            inventoryRepository.saveAndFlush(inventory);
+        } catch (RuntimeException databaseFailure) {
+            recordInventoryIssue(command, "RELEASE_DB_APPLY_REQUIRED", databaseFailure);
+            throw databaseFailure;
+        }
 
         outboxEventService.record("RESERVATION", command.getReservationId(), "RESERVATION_CANCELLED",
                 "reservation-events", command.getProductId(), payload(command, "RESERVATION_CANCELLED", reason));
@@ -567,6 +597,24 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
 
     private Map<String, Object> payload(ReservationWorkflowCommand command, String eventType) {
         return payload(command, eventType, null);
+    }
+
+    private void recordInventoryIssue(ReservationWorkflowCommand command,
+                                      String issueType,
+                                      RuntimeException failure) {
+        try {
+            inventorySyncIssueService.record(
+                    command.getReservationId(),
+                    command.getProductId(),
+                    command.getQuantity(),
+                    issueType,
+                    failure
+            );
+        } catch (RuntimeException issueWriteFailure) {
+            failure.addSuppressed(issueWriteFailure);
+            log.error("Failed to persist inventory synchronization issue: reservationId={}, issueType={}",
+                    command.getReservationId(), issueType, issueWriteFailure);
+        }
     }
 
     private Map<String, Object> payload(ReservationWorkflowCommand command, String eventType, String reason) {

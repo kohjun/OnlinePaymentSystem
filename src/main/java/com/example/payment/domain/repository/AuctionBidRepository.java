@@ -11,5 +11,13 @@ import java.util.Optional;
 public interface AuctionBidRepository extends JpaRepository<AuctionBid, String> {
     Optional<AuctionBid> findFirstBySaleEventIdOrderByBidAmountDescCreatedAtAsc(String saleEventId);
 
+    Optional<AuctionBid> findBySaleEventIdAndCustomerIdAndIdempotencyKey(
+            String saleEventId,
+            String customerId,
+            String idempotencyKey
+    );
+
     List<AuctionBid> findTop10BySaleEventIdOrderByBidAmountDescCreatedAtAsc(String saleEventId);
+
+    void deleteBySaleEventId(String saleEventId);
 }

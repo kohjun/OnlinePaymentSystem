@@ -1,6 +1,7 @@
 package com.example.payment.application.service;
 
 import com.example.payment.domain.model.marketplace.FulfillmentStatus;
+import com.example.payment.domain.model.marketplace.DisputeResolution;
 import com.example.payment.domain.model.marketplace.MarketplaceCheckoutType;
 import com.example.payment.domain.model.marketplace.MarketplaceListing;
 import com.example.payment.domain.model.marketplace.MarketplaceOrder;
@@ -25,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -32,7 +34,12 @@ class MarketplaceOrderServiceTest {
 
     private final MarketplaceOrderRepository repository = mock(MarketplaceOrderRepository.class);
     private final SellerPayoutService sellerPayoutService = mock(SellerPayoutService.class);
-    private final MarketplaceOrderService service = new MarketplaceOrderService(repository, sellerPayoutService);
+    private final PaymentProcessingService paymentProcessingService = mock(PaymentProcessingService.class);
+    private final MarketplaceOrderService service = new MarketplaceOrderService(
+            repository,
+            sellerPayoutService,
+            paymentProcessingService
+    );
 
     @Test
     void recordsSuccessfulDirectCheckoutAsPaidFulfillmentReadyOrder() {
@@ -110,6 +117,72 @@ class MarketplaceOrderServiceTest {
     }
 
     @Test
+    void recordsDigitalTicketSeatAsIssuedWithoutShippingFulfillment() {
+        when(repository.findByOrderId("ORD-1")).thenReturn(Optional.empty());
+        when(repository.save(any(MarketplaceOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        MarketplaceCheckoutRequest request = checkoutRequest();
+        request.setSeatId("EVT-1-SEAT-0001");
+        MarketplaceListing ticketListing = listing();
+        ticketListing.setItemCondition("DIGITAL_TICKET");
+
+        service.recordCheckout(
+                event(SaleType.DROP),
+                ticketListing,
+                request,
+                CompleteReservationResponse.success(
+                        "RES-1", "ORD-1", "PAY-1", "TX-1",
+                        "PROD-1", 1, new BigDecimal("59000"), "KRW"
+                ),
+                MarketplaceCheckoutType.DIRECT,
+                "EVT-1",
+                new BigDecimal("59000")
+        );
+
+        ArgumentCaptor<MarketplaceOrder> captor = ArgumentCaptor.forClass(MarketplaceOrder.class);
+        verify(repository).save(captor.capture());
+        assertEquals("EVT-1-SEAT-0001", captor.getValue().getSeatId());
+        assertEquals(FulfillmentStatus.DELIVERED, captor.getValue().getFulfillmentStatus());
+        assertEquals(true, captor.getValue().getFulfilledAt() != null);
+    }
+
+    @Test
+    void recordsShippingSnapshotWithSuccessfulCheckout() {
+        MarketplaceCheckoutRequest request = checkoutRequest();
+        request.setShippingInfo(CompleteReservationRequest.ShippingInfo.builder()
+                .addressId("ADDR-1")
+                .recipientName("홍길동")
+                .postalCode("04524")
+                .address("서울 중구 세종대로 110 10층")
+                .method("PARCEL")
+                .contactPhone("010-0000-0000")
+                .specialInstructions("문 앞")
+                .build());
+        when(repository.findByOrderId("ORD-1")).thenReturn(Optional.empty());
+        when(repository.save(any(MarketplaceOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.recordCheckout(
+                event(SaleType.DROP),
+                listing(),
+                request,
+                CompleteReservationResponse.success(
+                        "RES-1", "ORD-1", "PAY-1", "TX-1",
+                        "PROD-1", 1, new BigDecimal("59000"), "KRW"
+                ),
+                MarketplaceCheckoutType.DIRECT,
+                "EVT-1",
+                new BigDecimal("59000")
+        );
+
+        ArgumentCaptor<MarketplaceOrder> captor = ArgumentCaptor.forClass(MarketplaceOrder.class);
+        verify(repository).save(captor.capture());
+        assertEquals("ADDR-1", captor.getValue().getShippingAddressId());
+        assertEquals("홍길동", captor.getValue().getShippingRecipientName());
+        assertEquals("04524", captor.getValue().getShippingPostalCode());
+        assertEquals("서울 중구 세종대로 110 10층", captor.getValue().getShippingAddress());
+        assertEquals("010-0000-0000", captor.getValue().getShippingContactPhone());
+    }
+
+    @Test
     void sellerCanMovePaidOrderToShipped() {
         MarketplaceOrder order = paidOrder();
         when(repository.findByMarketplaceOrderIdAndSellerId("MORD-1", "SELLER-1")).thenReturn(Optional.of(order));
@@ -118,10 +191,25 @@ class MarketplaceOrderServiceTest {
         MarketplaceOrderResponse response = service.updateFulfillment(
                 "SELLER-1",
                 "MORD-1",
-                FulfillmentStatus.SHIPPED
+                FulfillmentStatus.SHIPPED,
+                "CJ대한통운",
+                "1234567890"
         );
 
         assertEquals(FulfillmentStatus.SHIPPED, response.getFulfillmentStatus());
+        assertEquals("CJ대한통운", response.getTrackingCarrier());
+        assertEquals("1234567890", response.getTrackingNumber());
+    }
+
+    @Test
+    void shippingRequiresTrackingInformation() {
+        MarketplaceOrder order = paidOrder();
+        when(repository.findByMarketplaceOrderIdAndSellerId("MORD-1", "SELLER-1")).thenReturn(Optional.of(order));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.updateFulfillment("SELLER-1", "MORD-1", FulfillmentStatus.SHIPPED));
+
+        assertEquals("Tracking carrier and tracking number are required when shipping a marketplace order.", ex.getMessage());
     }
 
     @Test
@@ -135,6 +223,187 @@ class MarketplaceOrderServiceTest {
                 () -> service.updateFulfillment("SELLER-1", "MORD-1", FulfillmentStatus.SHIPPED));
 
         assertEquals("Only paid marketplace orders can be fulfilled.", ex.getMessage());
+    }
+
+    @Test
+    void buyerConfirmationMarksOrderDeliveredAndPayoutReady() {
+        MarketplaceOrder order = paidOrder();
+        order.setFulfillmentStatus(FulfillmentStatus.SHIPPED);
+        when(repository.findById("MORD-1")).thenReturn(Optional.of(order));
+        when(repository.save(any(MarketplaceOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MarketplaceOrderResponse response = service.confirmDelivery("CUST-1", "MORD-1");
+
+        assertEquals(FulfillmentStatus.DELIVERED, response.getFulfillmentStatus());
+        verify(sellerPayoutService).markReadyForRelease("MARKETPLACE_ORDER", "MORD-1");
+    }
+
+    @Test
+    void buyerConfirmationRejectsWrongCustomer() {
+        MarketplaceOrder order = paidOrder();
+        order.setFulfillmentStatus(FulfillmentStatus.SHIPPED);
+        when(repository.findById("MORD-1")).thenReturn(Optional.of(order));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.confirmDelivery("CUST-OTHER", "MORD-1"));
+
+        assertEquals("Marketplace order does not belong to customer: CUST-OTHER", ex.getMessage());
+        verify(sellerPayoutService, never()).markReadyForRelease(any(), any());
+    }
+
+    @Test
+    void buyerDisputeMarksPayoutDisputedAndBlocksFulfillment() {
+        MarketplaceOrder order = paidOrder();
+        order.setFulfillmentStatus(FulfillmentStatus.SHIPPED);
+        when(repository.findById("MORD-1")).thenReturn(Optional.of(order));
+        when(repository.save(any(MarketplaceOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MarketplaceOrderResponse response = service.openDispute("CUST-1", "MORD-1", "Box arrived empty.");
+
+        assertEquals("Box arrived empty.", response.getDisputeReason());
+        verify(sellerPayoutService).markDisputed("MARKETPLACE_ORDER", "MORD-1");
+
+        when(repository.findByMarketplaceOrderIdAndSellerId("MORD-1", "SELLER-1")).thenReturn(Optional.of(order));
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.updateFulfillment("SELLER-1", "MORD-1", FulfillmentStatus.DELIVERED));
+        assertEquals("Disputed marketplace orders cannot be fulfilled until the dispute is resolved.", ex.getMessage());
+    }
+
+    @Test
+    void adminResolvesDisputeInSellerFavorAndMarksPayoutReady() {
+        MarketplaceOrder order = paidOrder();
+        order.setFulfillmentStatus(FulfillmentStatus.SHIPPED);
+        order.setDisputedAt(LocalDateTime.now());
+        order.setDisputeReason("배송 지연");
+        when(repository.findById("MORD-1")).thenReturn(Optional.of(order));
+        when(repository.save(any(MarketplaceOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MarketplaceOrderResponse response = service.resolveDispute(
+                "ops-1",
+                "MORD-1",
+                DisputeResolution.PAYOUT_READY,
+                "배송 완료 증빙 확인"
+        );
+
+        assertEquals(DisputeResolution.PAYOUT_READY, response.getDisputeResolution());
+        assertEquals(FulfillmentStatus.DELIVERED, response.getFulfillmentStatus());
+        verify(sellerPayoutService).markReadyForRelease("MARKETPLACE_ORDER", "MORD-1");
+    }
+
+    @Test
+    void adminResolvesDisputeInBuyerFavorAndCancelsPayout() {
+        MarketplaceOrder order = paidOrder();
+        order.setFulfillmentStatus(FulfillmentStatus.SHIPPED);
+        order.setDisputedAt(LocalDateTime.now());
+        order.setDisputeReason("빈 박스 수령");
+        when(repository.findById("MORD-1")).thenReturn(Optional.of(order));
+        when(repository.save(any(MarketplaceOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MarketplaceOrderResponse response = service.resolveDispute(
+                "ops-1",
+                "MORD-1",
+                DisputeResolution.PAYOUT_CANCELLED,
+                "구매자 증빙 인정"
+        );
+
+        assertEquals(DisputeResolution.PAYOUT_CANCELLED, response.getDisputeResolution());
+        assertEquals(MarketplaceOrderStatus.CANCELLED, response.getStatus());
+        assertEquals(FulfillmentStatus.CANCELLED, response.getFulfillmentStatus());
+        verify(sellerPayoutService).markCancelled("MARKETPLACE_ORDER", "MORD-1");
+    }
+
+    @Test
+    void adminResolvesDisputeWithBuyerRefundAndCancelsPayoutAfterRefundSucceeds() {
+        MarketplaceOrder order = paidOrder();
+        order.setFulfillmentStatus(FulfillmentStatus.SHIPPED);
+        order.setDisputedAt(LocalDateTime.now());
+        order.setDisputeReason("Item was not delivered.");
+        when(repository.findById("MORD-1")).thenReturn(Optional.of(order));
+        when(repository.save(any(MarketplaceOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(paymentProcessingService.refundPaymentWithResult(
+                eq("PAY-1"),
+                eq("dispute-MORD-1"),
+                eq("C2C dispute refund: Buyer evidence accepted")
+        )).thenReturn(new PaymentProcessingService.RefundResult(
+                true,
+                "REFUND_SUCCEEDED",
+                "Payment refunded successfully.",
+                null
+        ));
+
+        MarketplaceOrderResponse response = service.resolveDispute(
+                "ops-1",
+                "MORD-1",
+                DisputeResolution.BUYER_REFUND,
+                "Buyer evidence accepted"
+        );
+
+        assertEquals(DisputeResolution.BUYER_REFUND, response.getDisputeResolution());
+        assertEquals(MarketplaceOrderStatus.REFUNDED, response.getStatus());
+        assertEquals(FulfillmentStatus.CANCELLED, response.getFulfillmentStatus());
+        verify(paymentProcessingService).refundPaymentWithResult(
+                "PAY-1",
+                "dispute-MORD-1",
+                "C2C dispute refund: Buyer evidence accepted"
+        );
+        verify(sellerPayoutService).markCancelled("MARKETPLACE_ORDER", "MORD-1");
+    }
+
+    @Test
+    void buyerRefundDisputeKeepsDisputeOpenWhenRefundFails() {
+        MarketplaceOrder order = paidOrder();
+        order.setFulfillmentStatus(FulfillmentStatus.SHIPPED);
+        order.setDisputedAt(LocalDateTime.now());
+        order.setDisputeReason("Item was not delivered.");
+        when(repository.findById("MORD-1")).thenReturn(Optional.of(order));
+        when(repository.save(any(MarketplaceOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(paymentProcessingService.refundPaymentWithResult(any(), any(), any())).thenReturn(
+                new PaymentProcessingService.RefundResult(
+                        false,
+                        "REFUND_FAILED",
+                        "Payment refund failed.",
+                        null
+                )
+        );
+
+        MarketplaceOrderResponse response = service.resolveDispute(
+                "ops-1",
+                "MORD-1",
+                DisputeResolution.BUYER_REFUND,
+                "Buyer evidence accepted"
+        );
+
+        assertEquals(MarketplaceOrderStatus.REFUND_FAILED, response.getStatus());
+        assertEquals(null, response.getDisputeResolution());
+        assertEquals(null, response.getDisputeResolvedAt());
+        verify(sellerPayoutService, never()).markCancelled(any(), any());
+    }
+
+    @Test
+    void providerFullRefundSyncMarksMarketplaceOrderRefundedAndCancelsPayout() {
+        MarketplaceOrder order = paidOrder();
+        when(repository.findByPaymentId("PAY-1")).thenReturn(Optional.of(order));
+        when(repository.save(any(MarketplaceOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MarketplaceOrderResponse response = service.syncProviderRefundStatus("PAY-1", "REFUNDED").orElseThrow();
+
+        assertEquals(MarketplaceOrderStatus.REFUNDED, response.getStatus());
+        assertEquals(FulfillmentStatus.CANCELLED, response.getFulfillmentStatus());
+        assertEquals(DisputeResolution.BUYER_REFUND, response.getDisputeResolution());
+        verify(sellerPayoutService).applyProviderRefundStatus("MARKETPLACE_ORDER", "MORD-1", false);
+    }
+
+    @Test
+    void providerPartialRefundSyncMarksMarketplaceOrderPartiallyRefundedAndDisputed() {
+        MarketplaceOrder order = paidOrder();
+        when(repository.findByPaymentId("PAY-1")).thenReturn(Optional.of(order));
+        when(repository.save(any(MarketplaceOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MarketplaceOrderResponse response = service.syncProviderRefundStatus("PAY-1", "PARTIALLY_REFUNDED").orElseThrow();
+
+        assertEquals(MarketplaceOrderStatus.PARTIALLY_REFUNDED, response.getStatus());
+        assertEquals("Provider partial refund received; operations review required.", response.getDisputeReason());
+        verify(sellerPayoutService).applyProviderRefundStatus("MARKETPLACE_ORDER", "MORD-1", true);
     }
 
     private SaleEvent event(SaleType saleType) {
@@ -188,6 +457,7 @@ class MarketplaceOrderServiceTest {
                 .amount(new BigDecimal("59000"))
                 .currency("KRW")
                 .orderId("ORD-1")
+                .paymentId("PAY-1")
                 .createdAt(LocalDateTime.now())
                 .build();
     }

@@ -1,6 +1,7 @@
 package com.example.payment.presentation.dto.response;
 
 import com.example.payment.domain.model.marketplace.FulfillmentStatus;
+import com.example.payment.domain.model.marketplace.DisputeResolution;
 import com.example.payment.domain.model.marketplace.MarketplaceCheckoutType;
 import com.example.payment.domain.model.marketplace.MarketplaceOrderStatus;
 import com.example.payment.domain.model.marketplace.SaleType;
@@ -33,6 +34,14 @@ public class MarketplaceOrderResponse {
     private String paymentId;
     private String workflowId;
     private String sourceId;
+    private String seatId;
+    private String shippingAddressId;
+    private String shippingRecipientName;
+    private String shippingContactPhone;
+    private String shippingPostalCode;
+    private String shippingAddress;
+    private String shippingMethod;
+    private String shippingMemo;
 
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime createdAt;
@@ -45,4 +54,24 @@ public class MarketplaceOrderResponse {
 
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime fulfilledAt;
+
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    private LocalDateTime shippedAt;
+
+    private String trackingCarrier;
+    private String trackingNumber;
+
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    private LocalDateTime buyerConfirmedAt;
+
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    private LocalDateTime disputedAt;
+
+    private String disputeReason;
+    private DisputeResolution disputeResolution;
+    private String disputeResolutionNote;
+    private String disputeResolvedBy;
+
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    private LocalDateTime disputeResolvedAt;
 }

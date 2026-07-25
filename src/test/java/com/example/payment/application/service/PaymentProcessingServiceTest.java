@@ -8,6 +8,7 @@ import com.example.payment.domain.model.payment.PaymentStatus;
 import com.example.payment.domain.repository.PaymentRecordRepository;
 import com.example.payment.domain.repository.RefundRecordRepository;
 import com.example.payment.domain.entity.RefundRecord;
+import com.example.payment.domain.exception.PaymentGatewayResultUnknownException;
 import com.example.payment.domain.service.PaymentGatewayService;
 import com.example.payment.infrastructure.messaging.outbox.OutboxEventService;
 import com.example.payment.infrastructure.gateway.PaymentGatewayFactory;
@@ -112,6 +113,117 @@ class PaymentProcessingServiceTest {
                 eq("PAYMENT_REFUNDED"),
                 eq("payment-events"),
                 eq("PAY-1"),
+                anyMap()
+        );
+    }
+
+    @Test
+    void refundPaymentWithResult_allowsRetryAfterRefundFailedStatus() {
+        PaymentGatewayFactory gatewayFactory = mock(PaymentGatewayFactory.class);
+        CacheService cacheService = mock(CacheService.class);
+        PaymentRecordRepository paymentRecordRepository = mock(PaymentRecordRepository.class);
+        RefundRecordRepository refundRecordRepository = mock(RefundRecordRepository.class);
+        OutboxEventService outboxEventService = mock(OutboxEventService.class);
+        PaymentGatewayService gateway = mock(PaymentGatewayService.class);
+        PaymentProcessingService service = new PaymentProcessingService(
+                gatewayFactory,
+                cacheService,
+                paymentRecordRepository,
+                refundRecordRepository,
+                outboxEventService
+        );
+
+        PaymentRecord record = PaymentRecord.builder()
+                .paymentId("PAY-1")
+                .orderId("ORD-1")
+                .reservationId("RES-1")
+                .customerId("CUS-1")
+                .amount(new BigDecimal("100.00"))
+                .currency("KRW")
+                .method("CREDIT_CARD")
+                .status("REFUND_FAILED")
+                .transactionId("pay_test_key")
+                .gatewayName("TOSS_PAYMENTS")
+                .processedAt(LocalDateTime.now())
+                .createdAt(LocalDateTime.now())
+                .build();
+        RefundRecord refund = RefundRecord.builder()
+                .refundId("RF-PAY-1-REF-1")
+                .paymentId("PAY-1")
+                .idempotencyKey("REF-1")
+                .amount(new BigDecimal("100.00"))
+                .currency("KRW")
+                .status("FAILED")
+                .failureReason("temporary gateway failure")
+                .attemptCount(1)
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        when(paymentRecordRepository.findById("PAY-1")).thenReturn(Optional.of(record));
+        when(refundRecordRepository.findByPaymentIdAndIdempotencyKey("PAY-1", "REF-1")).thenReturn(Optional.of(refund));
+        when(refundRecordRepository.save(any(RefundRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(refundRecordRepository.sumSucceededAmountByPaymentId("PAY-1")).thenReturn(new BigDecimal("100.00"));
+        when(gatewayFactory.getGateway("CREDIT_CARD")).thenReturn(gateway);
+        when(gateway.refundPayment("pay_test_key")).thenReturn(true);
+
+        PaymentProcessingService.RefundResult result = service.refundPaymentWithResult("PAY-1", "REF-1", "retry refund");
+
+        assertEquals(true, result.success());
+        assertEquals("REFUND_SUCCEEDED", result.code());
+        assertEquals("REFUNDED", record.getStatus());
+        verify(gateway).refundPayment("pay_test_key");
+    }
+
+    @Test
+    void refundPaymentWithResult_preservesUnknownProviderResult() {
+        PaymentGatewayFactory gatewayFactory = mock(PaymentGatewayFactory.class);
+        CacheService cacheService = mock(CacheService.class);
+        PaymentRecordRepository paymentRecordRepository = mock(PaymentRecordRepository.class);
+        RefundRecordRepository refundRecordRepository = mock(RefundRecordRepository.class);
+        OutboxEventService outboxEventService = mock(OutboxEventService.class);
+        PaymentGatewayService gateway = mock(PaymentGatewayService.class);
+        PaymentProcessingService service = new PaymentProcessingService(
+                gatewayFactory,
+                cacheService,
+                paymentRecordRepository,
+                refundRecordRepository,
+                outboxEventService
+        );
+
+        PaymentRecord record = PaymentRecord.builder()
+                .paymentId("PAY-UNKNOWN")
+                .orderId("ORD-UNKNOWN")
+                .reservationId("RES-UNKNOWN")
+                .customerId("CUS-1")
+                .amount(new BigDecimal("100.00"))
+                .currency("KRW")
+                .method("CREDIT_CARD")
+                .status("COMPLETED")
+                .transactionId("pay_test_unknown")
+                .gatewayName("TOSS_PAYMENTS")
+                .processedAt(LocalDateTime.now())
+                .createdAt(LocalDateTime.now())
+                .build();
+        when(paymentRecordRepository.findById("PAY-UNKNOWN")).thenReturn(Optional.of(record));
+        when(refundRecordRepository.findByPaymentIdAndIdempotencyKey("PAY-UNKNOWN", "REF-UNKNOWN"))
+                .thenReturn(Optional.empty());
+        when(refundRecordRepository.save(any(RefundRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(gatewayFactory.getGateway("CREDIT_CARD")).thenReturn(gateway);
+        when(gateway.refundPayment("pay_test_unknown"))
+                .thenThrow(new PaymentGatewayResultUnknownException("timeout", new RuntimeException("timeout")));
+
+        PaymentProcessingService.RefundResult result = service.refundPaymentWithResult(
+                "PAY-UNKNOWN", "REF-UNKNOWN", "customer request");
+
+        assertEquals(false, result.success());
+        assertEquals("REFUND_UNKNOWN", result.code());
+        assertEquals("REFUND_UNKNOWN", record.getStatus());
+        verify(outboxEventService).record(
+                eq("PAYMENT"),
+                eq("PAY-UNKNOWN"),
+                eq("PAYMENT_REFUND_UNKNOWN"),
+                eq("payment-events"),
+                eq("PAY-UNKNOWN"),
                 anyMap()
         );
     }

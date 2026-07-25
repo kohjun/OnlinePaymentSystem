@@ -83,15 +83,24 @@ public class ReservationService {
                     .expiresAt(LocalDateTime.now().plusMinutes(5))
                     .build();
 
-            reservationRecordRepository.save(InventoryReservationRecord.builder()
-                    .reservationId(reservation.getReservationId())
-                    .productId(reservation.getProductId())
-                    .customerId(reservation.getCustomerId())
-                    .quantity(reservation.getQuantity())
-                    .status(reservation.getStatus().name())
-                    .expiresAt(reservation.getExpiresAt())
-                    .createdAt(reservation.getCreatedAt())
-                    .build());
+            try {
+                reservationRecordRepository.saveAndFlush(InventoryReservationRecord.builder()
+                        .reservationId(reservation.getReservationId())
+                        .productId(reservation.getProductId())
+                        .customerId(reservation.getCustomerId())
+                        .quantity(reservation.getQuantity())
+                        .status(reservation.getStatus().name())
+                        .expiresAt(reservation.getExpiresAt())
+                        .createdAt(reservation.getCreatedAt())
+                        .build());
+            } catch (RuntimeException databaseFailure) {
+                try {
+                    redisReservationService.releaseResource(lockKey, quantity, reservationId);
+                } catch (RuntimeException compensationFailure) {
+                    databaseFailure.addSuppressed(compensationFailure);
+                }
+                throw databaseFailure;
+            }
 
             // ===================================
             // 3. 캐시에 저장 (메타데이터 포함)
@@ -167,7 +176,7 @@ public class ReservationService {
         } catch (Exception e) {
             log.error("Error cancelling reservation: txId={}, reservationId={}",
                     transactionId, reservationId, e);
-            return false;
+            throw new ReservationException("Failed to cancel inventory reservation", e);
         }
     }
 
@@ -198,7 +207,7 @@ public class ReservationService {
 
         } catch (Exception e) {
             log.error("Error getting reservation: reservationId={}", reservationId, e);
-            return null;
+            throw new ReservationException("Failed to read inventory reservation", e);
         }
     }
 
@@ -206,26 +215,20 @@ public class ReservationService {
      * 예약 상태를 'CONFIRMED'로 업데이트하고 캐시를 갱신
      */
     public void confirmReservationStatus(InventoryReservation reservation) {
-        try {
-            if (reservation == null) {
-                log.warn("Cannot confirm status for null reservation.");
-                return;
-            }
-
-            reservation.setStatus(ReservationStatus.CONFIRMED);
-            reservationRecordRepository.findById(reservation.getReservationId()).ifPresent(record -> {
-                record.setStatus(ReservationStatus.CONFIRMED.name());
-                reservationRecordRepository.save(record);
-            });
-
-            String cacheKey = "reservation:" + reservation.getReservationId();
-            cacheService.cacheData(cacheKey, reservation, DEFAULT_RESERVATION_TTL_SECONDS);
-
-            log.info("Reservation status set to CONFIRMED and re-cached: {}", reservation.getReservationId());
-
-        } catch (Exception e) {
-            log.error("Error updating reservation status to CONFIRMED: {}", reservation.getReservationId(), e);
+        if (reservation == null) {
+            throw new ReservationException("Cannot confirm a null inventory reservation");
         }
+
+        InventoryReservationRecord record = reservationRecordRepository.findById(reservation.getReservationId())
+                .orElseThrow(() -> new ReservationException(
+                        "Inventory reservation record not found: " + reservation.getReservationId()));
+        record.setStatus(ReservationStatus.CONFIRMED.name());
+        reservationRecordRepository.saveAndFlush(record);
+
+        reservation.setStatus(ReservationStatus.CONFIRMED);
+        String cacheKey = "reservation:" + reservation.getReservationId();
+        cacheService.cacheData(cacheKey, reservation, DEFAULT_RESERVATION_TTL_SECONDS);
+        log.info("Reservation status set to CONFIRMED and re-cached: {}", reservation.getReservationId());
     }
 
     private String buildEntityIdsJson(String reservationId, String orderId, String paymentId) {

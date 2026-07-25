@@ -19,8 +19,16 @@ public class AuctionStatusResponse {
     private String highestBidder;
     private BigDecimal minNextBid;
     private AuctionSettlementStatus settlementStatus;
+    private Boolean closed;
+    private String winnerCustomerId;
+    private Boolean currentUserWinning;
+    private Long secondsRemaining;
+    private Long streamVersion;
     private List<AuctionBidResponse> history;
 
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime endsAt;
+
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    private LocalDateTime checkoutExpiresAt;
 }

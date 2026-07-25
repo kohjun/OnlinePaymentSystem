@@ -25,6 +25,14 @@ public interface InventoryReservationRecordRepository extends JpaRepository<Inve
 
     boolean existsBySeatIdAndStatus(String seatId, String status);
 
+    Optional<InventoryReservationRecord> findFirstBySeatIdAndStatusIn(String seatId, Collection<String> statuses);
+
+    List<InventoryReservationRecord> findByProductIdAndSeatIdInAndStatusIn(
+            String productId,
+            Collection<String> seatIds,
+            Collection<String> statuses
+    );
+
     List<InventoryReservationRecord> findByStatusAndExpiresAtBefore(String status, java.time.LocalDateTime time);
 
     long countByProductId(String productId);

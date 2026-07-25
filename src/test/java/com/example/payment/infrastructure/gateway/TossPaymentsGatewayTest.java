@@ -2,6 +2,7 @@ package com.example.payment.infrastructure.gateway;
 
 import com.example.payment.application.dto.PaymentGatewayRequest;
 import com.example.payment.application.dto.PaymentGatewayResult;
+import com.example.payment.domain.exception.PaymentGatewayResultUnknownException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -11,14 +12,18 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
+import java.net.SocketTimeoutException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withBadRequest;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class TossPaymentsGatewayTest {
@@ -111,6 +116,16 @@ class TossPaymentsGatewayTest {
     }
 
     @Test
+    void refundRaisesUnknownWhenConnectionTimesOut() {
+        server.expect(requestTo("https://api.tosspayments.com/v1/payments/pay_test_key/cancel"))
+                .andRespond(withException(new SocketTimeoutException("Read timed out")));
+
+        assertThrows(PaymentGatewayResultUnknownException.class,
+                () -> gateway.refundPayment("pay_test_key"));
+        server.verify();
+    }
+
+    @Test
     void statusMapsPartialCanceledToPartiallyRefunded() {
         server.expect(requestTo("https://api.tosspayments.com/v1/payments/pay_test_key"))
                 .andExpect(method(HttpMethod.GET))
@@ -128,5 +143,51 @@ class TossPaymentsGatewayTest {
 
         assertEquals("PARTIALLY_REFUNDED", result.getGatewayStatus());
         server.verify();
+    }
+
+    @Test
+    void authorizeReturnsUnknownWhenConnectionTimesOut() {
+        server.expect(requestTo("https://api.tosspayments.com/v1/payments/confirm"))
+                .andRespond(withException(new SocketTimeoutException("Read timed out")));
+
+        PaymentGatewayResult result = gateway.authorize(paymentRequest("PAY-TIMEOUT"));
+
+        assertFalse(result.isSuccess());
+        assertEquals("UNKNOWN", result.getGatewayStatus());
+        assertEquals("TOSS_NETWORK_ERROR", result.getErrorCode());
+        server.verify();
+    }
+
+    @Test
+    void authorizeReturnsUnknownForProviderServerError() {
+        server.expect(requestTo("https://api.tosspayments.com/v1/payments/confirm"))
+                .andRespond(withServerError());
+
+        PaymentGatewayResult result = gateway.authorize(paymentRequest("PAY-500"));
+
+        assertFalse(result.isSuccess());
+        assertEquals("UNKNOWN", result.getGatewayStatus());
+        assertEquals("TOSS_HTTP_500", result.getErrorCode());
+        server.verify();
+    }
+
+    @Test
+    void rejectsInternalMockPaymentMethods() {
+        assertFalse(gateway.supports("MOCK"));
+        assertFalse(gateway.supports("TEST"));
+        assertTrue(gateway.supports("CREDIT_CARD"));
+    }
+
+    private PaymentGatewayRequest paymentRequest(String paymentId) {
+        return PaymentGatewayRequest.builder()
+                .paymentId(paymentId)
+                .idempotencyKey(paymentId)
+                .customerId("CUS-1")
+                .amount(new BigDecimal("15000"))
+                .currency("KRW")
+                .method("CREDIT_CARD")
+                .tossPaymentKey("pay_test_key")
+                .tossOrderId("ORD-" + paymentId)
+                .build();
     }
 }

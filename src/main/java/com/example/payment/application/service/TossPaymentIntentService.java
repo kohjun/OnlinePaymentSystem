@@ -26,6 +26,9 @@ import com.example.payment.presentation.dto.request.TossPaymentConfirmRequest;
 import com.example.payment.presentation.dto.response.CompleteReservationResponse;
 import com.example.payment.presentation.dto.response.TossPaymentIntentResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import java.time.Duration;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -42,6 +45,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -49,6 +53,11 @@ public class TossPaymentIntentService {
 
     private static final int INTENT_TTL_MINUTES = 10;
     private static final Set<SaleType> DIRECT_CHECKOUT_TYPES = Set.of(SaleType.FIXED_PRICE, SaleType.DROP);
+    private static final Set<String> ACTIVE_INTENT_STATUSES = Set.of("READY", "AUTHENTICATED", "PENDING", "UNKNOWN");
+    private static final DefaultRedisScript<Long> RELEASE_LOCK_SCRIPT = new DefaultRedisScript<>(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+            Long.class
+    );
 
     private final TossPaymentIntentRepository repository;
     private final CheckoutPricingService checkoutPricingService;
@@ -59,12 +68,16 @@ public class TossPaymentIntentService {
     private final RaffleWinnerRepository raffleWinnerRepository;
     private final AuctionSettlementRepository auctionSettlementRepository;
     private final MarketplaceOrderService marketplaceOrderService;
+    private final ShippingAddressService shippingAddressService;
+    private final TicketingService ticketingService;
     private final TossPaymentsProperties tossProperties;
     private final ObjectMapper objectMapper;
+    private final RedisTemplate<String, Object> redisTemplate;
 
     @Transactional
     public TossPaymentIntentResponse createIntent(CompleteReservationRequest request) {
         checkoutPricingService.applyProductPrice(request, true);
+        request.setShippingInfo(shippingAddressService.resolveShippingInfo(request.getCustomerId(), request.getShippingInfo()));
         String requestHash = requestHash(request);
 
         TossPaymentIntent existing = repository.findByIdempotencyKey(request.getIdempotencyKey()).orElse(null);
@@ -98,6 +111,7 @@ public class TossPaymentIntentService {
                 .expiresAt(LocalDateTime.now().plusMinutes(INTENT_TTL_MINUTES))
                 .createdAt(LocalDateTime.now())
                 .build();
+        applyShippingSnapshot(intent, request.getShippingInfo());
         try {
             return toResponse(repository.save(intent));
         } catch (DataIntegrityViolationException race) {
@@ -114,12 +128,16 @@ public class TossPaymentIntentService {
     public TossPaymentIntentResponse createMarketplaceIntent(String eventId,
                                                              MarketplaceCheckoutType checkoutType,
                                                              MarketplaceCheckoutRequest request) {
-        SaleEvent event = saleEventRepository.findById(eventId)
+        SaleEvent event = saleEventRepository.findByIdForUpdate(eventId)
                 .orElseThrow(() -> new MarketplaceCheckoutException(HttpStatus.NOT_FOUND, "Sale event not found: " + eventId));
         MarketplaceListing listing = marketplaceListingRepository.findById(event.getListingId())
                 .orElseThrow(() -> new MarketplaceCheckoutException(HttpStatus.NOT_FOUND, "Listing not found: " + event.getListingId()));
+        request.setShippingInfo(ticketingService.isDigitalTicket(listing)
+                ? null
+                : shippingAddressService.resolveShippingInfo(request.getCustomerId(), request.getShippingInfo()));
 
-        MarketplaceIntentPrice price = marketplaceIntentPrice(event, listing, checkoutType, request);
+        TossPaymentIntent existing = repository.findByIdempotencyKey(request.getIdempotencyKey()).orElse(null);
+        MarketplaceIntentPrice price = marketplaceIntentPrice(event, listing, checkoutType, request, existing == null);
         CompleteReservationRequest completeRequest = toCompleteReservationRequest(event, listing, request, price);
         String requestHash = requestHash(completeRequest, Map.of(
                 "saleEventId", event.getSaleEventId(),
@@ -128,12 +146,21 @@ public class TossPaymentIntentService {
                 "marketplaceSourceId", price.sourceId()
         ));
 
-        TossPaymentIntent existing = repository.findByIdempotencyKey(request.getIdempotencyKey()).orElse(null);
         if (existing != null) {
             if (!existing.getRequestHash().equals(requestHash)) {
                 throw new IdempotencyConflictException("IDEMPOTENCY_KEY_CONFLICT");
             }
             return toResponse(existing);
+        }
+
+        if (checkoutType == MarketplaceCheckoutType.DIRECT) {
+            ticketingService.validateAndExtendCheckoutHold(
+                    event,
+                    listing,
+                    request.getCustomerId(),
+                    request.getSeatId(),
+                    request.getQuantity()
+            );
         }
 
         String intentId = "TOSS-INTENT-" + IdGenerator.generateEventId();
@@ -163,6 +190,7 @@ public class TossPaymentIntentService {
                 .expiresAt(LocalDateTime.now().plusMinutes(INTENT_TTL_MINUTES))
                 .createdAt(LocalDateTime.now())
                 .build();
+        applyShippingSnapshot(intent, completeRequest.getShippingInfo());
         try {
             return toResponse(repository.save(intent));
         } catch (DataIntegrityViolationException race) {
@@ -175,43 +203,105 @@ public class TossPaymentIntentService {
         }
     }
 
-    @Transactional
     public CompleteReservationResponse confirm(TossPaymentConfirmRequest request) {
         TossPaymentIntent intent = repository.findById(request.getIntentId())
                 .orElseThrow(() -> new IllegalArgumentException("TOSS_PAYMENT_INTENT_NOT_FOUND"));
 
         validateConfirm(request, intent);
 
-        if (intent.getResponseBody() != null && !intent.getResponseBody().isBlank()) {
-            return readResponse(intent.getResponseBody());
-        }
+        boolean isLockRequired = "RAFFLE_WINNER".equals(intent.getMarketplaceCheckoutType())
+                || "AUCTION_WINNER".equals(intent.getMarketplaceCheckoutType());
+        String lockKey = isLockRequired ? "lock:checkout:" + intent.getMarketplaceSourceId() : null;
+        String lockOwner = isLockRequired ? UUID.randomUUID().toString() : null;
 
-        if (hasText(intent.getWorkflowId())) {
-            CompleteReservationResponse response = refreshWorkflowStatus(intent);
-            if (response != null) {
-                persistTerminalResponse(intent, response);
-                recordMarketplaceCheckout(intent, response);
-                repository.save(intent);
-                return response;
+        if (isLockRequired) {
+            boolean acquired = false;
+            for (int i = 0; i < 5; i++) {
+                Boolean success = redisTemplate.opsForValue().setIfAbsent(lockKey, lockOwner, Duration.ofSeconds(30));
+                if (Boolean.TRUE.equals(success)) {
+                    acquired = true;
+                    break;
+                }
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "결제 처리 중 인터럽트가 발생했습니다.");
+                }
+            }
+            if (!acquired) {
+                throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "현재 다른 결제 요청이 처리 중입니다. 잠시 후 다시 시도해 주세요.");
             }
         }
 
-        intent.setPaymentKey(request.getPaymentKey());
-        intent.setStatus("AUTHENTICATED");
-        repository.save(intent);
+        try {
+            if (isLockRequired) {
+                if ("RAFFLE_WINNER".equals(intent.getMarketplaceCheckoutType())) {
+                    RaffleWinner winner = raffleWinnerRepository.findById(intent.getMarketplaceSourceId())
+                            .orElseThrow(() -> new MarketplaceCheckoutException(HttpStatus.NOT_FOUND, "Raffle winner not found."));
+                    if (winner.getCheckoutStatus() != RaffleCheckoutStatus.PENDING) {
+                        throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "이미 결제 완료되었거나 만료된 당첨권입니다.");
+                    }
+                } else if ("AUCTION_WINNER".equals(intent.getMarketplaceCheckoutType())) {
+                    AuctionSettlement settlement = auctionSettlementRepository.findById(intent.getMarketplaceSourceId())
+                            .orElseThrow(() -> new MarketplaceCheckoutException(HttpStatus.NOT_FOUND, "Auction settlement not found."));
+                    if (settlement.getStatus() != AuctionSettlementStatus.AWAITING_PAYMENT) {
+                        throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "이미 결제 완료되었거나 취소된 낙찰건입니다.");
+                    }
+                }
+            }
 
-        CompleteReservationRequest completeRequest = toCompleteReservationRequest(intent);
-        CompleteReservationResponse response = completeReservationGateway.processCompleteReservation(completeRequest);
+            if (intent.getResponseBody() != null && !intent.getResponseBody().isBlank()) {
+                return readResponse(intent.getResponseBody());
+            }
 
-        intent.setWorkflowId(response.getWorkflowId());
-        intent.setStatus(response.getStatus());
-        persistTerminalResponse(intent, response);
-        recordMarketplaceCheckout(intent, response);
-        repository.save(intent);
-        return response;
+            if (hasText(intent.getWorkflowId())) {
+                CompleteReservationResponse response = refreshWorkflowStatus(intent);
+                if (response != null) {
+                    persistTerminalResponse(intent, response);
+                    recordMarketplaceCheckout(intent, response);
+                    repository.save(intent);
+                    return response;
+                }
+            }
+
+            intent.setPaymentKey(request.getPaymentKey());
+            intent.setStatus("AUTHENTICATED");
+            repository.save(intent);
+
+            CompleteReservationRequest completeRequest = toCompleteReservationRequest(intent);
+            CompleteReservationResponse response = completeReservationGateway.processCompleteReservation(completeRequest);
+
+            intent.setWorkflowId(response.getWorkflowId());
+            intent.setStatus(response.getStatus());
+            persistTerminalResponse(intent, response);
+            recordMarketplaceCheckout(intent, response);
+            repository.save(intent);
+            return response;
+        } finally {
+            if (isLockRequired) {
+                redisTemplate.execute(RELEASE_LOCK_SCRIPT, List.of(lockKey), lockOwner);
+            }
+        }
     }
 
     @Transactional
+    public TossPaymentIntentResponse cancelReadyIntent(String intentId) {
+        TossPaymentIntent intent = repository.findById(intentId)
+                .orElseThrow(() -> new IllegalArgumentException("TOSS_PAYMENT_INTENT_NOT_FOUND"));
+        if ("CANCELLED".equals(intent.getStatus()) || "CANCELED".equals(intent.getStatus())) {
+            return toResponse(intent);
+        }
+        if (!"READY".equals(intent.getStatus())) {
+            throw new IllegalArgumentException("TOSS_PAYMENT_INTENT_CANNOT_BE_CANCELLED: " + intent.getStatus());
+        }
+        intent.setStatus("CANCELLED");
+        intent.setResponseBody(null);
+        TossPaymentIntent saved = repository.save(intent);
+        ticketingService.completeCheckout(intent.getSaleEventId(), intent.getSeatId(), intent.getCustomerId());
+        return toResponse(saved);
+    }
+
     public int reconcileRecoverableIntents(LocalDateTime cutoff) {
         List<TossPaymentIntent> intents = repository.findRecoverableIntents(
                 Set.of("AUTHENTICATED", "PENDING", "UNKNOWN"),
@@ -227,7 +317,6 @@ public class TossPaymentIntentService {
         return recovered;
     }
 
-    @Transactional
     public CompleteReservationResponse recoverIntentByProviderReference(String paymentKey, String orderId) {
         TossPaymentIntent intent = findIntentByProviderReference(paymentKey, orderId);
         if (hasText(paymentKey) && !paymentKey.equals(intent.getPaymentKey())) {
@@ -331,6 +420,7 @@ public class TossPaymentIntentService {
                 .seatId(intent.getSeatId())
                 .idempotencyKey(intent.getIdempotencyKey())
                 .correlationId("TOSS-" + intent.getIntentId())
+                .shippingInfo(shippingInfo(intent))
                 .paymentInfo(CompleteReservationRequest.PaymentInfo.builder()
                         .amount(intent.getAmount())
                         .currency(intent.getCurrency())
@@ -389,26 +479,26 @@ public class TossPaymentIntentService {
                 .tossOrderId(intent.getOrderId())
                 .tossIntentId(intent.getIntentId())
                 .build());
+        request.setShippingInfo(shippingInfo(intent));
         return request;
     }
 
     private MarketplaceIntentPrice marketplaceIntentPrice(SaleEvent event,
                                                           MarketplaceListing listing,
                                                           MarketplaceCheckoutType checkoutType,
-                                                          MarketplaceCheckoutRequest request) {
+                                                          MarketplaceCheckoutRequest request,
+                                                          boolean enforceNewIntentCapacity) {
         requireActiveListing(listing);
         if (checkoutType == MarketplaceCheckoutType.DIRECT) {
-            validateDirectCheckout(event, request.getQuantity());
+            validateDirectCheckout(event, request.getQuantity(), enforceNewIntentCapacity);
             BigDecimal amount = money(event.getPrice()).multiply(BigDecimal.valueOf(request.getQuantity()));
             requireClientAmountMatches(request, amount);
             return new MarketplaceIntentPrice(amount, event.getSaleEventId(), "marketplace", listing.getTitle());
         }
         if (checkoutType == MarketplaceCheckoutType.RAFFLE_WINNER) {
-            validateRaffleWinnerCheckout(event, request.getCustomerId());
+            RaffleWinner winner = validateRaffleWinnerCheckout(event, request.getCustomerId(), enforceNewIntentCapacity);
             BigDecimal amount = money(event.getPrice()).multiply(BigDecimal.valueOf(request.getQuantity()));
             requireClientAmountMatches(request, amount);
-            RaffleWinner winner = raffleWinnerRepository.findBySaleEventIdAndCustomerId(event.getSaleEventId(), request.getCustomerId())
-                    .orElseThrow(() -> new MarketplaceCheckoutException(HttpStatus.FORBIDDEN, "Only selected raffle winners can checkout."));
             return new MarketplaceIntentPrice(amount, winner.getWinnerId(), "marketplace-raffle", "Raffle winner checkout");
         }
         if (checkoutType == MarketplaceCheckoutType.AUCTION_WINNER) {
@@ -422,13 +512,18 @@ public class TossPaymentIntentService {
             if (request.getQuantity() != 1) {
                 throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "Auction winner checkout quantity must be 1.");
             }
+            validateAuctionSettlementPaymentWindow(settlement);
+            if (enforceNewIntentCapacity) {
+                ensureNoActiveCheckoutIntent(settlement.getSettlementId());
+            }
+            requireAvailableInventory(event, 1, false);
             requireClientAmountMatches(request, settlement.getAmount());
             return new MarketplaceIntentPrice(money(settlement.getAmount()), settlement.getSettlementId(), "marketplace-auction", "Auction winner checkout");
         }
         throw new MarketplaceCheckoutException(HttpStatus.BAD_REQUEST, "Unsupported marketplace checkout type: " + checkoutType);
     }
 
-    private void validateDirectCheckout(SaleEvent event, Integer quantity) {
+    private void validateDirectCheckout(SaleEvent event, Integer quantity, boolean enforceNewIntentCapacity) {
         if (event.getStatus() != SaleEventStatus.LIVE) {
             throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "Sale event is not live.");
         }
@@ -439,10 +534,10 @@ public class TossPaymentIntentService {
             );
         }
         validateEventWindow(event);
-        requireAvailableInventory(event, quantity);
+        requireAvailableInventory(event, quantity, enforceNewIntentCapacity);
     }
 
-    private void validateRaffleWinnerCheckout(SaleEvent event, String customerId) {
+    private RaffleWinner validateRaffleWinnerCheckout(SaleEvent event, String customerId, boolean enforceNewIntentCapacity) {
         if (event.getSaleType() != SaleType.RAFFLE) {
             throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "Sale event is not a raffle.");
         }
@@ -451,7 +546,12 @@ public class TossPaymentIntentService {
         if (winner.getCheckoutStatus() != RaffleCheckoutStatus.PENDING) {
             throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "Raffle winner checkout is already processed.");
         }
-        requireAvailableInventory(event, 1);
+        validateRaffleWinnerPaymentWindow(winner);
+        if (enforceNewIntentCapacity) {
+            ensureNoActiveCheckoutIntent(winner.getWinnerId());
+        }
+        requireAvailableInventory(event, 1, false);
+        return winner;
     }
 
     private void validateEventWindow(SaleEvent event) {
@@ -470,11 +570,57 @@ public class TossPaymentIntentService {
         }
     }
 
-    private void requireAvailableInventory(SaleEvent event, Integer quantity) {
-        Inventory inventory = inventoryRepository.findById(event.getProductId())
+    private void requireAvailableInventory(SaleEvent event, Integer quantity, boolean includeActiveIntents) {
+        if (quantity == null || quantity <= 0) {
+            throw new MarketplaceCheckoutException(HttpStatus.BAD_REQUEST, "quantity must be greater than 0.");
+        }
+        Inventory inventory = inventoryRepository.findByIdForUpdate(event.getProductId())
                 .orElseThrow(() -> new MarketplaceCheckoutException(HttpStatus.NOT_FOUND, "Inventory not found for product: " + event.getProductId()));
-        if (inventory.getAvailableQuantity() < quantity) {
+        long activeIntentQuantity = includeActiveIntents
+                ? repository.sumActiveMarketplaceQuantity(
+                        event.getSaleEventId(),
+                        MarketplaceCheckoutType.DIRECT.name(),
+                        ACTIVE_INTENT_STATUSES,
+                        LocalDateTime.now()
+                )
+                : 0L;
+        int eventStockLimit = event.getStockQuantity() != null
+                ? Math.min(event.getStockQuantity(), inventory.getAvailableQuantity())
+                : inventory.getAvailableQuantity();
+        long remainingForNewIntent = eventStockLimit - activeIntentQuantity;
+        if (remainingForNewIntent < quantity) {
             throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "SOLD_OUT");
+        }
+    }
+
+    private void ensureNoActiveCheckoutIntent(String sourceId) {
+        long activeCount = repository.countActiveMarketplaceSource(
+                sourceId,
+                ACTIVE_INTENT_STATUSES,
+                LocalDateTime.now()
+        );
+        if (activeCount > 0) {
+            throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "CHECKOUT_ALREADY_IN_PROGRESS");
+        }
+    }
+
+    private void validateRaffleWinnerPaymentWindow(RaffleWinner winner) {
+        if (winner.getCheckoutExpiresAt() != null && !winner.getCheckoutExpiresAt().isAfter(LocalDateTime.now())) {
+            if (winner.getCheckoutStatus() == RaffleCheckoutStatus.PENDING) {
+                winner.setCheckoutStatus(RaffleCheckoutStatus.EXPIRED);
+                raffleWinnerRepository.save(winner);
+            }
+            throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "RAFFLE_WINNER_CHECKOUT_EXPIRED");
+        }
+    }
+
+    private void validateAuctionSettlementPaymentWindow(AuctionSettlement settlement) {
+        if (settlement.getCheckoutExpiresAt() != null && !settlement.getCheckoutExpiresAt().isAfter(LocalDateTime.now())) {
+            if (settlement.getStatus() == AuctionSettlementStatus.AWAITING_PAYMENT) {
+                settlement.setStatus(AuctionSettlementStatus.CANCELLED);
+                auctionSettlementRepository.save(settlement);
+            }
+            throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "AUCTION_WINNER_CHECKOUT_EXPIRED");
         }
     }
 
@@ -510,6 +656,7 @@ public class TossPaymentIntentService {
                 intent.getMarketplaceSourceId(),
                 intent.getAmount()
         );
+        ticketingService.completeCheckout(intent.getSaleEventId(), intent.getSeatId(), intent.getCustomerId());
 
         if (checkoutType == MarketplaceCheckoutType.RAFFLE_WINNER) {
             raffleWinnerRepository.findById(intent.getMarketplaceSourceId()).ifPresent(winner -> {
@@ -540,6 +687,36 @@ public class TossPaymentIntentService {
                 .failUrl(intent.getFailUrl())
                 .status(intent.getStatus())
                 .expiresAt(intent.getExpiresAt())
+                .build();
+    }
+
+    private void applyShippingSnapshot(TossPaymentIntent intent, CompleteReservationRequest.ShippingInfo shippingInfo) {
+        if (shippingInfo == null) {
+            return;
+        }
+        intent.setShippingAddressId(shippingInfo.getAddressId());
+        intent.setShippingRecipientName(shippingInfo.getRecipientName());
+        intent.setShippingContactPhone(shippingInfo.getContactPhone());
+        intent.setShippingPostalCode(shippingInfo.getPostalCode());
+        intent.setShippingAddress(shippingInfo.getAddress());
+        intent.setShippingMethod(shippingInfo.getMethod());
+        intent.setShippingMemo(shippingInfo.getSpecialInstructions());
+    }
+
+    private CompleteReservationRequest.ShippingInfo shippingInfo(TossPaymentIntent intent) {
+        if (!hasText(intent.getShippingAddressId())
+                && !hasText(intent.getShippingAddress())
+                && !hasText(intent.getShippingContactPhone())) {
+            return null;
+        }
+        return CompleteReservationRequest.ShippingInfo.builder()
+                .addressId(intent.getShippingAddressId())
+                .recipientName(intent.getShippingRecipientName())
+                .postalCode(intent.getShippingPostalCode())
+                .address(intent.getShippingAddress())
+                .method(intent.getShippingMethod())
+                .specialInstructions(intent.getShippingMemo())
+                .contactPhone(intent.getShippingContactPhone())
                 .build();
     }
 
@@ -601,6 +778,12 @@ public class TossPaymentIntentService {
             canonical.put("currency", request.getPaymentInfo().getCurrency());
             canonical.put("paymentMethod", request.getPaymentInfo().getPaymentMethod());
             canonical.put("merchantId", request.getPaymentInfo().getMerchantId());
+            CompleteReservationRequest.ShippingInfo shippingInfo = request.getShippingInfo();
+            canonical.put("shippingAddressId", shippingInfo != null ? shippingInfo.getAddressId() : null);
+            canonical.put("shippingRecipientName", shippingInfo != null ? shippingInfo.getRecipientName() : null);
+            canonical.put("shippingPostalCode", shippingInfo != null ? shippingInfo.getPostalCode() : null);
+            canonical.put("shippingAddress", shippingInfo != null ? shippingInfo.getAddress() : null);
+            canonical.put("shippingContactPhone", shippingInfo != null ? shippingInfo.getContactPhone() : null);
             canonical.putAll(extra);
             byte[] json = objectMapper.writeValueAsBytes(canonical);
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -621,12 +804,12 @@ public class TossPaymentIntentService {
 
     private String successUrl(CompleteReservationRequest request, String intentId) {
         String value = request.getPaymentInfo().getSuccessUrl();
-        return withIntentId(defaultText(value, "/index.html?tossResult=success"), intentId);
+        return withIntentId(defaultText(value, "/app/?tossResult=success"), intentId);
     }
 
     private String failUrl(CompleteReservationRequest request, String intentId) {
         String value = request.getPaymentInfo().getFailUrl();
-        return withIntentId(defaultText(value, "/index.html?tossResult=fail"), intentId);
+        return withIntentId(defaultText(value, "/app/?tossResult=fail"), intentId);
     }
 
     private String withIntentId(String url, String intentId) {

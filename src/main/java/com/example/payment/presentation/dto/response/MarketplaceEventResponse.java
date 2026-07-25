@@ -16,11 +16,13 @@ public class MarketplaceEventResponse {
     private String listingId;
     private String sellerId;
     private String sellerName;
+    private String sellerVerificationStatus;
     private String productId;
     private String title;
     private String description;
     private String imageUrl;
     private String category;
+    private boolean digitalTicket;
     private SaleType saleType;
     private SaleEventStatus status;
     private BigDecimal price;

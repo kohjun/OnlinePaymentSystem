@@ -2,7 +2,7 @@
 local key = KEYS[1]
 local quantity = tonumber(ARGV[1])
 local reservation_id = ARGV[2]
-local reservation_key = 'reservation:' .. reservation_id
+local reservation_key = 'inventory:reservation:' .. reservation_id
 
 local available = tonumber(redis.call('HGET', key, 'available') or 0)
 local reserved = tonumber(redis.call('HGET', key, 'reserved') or 0)

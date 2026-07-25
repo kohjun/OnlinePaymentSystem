@@ -44,7 +44,7 @@ public class TossPaymentController {
     @PostMapping("/intents")
     public ResponseEntity<?> createIntent(@Valid @RequestBody CompleteReservationRequest request) {
         try {
-            authorizationGuard.requireCustomerAccess(request.getCustomerId());
+            request.setCustomerId(authorizationGuard.currentCustomerId());
             TossPaymentIntentResponse response = tossPaymentIntentService.createIntent(request);
             return ResponseEntity.ok(response);
         } catch (AmountMismatchException e) {
@@ -76,6 +76,16 @@ public class TossPaymentController {
                     : "INVALID_TOSS_CONFIRM_REQUEST";
             return ResponseEntity.status("TOSS_PAYMENT_CONFLICT".equals(code) ? 409 : 400)
                     .body(failed(code, e.getMessage()));
+        }
+    }
+
+    @PostMapping("/intents/{intentId}/cancel")
+    public ResponseEntity<?> cancelIntent(@PathVariable String intentId) {
+        try {
+            authorizationGuard.requireTossIntentAccess(intentId);
+            return ResponseEntity.ok(tossPaymentIntentService.cancelReadyIntent(intentId));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(409).body(error("TOSS_PAYMENT_INTENT_CANNOT_BE_CANCELLED", e.getMessage()));
         }
     }
 

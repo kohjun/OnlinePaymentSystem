@@ -29,6 +29,7 @@ class TossWebhookServiceTest {
     private final TossWebhookEventRepository webhookRepository = mock(TossWebhookEventRepository.class);
     private final PaymentRecordRepository paymentRepository = mock(PaymentRecordRepository.class);
     private final TossPaymentIntentService intentService = mock(TossPaymentIntentService.class);
+    private final MarketplaceOrderService marketplaceOrderService = mock(MarketplaceOrderService.class);
     private final TossPaymentsGateway gateway = mock(TossPaymentsGateway.class);
     private final TossPaymentsProperties properties = new TossPaymentsProperties();
     private TossWebhookService service;
@@ -42,6 +43,7 @@ class TossWebhookServiceTest {
                 webhookRepository,
                 paymentRepository,
                 intentService,
+                marketplaceOrderService,
                 gateway,
                 properties,
                 new ObjectMapper(),
@@ -113,6 +115,7 @@ class TossWebhookServiceTest {
         assertEquals("SUCCEEDED", event.getProcessingStatus());
         assertEquals("PARTIALLY_REFUNDED", payment.getStatus());
         verify(paymentRepository).save(payment);
+        verify(marketplaceOrderService).syncProviderRefundStatus("PAY-1", "PARTIALLY_REFUNDED");
         verify(intentService).markProviderTerminalStatus("pay_1", "ORD-1", "PARTIAL_CANCELED");
     }
 

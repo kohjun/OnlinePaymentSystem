@@ -2,6 +2,7 @@ package com.example.payment.presentation.controller;
 
 import com.example.payment.application.service.MarketplaceOrderService;
 import com.example.payment.application.service.SellerMarketplaceService;
+import com.example.payment.application.service.SellerPayoutAccountService;
 import com.example.payment.application.service.SellerPayoutService;
 import com.example.payment.domain.model.marketplace.ListingStatus;
 import com.example.payment.domain.model.marketplace.SellerPayoutStatus;
@@ -9,6 +10,8 @@ import com.example.payment.infrastructure.security.AuthorizationGuard;
 import com.example.payment.presentation.dto.request.CreateSaleEventRequest;
 import com.example.payment.presentation.dto.request.CreateSellerListingRequest;
 import com.example.payment.presentation.dto.request.CreateSellerRequest;
+import com.example.payment.presentation.dto.request.ReviewSellerPayoutAccountRequest;
+import com.example.payment.presentation.dto.request.ReviewSellerVerificationRequest;
 import com.example.payment.presentation.dto.request.ReviewListingRequest;
 import com.example.payment.presentation.dto.request.UpdateFulfillmentRequest;
 import com.example.payment.presentation.dto.response.SellerListingResponse;
@@ -41,6 +44,7 @@ public class SellerController {
     private final SellerMarketplaceService sellerMarketplaceService;
     private final MarketplaceOrderService marketplaceOrderService;
     private final SellerPayoutService sellerPayoutService;
+    private final SellerPayoutAccountService sellerPayoutAccountService;
     private final AuthorizationGuard authorizationGuard;
 
     @PostMapping
@@ -57,6 +61,51 @@ public class SellerController {
             return ResponseEntity.ok(sellerMarketplaceService.getSeller(sellerId));
         } catch (IllegalArgumentException e) {
             return error(HttpStatus.NOT_FOUND, e.getMessage());
+        }
+    }
+
+    @PostMapping("/moderation/{sellerId}/approve")
+    public ResponseEntity<?> approveSeller(@PathVariable String sellerId) {
+        try {
+            authorizationGuard.requireAdmin();
+            return ResponseEntity.ok(sellerMarketplaceService.approveSeller(sellerId));
+        } catch (IllegalArgumentException e) {
+            log.warn("Seller approval rejected: {}", e.getMessage());
+            return error(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
+    }
+
+    @PostMapping("/moderation/{sellerId}/verification")
+    public ResponseEntity<?> reviewSellerVerification(
+            @PathVariable String sellerId,
+            @Valid @RequestBody ReviewSellerVerificationRequest request) {
+        try {
+            authorizationGuard.requireAdmin();
+            return ResponseEntity.ok(sellerMarketplaceService.reviewSellerVerification(
+                    sellerId,
+                    authorizationGuard.currentPrincipal().userId(),
+                    request
+            ));
+        } catch (IllegalArgumentException e) {
+            log.warn("Seller verification review rejected: {}", e.getMessage());
+            return error(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
+    }
+
+    @PostMapping("/moderation/{sellerId}/payout-account")
+    public ResponseEntity<?> reviewSellerPayoutAccount(
+            @PathVariable String sellerId,
+            @Valid @RequestBody ReviewSellerPayoutAccountRequest request) {
+        try {
+            authorizationGuard.requireAdmin();
+            return ResponseEntity.ok(sellerPayoutAccountService.review(
+                    sellerId,
+                    authorizationGuard.currentPrincipal().userId(),
+                    request
+            ));
+        } catch (IllegalArgumentException e) {
+            log.warn("Seller payout account review rejected: {}", e.getMessage());
+            return error(HttpStatus.BAD_REQUEST, e.getMessage());
         }
     }
 
@@ -86,11 +135,14 @@ public class SellerController {
     }
 
     @GetMapping("/{sellerId}/orders")
-    public ResponseEntity<?> getOrders(@PathVariable String sellerId) {
+    public ResponseEntity<?> getOrders(
+            @PathVariable String sellerId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
         try {
             authorizationGuard.requireSellerAccess(sellerId);
             sellerMarketplaceService.getSeller(sellerId);
-            return ResponseEntity.ok(marketplaceOrderService.getSellerOrders(sellerId));
+            return ResponseEntity.ok(marketplaceOrderService.getSellerOrders(sellerId, page, size));
         } catch (IllegalArgumentException e) {
             return error(HttpStatus.NOT_FOUND, e.getMessage());
         }
@@ -106,7 +158,9 @@ public class SellerController {
             return ResponseEntity.ok(marketplaceOrderService.updateFulfillment(
                     sellerId,
                     marketplaceOrderId,
-                    request.getFulfillmentStatus()
+                    request.getFulfillmentStatus(),
+                    request.getTrackingCarrier(),
+                    request.getTrackingNumber()
             ));
         } catch (IllegalArgumentException e) {
             log.warn("Marketplace order fulfillment update rejected: {}", e.getMessage());

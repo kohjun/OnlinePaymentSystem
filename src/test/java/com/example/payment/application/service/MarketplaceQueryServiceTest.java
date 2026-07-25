@@ -17,6 +17,7 @@ import com.example.payment.domain.repository.SaleEventRepository;
 import com.example.payment.domain.repository.SellerProfileRepository;
 import com.example.payment.presentation.dto.response.MarketplaceEventResponse;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.PageImpl;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -27,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 
 class MarketplaceQueryServiceTest {
 
@@ -89,7 +91,37 @@ class MarketplaceQueryServiceTest {
                 .reservedQuantity(3)
                 .build()));
 
-        List<MarketplaceEventResponse> events = service.getEvents(null, null, "조던", "priceAsc");
+        when(saleEventRepository.searchPublicEvents(any(), any(), any(), any()))
+                .thenReturn(new PageImpl<>(List.of(event)));
+        when(listingRepository.findAllById(any())).thenReturn(List.of(MarketplaceListing.builder()
+                .listingId("LIST-DRAW-NIKE")
+                .sellerId("SELLER-EVERYSALE-CURATED")
+                .productId("DRAW-NIKE")
+                .title("Air Jordan Draw")
+                .description("Limited raffle")
+                .status(ListingStatus.ACTIVE)
+                .build()));
+        when(sellerRepository.findAllById(any())).thenReturn(List.of(SellerProfile.builder()
+                .sellerId("SELLER-EVERYSALE-CURATED")
+                .displayName("EverySale Curated")
+                .status(SellerStatus.ACTIVE)
+                .verificationStatus(SellerVerificationStatus.VERIFIED)
+                .build()));
+        when(productRepository.findAllById(any())).thenReturn(List.of(Product.builder()
+                .id("DRAW-NIKE")
+                .name("Air Jordan 1")
+                .description("Limited sneakers")
+                .price(new BigDecimal("239000.00"))
+                .category("SNEAKERS")
+                .build()));
+        when(inventoryRepository.findAllById(any())).thenReturn(List.of(Inventory.builder()
+                .productId("DRAW-NIKE")
+                .totalQuantity(10)
+                .availableQuantity(7)
+                .reservedQuantity(3)
+                .build()));
+
+        List<MarketplaceEventResponse> events = service.getEvents(null, null, null, "priceAsc");
 
         assertEquals(1, events.size());
         MarketplaceEventResponse response = events.get(0);

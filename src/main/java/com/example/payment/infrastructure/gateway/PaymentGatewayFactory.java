@@ -123,7 +123,7 @@ public class PaymentGatewayFactory {
 
             case "MOCK":
             case "TEST":
-                return "TOSS_PAYMENTS";
+                return null;
 
             default:
                 log.warn("Unknown payment method '{}'", paymentMethod);

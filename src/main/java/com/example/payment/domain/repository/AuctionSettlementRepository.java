@@ -16,4 +16,6 @@ public interface AuctionSettlementRepository extends JpaRepository<AuctionSettle
             String customerId,
             AuctionSettlementStatus status
     );
+
+    void deleteBySaleEventId(String saleEventId);
 }

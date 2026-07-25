@@ -11,6 +11,7 @@ import com.example.payment.presentation.dto.response.ReservationResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.testcontainers.junit.jupiter.Testcontainers;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -37,6 +38,7 @@ import static org.mockito.Mockito.when;
  * 2. 예약 성공 후 취소 시 -> 재고 롤백 및 환불 검증
  */
 @org.junit.jupiter.api.Tag("integration")
+@Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Transactional // 테스트 후 DB 롤백 (JPA 데이터)
 class SagaScenarioTest extends TestcontainersIntegrationSupport {

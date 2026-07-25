@@ -3,11 +3,11 @@ package com.example.payment.presentation.controller;
 import com.example.payment.application.service.MarketplaceQueryService;
 import com.example.payment.application.service.AuctionService;
 import com.example.payment.application.service.MarketplaceCheckoutException;
-import com.example.payment.application.service.MarketplaceCheckoutService;
 import com.example.payment.application.service.MarketplaceOrderService;
 import com.example.payment.application.service.AmountMismatchException;
 import com.example.payment.application.service.IdempotencyConflictException;
 import com.example.payment.application.service.TossPaymentIntentService;
+import com.example.payment.application.service.TicketingService;
 import com.example.payment.domain.model.marketplace.MarketplaceCheckoutType;
 import com.example.payment.infrastructure.security.AuthorizationGuard;
 import com.example.payment.infrastructure.security.SecurityAuditService;
@@ -15,19 +15,21 @@ import com.example.payment.presentation.dto.request.AuctionBidRequest;
 import com.example.payment.presentation.dto.request.MarketplaceCheckoutRequest;
 import com.example.payment.presentation.dto.request.RaffleDrawRequest;
 import com.example.payment.presentation.dto.request.RaffleEntryRequest;
-import com.example.payment.presentation.dto.response.CompleteReservationResponse;
 import com.example.payment.presentation.dto.response.MarketplaceEventResponse;
 import com.example.payment.presentation.dto.response.RaffleEntryResponse;
 import com.example.payment.presentation.dto.response.RaffleStatusResponse;
 import com.example.payment.presentation.dto.response.TossPaymentIntentResponse;
+import com.example.payment.presentation.dto.response.TicketSeatHoldResponse;
+import com.example.payment.presentation.dto.response.TicketSeatMapResponse;
 import com.example.payment.application.service.RaffleService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.data.domain.Page;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -46,16 +48,13 @@ import java.util.Map;
 public class MarketplaceController {
 
     private final MarketplaceQueryService marketplaceQueryService;
-    private final MarketplaceCheckoutService marketplaceCheckoutService;
     private final RaffleService raffleService;
     private final AuctionService auctionService;
     private final MarketplaceOrderService marketplaceOrderService;
     private final TossPaymentIntentService tossPaymentIntentService;
+    private final TicketingService ticketingService;
     private final AuthorizationGuard authorizationGuard;
     private final SecurityAuditService securityAuditService;
-
-    @Value("${app.checkout.legacy-marketplace-enabled:false}")
-    private boolean legacyMarketplaceCheckoutEnabled;
 
     @GetMapping("/events")
     public ResponseEntity<?> getEvents(
@@ -83,40 +82,12 @@ public class MarketplaceController {
     }
 
     @GetMapping("/customers/{customerId}/orders")
-    public ResponseEntity<?> getCustomerOrders(@PathVariable String customerId) {
+    public ResponseEntity<?> getCustomerOrders(
+            @PathVariable String customerId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
         authorizationGuard.requireCustomerAccess(customerId);
-        return ResponseEntity.ok(marketplaceOrderService.getCustomerOrders(customerId));
-    }
-
-    @PostMapping("/events/{eventId}/checkout")
-    public ResponseEntity<?> checkout(
-            @PathVariable String eventId,
-            @Valid @RequestBody MarketplaceCheckoutRequest request) {
-        if (!legacyMarketplaceCheckoutEnabled) {
-            return legacyCheckoutGone();
-        }
-        authorizationGuard.requireCustomerAccess(request.getCustomerId());
-        try {
-            CompleteReservationResponse response = marketplaceCheckoutService.checkout(eventId, request);
-            if ("SUCCESS".equals(response.getStatus())) {
-                return ResponseEntity.ok(response);
-            }
-            if ("PENDING".equals(response.getStatus())) {
-                return ResponseEntity.accepted().body(response);
-            }
-            return ResponseEntity.badRequest().body(response);
-        } catch (MarketplaceCheckoutException e) {
-            log.warn("Marketplace checkout rejected: eventId={}, reason={}", eventId, e.getMessage());
-            return ResponseEntity.status(e.getStatus()).body(Map.of(
-                    "status", "FAILED",
-                    "message", e.getMessage()
-            ));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
-                    "status", "FAILED",
-                    "message", e.getMessage()
-            ));
-        }
+        return ResponseEntity.ok(marketplaceOrderService.getCustomerOrders(customerId, page, size));
     }
 
     @PostMapping("/events/{eventId}/checkout/toss/intents")
@@ -131,7 +102,7 @@ public class MarketplaceController {
             @PathVariable String eventId,
             @Valid @RequestBody RaffleEntryRequest request) {
         try {
-            authorizationGuard.requireCustomerAccess(request.getCustomerId());
+            request.setCustomerId(authorizationGuard.currentCustomerId());
             RaffleEntryResponse response = raffleService.enter(eventId, request);
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
         } catch (MarketplaceCheckoutException e) {
@@ -154,6 +125,62 @@ public class MarketplaceController {
         }
     }
 
+    @GetMapping("/events/{eventId}/tickets/seats")
+    public ResponseEntity<?> getTicketSeats(@PathVariable String eventId) {
+        try {
+            TicketSeatMapResponse response = ticketingService.getSeats(
+                    eventId,
+                    authorizationGuard.currentCustomerId()
+            );
+            return ResponseEntity.ok(response);
+        } catch (MarketplaceCheckoutException e) {
+            return marketplaceError(e);
+        }
+    }
+
+    @PostMapping("/events/{eventId}/tickets/seats/{seatId}/hold")
+    public ResponseEntity<?> holdTicketSeat(@PathVariable String eventId,
+                                            @PathVariable String seatId) {
+        try {
+            TicketSeatHoldResponse response = ticketingService.hold(
+                    eventId,
+                    seatId,
+                    authorizationGuard.currentCustomerId()
+            );
+            return ResponseEntity.ok(response);
+        } catch (MarketplaceCheckoutException e) {
+            return marketplaceError(e);
+        }
+    }
+
+    @DeleteMapping("/events/{eventId}/tickets/seats/{seatId}/hold")
+    public ResponseEntity<?> releaseTicketSeat(@PathVariable String eventId,
+                                               @PathVariable String seatId) {
+        try {
+            ticketingService.release(eventId, seatId, authorizationGuard.currentCustomerId());
+            return ResponseEntity.noContent().build();
+        } catch (MarketplaceCheckoutException e) {
+            return marketplaceError(e);
+        }
+    }
+
+    @GetMapping("/events/page")
+    public ResponseEntity<Page<MarketplaceEventResponse>> getEventsPage(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String saleType,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "startsAt") String sort,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "24") int size) {
+        return ResponseEntity.ok(marketplaceQueryService.getEventsPage(
+                status, saleType, keyword, sort, page, size));
+    }
+
+    @GetMapping("/events/{eventId}/raffle/stream")
+    public SseEmitter streamRaffleStatus(@PathVariable String eventId) {
+        return raffleService.streamStatus(eventId);
+    }
+
     @PostMapping("/events/{eventId}/raffle/draw")
     public ResponseEntity<?> drawRaffle(
             @PathVariable String eventId,
@@ -162,28 +189,6 @@ public class MarketplaceController {
             authorizationGuard.requireAdmin();
             securityAuditService.recordGranted("RAFFLE_DRAW_REQUESTED", "SALE_EVENT", eventId);
             return ResponseEntity.ok(raffleService.draw(eventId, request));
-        } catch (MarketplaceCheckoutException e) {
-            return marketplaceError(e);
-        }
-    }
-
-    @PostMapping("/events/{eventId}/raffle/winner-checkout")
-    public ResponseEntity<?> raffleWinnerCheckout(
-            @PathVariable String eventId,
-            @Valid @RequestBody MarketplaceCheckoutRequest request) {
-        if (!legacyMarketplaceCheckoutEnabled) {
-            return legacyCheckoutGone();
-        }
-        authorizationGuard.requireCustomerAccess(request.getCustomerId());
-        try {
-            CompleteReservationResponse response = raffleService.winnerCheckout(eventId, request);
-            if ("SUCCESS".equals(response.getStatus())) {
-                return ResponseEntity.ok(response);
-            }
-            if ("PENDING".equals(response.getStatus())) {
-                return ResponseEntity.accepted().body(response);
-            }
-            return ResponseEntity.badRequest().body(response);
         } catch (MarketplaceCheckoutException e) {
             return marketplaceError(e);
         }
@@ -201,7 +206,7 @@ public class MarketplaceController {
             @PathVariable String eventId,
             @Valid @RequestBody AuctionBidRequest request) {
         try {
-            authorizationGuard.requireCustomerAccess(request.getCustomerId());
+            request.setCustomerId(authorizationGuard.currentCustomerId());
             return ResponseEntity.status(HttpStatus.CREATED).body(auctionService.placeBid(eventId, request));
         } catch (MarketplaceCheckoutException e) {
             return marketplaceError(e);
@@ -212,6 +217,16 @@ public class MarketplaceController {
     public ResponseEntity<?> getAuctionStatus(@PathVariable String eventId) {
         try {
             return ResponseEntity.ok(auctionService.status(eventId));
+        } catch (MarketplaceCheckoutException e) {
+            return marketplaceError(e);
+        }
+    }
+
+    @GetMapping("/events/{eventId}/auction/me")
+    public ResponseEntity<?> getMyAuctionStatus(@PathVariable String eventId) {
+        try {
+            return ResponseEntity.ok(auctionService.statusForCustomer(
+                    eventId, authorizationGuard.currentCustomerId()));
         } catch (MarketplaceCheckoutException e) {
             return marketplaceError(e);
         }
@@ -233,28 +248,6 @@ public class MarketplaceController {
         }
     }
 
-    @PostMapping("/events/{eventId}/auction/winner-checkout")
-    public ResponseEntity<?> auctionWinnerCheckout(
-            @PathVariable String eventId,
-            @Valid @RequestBody MarketplaceCheckoutRequest request) {
-        if (!legacyMarketplaceCheckoutEnabled) {
-            return legacyCheckoutGone();
-        }
-        authorizationGuard.requireCustomerAccess(request.getCustomerId());
-        try {
-            CompleteReservationResponse response = auctionService.winnerCheckout(eventId, request);
-            if ("SUCCESS".equals(response.getStatus())) {
-                return ResponseEntity.ok(response);
-            }
-            if ("PENDING".equals(response.getStatus())) {
-                return ResponseEntity.accepted().body(response);
-            }
-            return ResponseEntity.badRequest().body(response);
-        } catch (MarketplaceCheckoutException e) {
-            return marketplaceError(e);
-        }
-    }
-
     @PostMapping("/events/{eventId}/auction/winner-checkout/toss/intents")
     public ResponseEntity<?> auctionWinnerCheckoutTossIntent(
             @PathVariable String eventId,
@@ -266,7 +259,7 @@ public class MarketplaceController {
                                                           MarketplaceCheckoutType checkoutType,
                                                           MarketplaceCheckoutRequest request) {
         try {
-            authorizationGuard.requireCustomerAccess(request.getCustomerId());
+            request.setCustomerId(authorizationGuard.currentCustomerId());
             TossPaymentIntentResponse response = tossPaymentIntentService.createMarketplaceIntent(eventId, checkoutType, request);
             return ResponseEntity.ok(response);
         } catch (MarketplaceCheckoutException e) {
@@ -294,11 +287,4 @@ public class MarketplaceController {
         ));
     }
 
-    private ResponseEntity<Map<String, Object>> legacyCheckoutGone() {
-        return ResponseEntity.status(HttpStatus.GONE).body(Map.of(
-                "status", "FAILED",
-                "errorCode", "LEGACY_MARKETPLACE_CHECKOUT_DISABLED",
-                "message", "Legacy marketplace checkout is disabled. Use Toss Payments intent/confirm checkout."
-        ));
-    }
 }

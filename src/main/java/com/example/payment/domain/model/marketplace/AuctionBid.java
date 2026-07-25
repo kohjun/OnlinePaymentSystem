@@ -31,6 +31,9 @@ public class AuctionBid {
     @Column(name = "customer_id", nullable = false)
     private String customerId;
 
+    @Column(name = "idempotency_key", length = 160)
+    private String idempotencyKey;
+
     @Column(name = "bid_amount", nullable = false, precision = 19, scale = 2)
     private BigDecimal bidAmount;
 

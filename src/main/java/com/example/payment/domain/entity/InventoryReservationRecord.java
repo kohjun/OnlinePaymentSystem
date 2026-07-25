@@ -36,6 +36,9 @@ public class InventoryReservationRecord {
     @Column(name = "seat_id")
     private String seatId;
 
+    @Column(name = "active_seat_id")
+    private String activeSeatId;
+
     @Column(nullable = false)
     private Integer quantity;
 
@@ -56,11 +59,19 @@ public class InventoryReservationRecord {
         if (createdAt == null) {
             createdAt = now;
         }
+        synchronizeActiveSeat();
         updatedAt = now;
     }
 
     @PreUpdate
     void onUpdate() {
+        synchronizeActiveSeat();
         updatedAt = LocalDateTime.now();
+    }
+
+    private void synchronizeActiveSeat() {
+        activeSeatId = seatId != null && ("RESERVED".equals(status) || "CONFIRMED".equals(status))
+                ? seatId
+                : null;
     }
 }

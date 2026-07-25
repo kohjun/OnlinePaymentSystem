@@ -61,7 +61,7 @@ public class ReservationController {
                     .build());
         }
 
-        authorizationGuard.requireCustomerAccess(request.getCustomerId());
+        request.setCustomerId(authorizationGuard.currentCustomerId());
 
         log.info("Complete reservation request: customerId={}, productId={}, quantity={}, amount={}",
                 request.getCustomerId(), request.getProductId(), request.getQuantity(),
@@ -141,7 +141,7 @@ public class ReservationController {
     public ResponseEntity<ReservationResponse> reserveInventory(  // 변경된 Response 타입
                                                                   @Valid @RequestBody ReservationOnlyRequest request) {  // 변경된 Request 타입
 
-        authorizationGuard.requireCustomerAccess(request.getCustomerId());
+        request.setCustomerId(authorizationGuard.currentCustomerId());
         log.info("Inventory reservation request: productId={}, customerId={}, quantity={}",
                 request.getProductId(), request.getCustomerId(), request.getQuantity());
 

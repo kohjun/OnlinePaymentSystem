@@ -2,6 +2,7 @@ package com.example.payment.application.service;
 
 import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 
@@ -15,6 +16,7 @@ public class DistributionReadinessService {
 
     private final CacheService cacheService;
     private final Environment environment;
+    private final ObjectProvider<SellerPayoutTransferGateway> payoutGatewayProvider;
 
     public ReadinessReport evaluate() {
         String mode = property("app.distribution.mode", "DEMO").toUpperCase(Locale.ROOT);
@@ -50,11 +52,67 @@ public class DistributionReadinessService {
         ));
         checks.add(javaVersionCheck());
         checks.add(gatewayCheck());
+        checks.add(payoutTransferCheck(productionMode));
+        checks.add(operationalWorkerCheck(
+                productionMode,
+                "seller-payout-reconciliation-enabled",
+                "Seller payout reconciliation worker",
+                "app.payout.transfer.reconciliation.enabled",
+                "Seller payout reconciliation is enabled.",
+                "Seller payout reconciliation is disabled; unknown bank transfers can remain unresolved."
+        ));
         checks.add(tossWebhookCheck(productionMode));
+        checks.add(operationalWorkerCheck(
+                productionMode,
+                "temporal-worker-enabled",
+                "Temporal workflow worker",
+                "app.temporal.worker-enabled",
+                "Temporal worker is enabled.",
+                "Temporal worker is disabled; confirmed payments cannot complete the reservation Saga."
+        ));
+        checks.add(operationalWorkerCheck(
+                productionMode,
+                "inventory-reconciliation-enabled",
+                "Inventory reconciliation worker",
+                "app.inventory.reconciliation.enabled",
+                "Inventory reconciliation is enabled.",
+                "Inventory reconciliation is disabled; Redis and Postgres drift may remain undetected."
+        ));
+        checks.add(operationalWorkerCheck(
+                productionMode,
+                "toss-reconciliation-enabled",
+                "Toss payment reconciliation worker",
+                "payment.toss.reconciliation.enabled",
+                "Toss payment reconciliation is enabled.",
+                "Toss payment reconciliation is disabled; missing browser redirects can leave payments unresolved."
+        ));
+        checks.add(operationalWorkerCheck(
+                productionMode,
+                "auction-auto-close-enabled",
+                "Auction auto-close worker",
+                "app.auction.auto-close-enabled",
+                "Auction auto-close is enabled.",
+                "Auction auto-close is disabled; ended auctions require manual intervention."
+        ));
+        checks.add(operationalWorkerCheck(
+                productionMode,
+                "marketplace-lifecycle-enabled",
+                "Marketplace sale-event lifecycle worker",
+                "app.marketplace.lifecycle.enabled",
+                "Raffle, fixed-price, and drop lifecycle processing is enabled.",
+                "Marketplace lifecycle processing is disabled; expired sale events can remain live."
+        ));
+        checks.add(operationalWorkerCheck(
+                productionMode,
+                "marketplace-realtime-broadcast-enabled",
+                "Distributed marketplace realtime broadcast",
+                "app.marketplace.realtime.redis-broadcast-enabled",
+                "Redis marketplace realtime broadcast is enabled.",
+                "Distributed marketplace realtime broadcast is disabled; multi-instance SSE clients can miss events."
+        ));
+        checks.add(flywayMigrationCheck(productionMode));
+        checks.add(schemaValidationCheck(productionMode));
         checks.add(publicCompleteApiCheck(productionMode));
-        checks.add(legacyMarketplaceCheckoutCheck(productionMode));
-        checks.add(legacyPaymentApiCheck(productionMode));
-        checks.add(demoAuthApiCheck(productionMode));
         checks.add(mockAuthenticationCheck(productionMode));
         checks.add(auditTrailCheck(productionMode));
         checks.add(gatewayFallbackCheck(productionMode));
@@ -193,6 +251,75 @@ public class DistributionReadinessService {
         );
     }
 
+    private ReadinessCheck payoutTransferCheck(boolean productionMode) {
+        String provider = property("app.payout.transfer.provider", "LEDGER_ONLY").trim();
+        boolean ledgerOnly = provider.isEmpty() || "LEDGER_ONLY".equalsIgnoreCase(provider);
+        boolean externalAdapterEnabled = boolProperty("app.payout.transfer.external-adapter-enabled", false);
+        SellerPayoutTransferGateway gateway = null;
+        try {
+            gateway = payoutGatewayProvider.getIfAvailable();
+        } catch (RuntimeException ignored) {
+            // Multiple or invalid gateway beans are treated as not configured.
+        }
+        String registeredProvider = gateway == null ? null : gateway.providerName();
+        boolean matchingGatewayBean = registeredProvider != null
+                && !registeredProvider.isBlank()
+                && provider.equalsIgnoreCase(registeredProvider);
+        boolean pass = !ledgerOnly && externalAdapterEnabled && matchingGatewayBean;
+        return new ReadinessCheck(
+                "seller-payout-transfer-provider",
+                "Seller payout transfer provider",
+                pass ? "PASS" : (productionMode ? "FAIL" : "WARN"),
+                productionMode && !pass,
+                pass
+                        ? "External seller payout transfer adapter is configured: " + provider
+                        : "Configure an external payout gateway bean whose providerName matches app.payout.transfer.provider before production."
+        );
+    }
+
+    private ReadinessCheck operationalWorkerCheck(boolean productionMode,
+                                                   String id,
+                                                   String name,
+                                                   String propertyName,
+                                                   String passMessage,
+                                                   String failMessage) {
+        boolean enabled = boolProperty(propertyName, false);
+        return new ReadinessCheck(
+                id,
+                name,
+                enabled ? "PASS" : (productionMode ? "FAIL" : "WARN"),
+                productionMode && !enabled,
+                enabled ? passMessage : failMessage
+        );
+    }
+
+    private ReadinessCheck flywayMigrationCheck(boolean productionMode) {
+        boolean enabled = boolProperty("spring.flyway.enabled", true);
+        return new ReadinessCheck(
+                "flyway-migrations-enabled",
+                "Database migrations",
+                enabled ? "PASS" : (productionMode ? "FAIL" : "WARN"),
+                productionMode && !enabled,
+                enabled
+                        ? "Flyway database migrations are enabled."
+                        : "Flyway database migrations are disabled."
+        );
+    }
+
+    private ReadinessCheck schemaValidationCheck(boolean productionMode) {
+        String ddlAuto = property("spring.jpa.hibernate.ddl-auto", "");
+        boolean validateOnly = "validate".equalsIgnoreCase(ddlAuto);
+        return new ReadinessCheck(
+                "schema-validation-mode",
+                "JPA schema management",
+                validateOnly ? "PASS" : (productionMode ? "FAIL" : "WARN"),
+                productionMode && !validateOnly,
+                validateOnly
+                        ? "JPA validates the migrated schema without mutating it."
+                        : "Production must use spring.jpa.hibernate.ddl-auto=validate."
+        );
+    }
+
     private ReadinessCheck tossWebhookCheck(boolean productionMode) {
         boolean enabled = boolProperty("payment.toss.webhook.enabled", false);
         String token = property("payment.toss.webhook.path-token", "");
@@ -208,49 +335,6 @@ public class DistributionReadinessService {
                         : "Toss webhook endpoint is not ready. Enable it and set TOSS_WEBHOOK_PATH_TOKEN to at least 32 characters."
         );
     }
-
-    private ReadinessCheck legacyPaymentApiCheck(boolean productionMode) {
-        boolean enabled = boolProperty("payment.legacy-api.enabled", false);
-        boolean pass = !enabled;
-        return new ReadinessCheck(
-                "legacy-payment-api-disabled",
-                "Legacy payment process/retry/refund API",
-                pass ? "PASS" : (productionMode ? "FAIL" : "WARN"),
-                productionMode && !pass,
-                pass
-                        ? "Legacy payment APIs are disabled."
-                        : "Legacy payment APIs are enabled and can confuse Toss checkout."
-        );
-    }
-
-    private ReadinessCheck legacyMarketplaceCheckoutCheck(boolean productionMode) {
-        boolean enabled = boolProperty("app.checkout.legacy-marketplace-enabled", false);
-        boolean pass = !enabled;
-        return new ReadinessCheck(
-                "legacy-marketplace-checkout-disabled",
-                "Legacy marketplace checkout API",
-                pass ? "PASS" : (productionMode ? "FAIL" : "WARN"),
-                productionMode && !pass,
-                pass
-                        ? "Legacy marketplace checkout APIs are disabled."
-                        : "Legacy marketplace checkout APIs are enabled and can bypass Toss confirm."
-        );
-    }
-
-    private ReadinessCheck demoAuthApiCheck(boolean productionMode) {
-        boolean enabled = boolProperty("app.simulation.auth.enabled", false);
-        boolean pass = !enabled;
-        return new ReadinessCheck(
-                "demo-auth-api-disabled",
-                "Demo simulation authentication API",
-                pass ? "PASS" : (productionMode ? "FAIL" : "WARN"),
-                productionMode && !pass,
-                pass
-                        ? "Demo simulation authentication API is disabled."
-                        : "Demo simulation authentication API is enabled and uses static demo credentials."
-        );
-    }
-
 
     private ReadinessCheck mockAuthenticationCheck(boolean productionMode) {
         boolean enabled = boolProperty("app.security.mock-auth.enabled", false);
@@ -318,16 +402,18 @@ public class DistributionReadinessService {
             );
         }
 
-        boolean configured = hasText(property("spring.security.oauth2.resourceserver.jwt.issuer-uri", ""))
+        boolean issuerConfigured = hasText(property("spring.security.oauth2.resourceserver.jwt.issuer-uri", ""))
                 || hasText(property("spring.security.oauth2.resourceserver.jwt.jwk-set-uri", ""));
+        boolean audienceConfigured = hasText(property("app.security.external-auth.audience", ""));
+        boolean configured = issuerConfigured && audienceConfigured;
         return new ReadinessCheck(
                 "external-auth-provider",
                 "External authentication provider",
                 configured ? "PASS" : (requireExternalAuth ? "FAIL" : "WARN"),
                 requireExternalAuth && !configured,
                 configured
-                        ? "JWT issuer or JWK Set URI is configured."
-                        : "External auth is enabled but JWT issuer/JWK Set URI is missing."
+                        ? "JWT issuer/JWK Set URI and audience validation are configured."
+                        : "External auth requires both a JWT issuer/JWK Set URI and OIDC audience."
         );
     }
 
@@ -355,14 +441,39 @@ public class DistributionReadinessService {
     }
     private ReadinessCheck tenantIsolationCheck() {
         boolean requireTenantIsolation = boolProperty("app.distribution.require-tenant-isolation", false);
+        String tenancyMode = property("app.tenancy.mode", "DEMO").trim();
+        boolean singleTenant = "SINGLE_TENANT".equalsIgnoreCase(tenancyMode);
+        boolean multiTenantRls = "MULTI_TENANT_RLS".equalsIgnoreCase(tenancyMode);
+        boolean allowedTenantConfigured = hasText(property("app.tenancy.allowed-tenant-id", ""));
+        boolean databaseRlsEnabled = boolProperty("app.tenancy.database-rls-enabled", false);
         boolean requireTenantHeader = boolProperty("app.tenancy.require-tenant-header", false);
-        boolean pass = !requireTenantIsolation || requireTenantHeader;
+        boolean bindTokenClaims = boolProperty("app.tenancy.bind-token-claims", false);
+        boolean requireTenantClaim = boolProperty("app.tenancy.require-token-tenant-claim", false);
+        boolean requirePartnerClaim = boolProperty("app.tenancy.require-token-partner-claim", false);
+        boolean singleTenantBoundary = singleTenant
+                && allowedTenantConfigured
+                && bindTokenClaims
+                && requireTenantClaim;
+        boolean multiTenantBoundary = multiTenantRls
+                && databaseRlsEnabled
+                && requireTenantHeader
+                && bindTokenClaims
+                && requireTenantClaim
+                && requirePartnerClaim;
+        boolean pass = !requireTenantIsolation || singleTenantBoundary || multiTenantBoundary;
+        String detail = !requireTenantIsolation
+                ? "Tenant isolation is not required for this distribution mode."
+                : singleTenantBoundary
+                        ? "Single-tenant deployment is pinned to an allowed tenant and authenticated tenant claim."
+                        : multiTenantBoundary
+                                ? "Multi-tenant deployment uses database RLS and matching JWT tenant/partner claims."
+                                : "Choose SINGLE_TENANT with an allowed tenant and JWT tenant claim, or enable verified MULTI_TENANT_RLS isolation.";
         return new ReadinessCheck(
                 "tenant-isolation",
                 "Tenant isolation",
                 pass ? "PASS" : "FAIL",
                 requireTenantIsolation,
-                pass ? "Tenant isolation requirement is satisfied." : "Tenant header isolation is required."
+                detail
         );
     }
 

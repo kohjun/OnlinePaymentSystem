@@ -40,6 +40,7 @@ public class TossWebhookService {
     private final TossWebhookEventRepository webhookEventRepository;
     private final PaymentRecordRepository paymentRecordRepository;
     private final TossPaymentIntentService tossPaymentIntentService;
+    private final MarketplaceOrderService marketplaceOrderService;
     private final TossPaymentsGateway tossPaymentsGateway;
     private final TossPaymentsProperties tossProperties;
     private final ObjectMapper objectMapper;
@@ -83,7 +84,6 @@ public class TossWebhookService {
         return new WebhookReceipt(event.getEventId(), event.getDedupeKey(), event.getProcessingStatus());
     }
 
-    @Transactional
     public int processPendingEvents() {
         List<TossWebhookEvent> events = webhookEventRepository
                 .findByProcessingStatusInAndAttemptCountLessThanOrderByReceivedAtAsc(
@@ -99,7 +99,6 @@ public class TossWebhookService {
         return processed;
     }
 
-    @Transactional
     public void processEvent(TossWebhookEvent event) {
         event.setAttemptCount(event.getAttemptCount() + 1);
         event.setProcessingStatus("PROCESSING");
@@ -164,7 +163,10 @@ public class TossWebhookService {
         String mappedStatus = "PARTIAL_CANCELED".equals(status)
                 ? "PARTIALLY_REFUNDED"
                 : "REFUNDED";
-        paymentRecordRepository.findByTransactionId(paymentKey).ifPresent(payment -> updatePaymentStatus(payment, mappedStatus));
+        paymentRecordRepository.findByTransactionId(paymentKey).ifPresent(payment -> {
+            updatePaymentStatus(payment, mappedStatus);
+            marketplaceOrderService.syncProviderRefundStatus(payment.getPaymentId(), mappedStatus);
+        });
         tossPaymentIntentService.markProviderTerminalStatus(paymentKey, orderId, status);
     }
 

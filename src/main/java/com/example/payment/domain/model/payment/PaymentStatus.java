@@ -9,6 +9,7 @@ public enum PaymentStatus {
     UNKNOWN("unknown"),
     REFUNDED("refunded"),
     PARTIALLY_REFUNDED("partially refunded"),
+    REFUND_UNKNOWN("refund result unknown"),
     REFUND_FAILED("refund failed"),
     CANCELLED("cancelled");
 

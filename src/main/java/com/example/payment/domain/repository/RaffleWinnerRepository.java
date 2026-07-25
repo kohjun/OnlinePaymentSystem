@@ -17,4 +17,6 @@ public interface RaffleWinnerRepository extends JpaRepository<RaffleWinner, Stri
     long countBySaleEventId(String saleEventId);
 
     long countBySaleEventIdAndCheckoutStatus(String saleEventId, RaffleCheckoutStatus checkoutStatus);
+
+    void deleteBySaleEventId(String saleEventId);
 }

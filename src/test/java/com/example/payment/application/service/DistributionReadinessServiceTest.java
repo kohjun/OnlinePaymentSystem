@@ -2,6 +2,7 @@ package com.example.payment.application.service;
 
 import com.example.payment.infrastructure.persistence.redis.repository.CacheService;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.mock.env.MockEnvironment;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -11,6 +12,14 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class DistributionReadinessServiceTest {
+
+    private final ObjectProvider<SellerPayoutTransferGateway> payoutGatewayProvider = mock(ObjectProvider.class);
+
+    DistributionReadinessServiceTest() {
+        SellerPayoutTransferGateway gateway = mock(SellerPayoutTransferGateway.class);
+        when(gateway.providerName()).thenReturn("TEST_EXTERNAL");
+        when(payoutGatewayProvider.getIfAvailable()).thenReturn(gateway);
+    }
 
     @Test
     void demoModeAllowsMockGatewayButReturnsAttentionRequired() {
@@ -23,7 +32,7 @@ class DistributionReadinessServiceTest {
                 .withProperty("app.distribution.require-real-payment-gateway", "false");
 
         DistributionReadinessService.ReadinessReport report =
-                new DistributionReadinessService(cacheService, environment).evaluate();
+                new DistributionReadinessService(cacheService, environment, payoutGatewayProvider).evaluate();
 
         assertEquals("ATTENTION_REQUIRED", report.status());
         assertTrue(report.releasable());
@@ -45,10 +54,7 @@ class DistributionReadinessServiceTest {
                 .withProperty("app.temporal.target", "localhost:7233")
                 .withProperty("payment.default-gateway", "MOCK_PAYMENT_GATEWAY")
                 .withProperty("app.checkout.public-complete-enabled", "true")
-                .withProperty("app.checkout.legacy-marketplace-enabled", "true")
-                .withProperty("payment.legacy-api.enabled", "true")
                 .withProperty("payment.allow-gateway-fallback", "true")
-                .withProperty("app.simulation.auth.enabled", "true")
                 .withProperty("app.security.mock-auth.enabled", "true")
                 .withProperty("app.security.cors.allowed-origins", "*,http://localhost:3000,http://frontend.example.com")
                 .withProperty("app.audit.enabled", "false")
@@ -58,13 +64,11 @@ class DistributionReadinessServiceTest {
                 .withProperty("app.tenancy.require-tenant-header", "false");
 
         DistributionReadinessService.ReadinessReport report =
-                new DistributionReadinessService(cacheService, environment).evaluate();
+                new DistributionReadinessService(cacheService, environment, payoutGatewayProvider).evaluate();
 
         assertEquals("BLOCKED", report.status());
         assertFalse(report.releasable());
         assertTrue(report.blockingIssues().size() >= 10);
-        assertTrue(report.blockingIssues().stream()
-                .anyMatch(issue -> issue.contains("Demo simulation authentication API is enabled")));
         assertTrue(report.blockingIssues().stream()
                 .anyMatch(issue -> issue.contains("Security audit trail is disabled")));
         assertTrue(report.blockingIssues().stream()
@@ -92,11 +96,107 @@ class DistributionReadinessServiceTest {
                 .withProperty("app.security.external-auth.enabled", "true");
 
         DistributionReadinessService.ReadinessReport report =
-                new DistributionReadinessService(cacheService, environment).evaluate();
+                new DistributionReadinessService(cacheService, environment, payoutGatewayProvider).evaluate();
 
         assertEquals("BLOCKED", report.status());
         assertTrue(report.blockingIssues().stream()
-                .anyMatch(issue -> issue.contains("JWT issuer/JWK Set URI is missing")));
+                .anyMatch(issue -> issue.contains("JWT issuer/JWK Set URI and OIDC audience")));
+    }
+
+    @Test
+    void productionModeBlocksDisabledRecoveryWorkersAndUnsafeSchemaMode() {
+        CacheService cacheService = mock(CacheService.class);
+        when(cacheService.isRedisConnected()).thenReturn(true);
+
+        MockEnvironment environment = baseEnvironment()
+                .withProperty("app.distribution.mode", "PRODUCTION")
+                .withProperty("app.temporal.worker-enabled", "false")
+                .withProperty("app.inventory.reconciliation.enabled", "false")
+                .withProperty("payment.toss.reconciliation.enabled", "false")
+                .withProperty("app.auction.auto-close-enabled", "false")
+                .withProperty("app.marketplace.realtime.redis-broadcast-enabled", "false")
+                .withProperty("spring.flyway.enabled", "false")
+                .withProperty("spring.jpa.hibernate.ddl-auto", "update");
+
+        DistributionReadinessService.ReadinessReport report =
+                new DistributionReadinessService(cacheService, environment, payoutGatewayProvider).evaluate();
+
+        assertEquals("BLOCKED", report.status());
+        assertTrue(report.blockingIssues().stream().anyMatch(issue -> issue.contains("Temporal worker is disabled")));
+        assertTrue(report.blockingIssues().stream().anyMatch(issue -> issue.contains("Inventory reconciliation is disabled")));
+        assertTrue(report.blockingIssues().stream().anyMatch(issue -> issue.contains("Toss payment reconciliation is disabled")));
+        assertTrue(report.blockingIssues().stream().anyMatch(issue -> issue.contains("Auction auto-close is disabled")));
+        assertTrue(report.blockingIssues().stream().anyMatch(issue -> issue.contains("Distributed marketplace realtime broadcast is disabled")));
+        assertTrue(report.blockingIssues().stream().anyMatch(issue -> issue.contains("Flyway database migrations are disabled")));
+        assertTrue(report.blockingIssues().stream().anyMatch(issue -> issue.contains("ddl-auto=validate")));
+    }
+
+    @Test
+    void singleTenantModePassesWithPinnedTenantAndJwtTenantClaim() {
+        CacheService cacheService = mock(CacheService.class);
+        when(cacheService.isRedisConnected()).thenReturn(true);
+
+        MockEnvironment environment = baseEnvironment()
+                .withProperty("app.distribution.require-tenant-isolation", "true")
+                .withProperty("app.tenancy.mode", "SINGLE_TENANT")
+                .withProperty("app.tenancy.allowed-tenant-id", "everysale")
+                .withProperty("app.tenancy.bind-token-claims", "true")
+                .withProperty("app.tenancy.require-token-tenant-claim", "true");
+
+        DistributionReadinessService.ReadinessCheck check =
+                new DistributionReadinessService(cacheService, environment, payoutGatewayProvider).evaluate().checks().stream()
+                        .filter(candidate -> "tenant-isolation".equals(candidate.id()))
+                        .findFirst()
+                        .orElseThrow();
+
+        assertEquals("PASS", check.status());
+        assertTrue(check.message().contains("Single-tenant deployment"));
+    }
+
+    @Test
+    void multiTenantModeBlocksUntilDatabaseRlsIsExplicitlyEnabled() {
+        CacheService cacheService = mock(CacheService.class);
+        when(cacheService.isRedisConnected()).thenReturn(true);
+
+        MockEnvironment environment = baseEnvironment()
+                .withProperty("app.distribution.require-tenant-isolation", "true")
+                .withProperty("app.tenancy.mode", "MULTI_TENANT_RLS")
+                .withProperty("app.tenancy.database-rls-enabled", "false")
+                .withProperty("app.tenancy.require-tenant-header", "true")
+                .withProperty("app.tenancy.bind-token-claims", "true")
+                .withProperty("app.tenancy.require-token-tenant-claim", "true")
+                .withProperty("app.tenancy.require-token-partner-claim", "true");
+
+        DistributionReadinessService.ReadinessCheck check =
+                new DistributionReadinessService(cacheService, environment, payoutGatewayProvider).evaluate().checks().stream()
+                        .filter(candidate -> "tenant-isolation".equals(candidate.id()))
+                        .findFirst()
+                        .orElseThrow();
+
+        assertEquals("FAIL", check.status());
+        assertTrue(check.message().contains("MULTI_TENANT_RLS"));
+    }
+
+    @Test
+    void payoutReadinessBlocksWhenConfigClaimsAdapterButGatewayBeanIsMissing() {
+        CacheService cacheService = mock(CacheService.class);
+        when(cacheService.isRedisConnected()).thenReturn(true);
+        ObjectProvider<SellerPayoutTransferGateway> emptyProvider = mock(ObjectProvider.class);
+        when(emptyProvider.getIfAvailable()).thenReturn(null);
+
+        MockEnvironment environment = baseEnvironment()
+                .withProperty("app.distribution.mode", "PRODUCTION")
+                .withProperty("app.payout.transfer.provider", "BANK_EXTERNAL")
+                .withProperty("app.payout.transfer.external-adapter-enabled", "true");
+
+        DistributionReadinessService.ReadinessCheck check =
+                new DistributionReadinessService(cacheService, environment, emptyProvider).evaluate().checks().stream()
+                        .filter(candidate -> "seller-payout-transfer-provider".equals(candidate.id()))
+                        .findFirst()
+                        .orElseThrow();
+
+        assertEquals("FAIL", check.status());
+        assertTrue(check.message().contains("gateway bean"));
     }
 
     private MockEnvironment baseEnvironment() {
@@ -105,13 +205,20 @@ class DistributionReadinessServiceTest {
                 .withProperty("app.distribution.release-channel", "test")
                 .withProperty("app.distribution.minimum-java-version", "17")
                 .withProperty("app.temporal.enabled", "true")
+                .withProperty("app.temporal.worker-enabled", "true")
                 .withProperty("app.outbox.enabled", "true")
+                .withProperty("app.inventory.reconciliation.enabled", "true")
+                .withProperty("payment.toss.reconciliation.enabled", "true")
+                .withProperty("app.auction.auto-close-enabled", "true")
+                .withProperty("app.marketplace.realtime.redis-broadcast-enabled", "true")
+                .withProperty("app.payout.transfer.provider", "TEST_EXTERNAL")
+                .withProperty("app.payout.transfer.external-adapter-enabled", "true")
+                .withProperty("app.payout.transfer.reconciliation.enabled", "true")
+                .withProperty("spring.flyway.enabled", "true")
+                .withProperty("spring.jpa.hibernate.ddl-auto", "validate")
                 .withProperty("app.legacy-wal.enabled", "false")
                 .withProperty("app.checkout.public-complete-enabled", "false")
-                .withProperty("app.checkout.legacy-marketplace-enabled", "false")
-                .withProperty("payment.legacy-api.enabled", "false")
                 .withProperty("payment.allow-gateway-fallback", "false")
-                .withProperty("app.simulation.auth.enabled", "false")
                 .withProperty("app.audit.enabled", "true")
                 .withProperty("spring.datasource.url", "jdbc:postgresql://db.example.com:5432/payment")
                 .withProperty("spring.data.redis.host", "redis.example.com")

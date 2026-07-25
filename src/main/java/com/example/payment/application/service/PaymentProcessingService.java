@@ -4,6 +4,7 @@ import com.example.payment.application.dto.PaymentGatewayRequest;
 import com.example.payment.application.dto.PaymentGatewayResult;
 import com.example.payment.domain.entity.PaymentRecord;
 import com.example.payment.domain.entity.RefundRecord;
+import com.example.payment.domain.exception.PaymentGatewayResultUnknownException;
 import com.example.payment.domain.model.common.Money;
 import com.example.payment.domain.model.payment.Payment;
 import com.example.payment.domain.model.payment.PaymentMethod;
@@ -20,7 +21,6 @@ import com.example.payment.presentation.dto.response.PaymentResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -147,7 +147,6 @@ public class PaymentProcessingService {
         return refundPaymentWithResult(paymentId, idempotencyKey, reason).success();
     }
 
-    @Transactional
     public RefundResult refundPaymentWithResult(String paymentId, String idempotencyKey, String reason) {
         String effectiveKey = defaultText(idempotencyKey, "manual-" + paymentId);
         String refundId = "RF-" + paymentId + "-" + effectiveKey;
@@ -195,6 +194,11 @@ public class PaymentProcessingService {
         try {
             PaymentGatewayService gateway = gatewayFactory.getGateway(payment.getMethod());
             refunded = gateway.refundPayment(payment.getTransactionId());
+        } catch (PaymentGatewayResultUnknownException e) {
+            markRefundUnknown(payment, refund, e.getMessage(), refundReason);
+            return new RefundResult(false, "REFUND_UNKNOWN",
+                    "Refund request was accepted but its provider result is not confirmed yet.",
+                    convertToResponse(toDomainPayment(payment)));
         } catch (Exception e) {
             markRefundFailed(payment, refund, e.getMessage(), refundReason);
             return new RefundResult(false, "REFUND_FAILED", "System error while refunding payment.", convertToResponse(toDomainPayment(payment)));
@@ -432,6 +436,19 @@ public class PaymentProcessingService {
         recordRefundOutbox(payment, "PAYMENT_REFUND_FAILED", refund, reason);
     }
 
+    private void markRefundUnknown(PaymentRecord payment, RefundRecord refund, String failureReason, String reason) {
+        refund.setStatus("UNKNOWN");
+        refund.setFailureReason(failureReason);
+        refundRecordRepository.save(refund);
+
+        payment.setStatus(PaymentStatus.REFUND_UNKNOWN.name());
+        payment.setFailureReason(failureReason);
+        payment.setProcessedAt(LocalDateTime.now());
+        paymentRecordRepository.save(payment);
+        cachePayment(payment);
+        recordRefundOutbox(payment, "PAYMENT_REFUND_UNKNOWN", refund, reason);
+    }
+
     private String refundCompletionStatus(PaymentRecord payment) {
         BigDecimal refundedAmount = refundRecordRepository.sumSucceededAmountByPaymentId(payment.getPaymentId());
         if (refundedAmount == null) {
@@ -443,7 +460,11 @@ public class PaymentProcessingService {
     }
 
     private boolean isApprovedPayment(String status) {
-        return PaymentStatus.APPROVED.name().equals(status) || PaymentStatus.COMPLETED.name().equals(status);
+        return PaymentStatus.APPROVED.name().equals(status)
+                || PaymentStatus.COMPLETED.name().equals(status)
+                || PaymentStatus.PARTIALLY_REFUNDED.name().equals(status)
+                || PaymentStatus.REFUND_UNKNOWN.name().equals(status)
+                || PaymentStatus.REFUND_FAILED.name().equals(status);
     }
 
     private void cachePayment(PaymentRecord payment) {

@@ -4,7 +4,7 @@ local quantity = tonumber(ARGV[1])
 local reservation_id = ARGV[2]
 local ttl = tonumber(ARGV[3])
 local now = ARGV[4] or ''
-local reservation_key = 'reservation:' .. reservation_id
+local reservation_key = 'inventory:reservation:' .. reservation_id
 
 local available = tonumber(redis.call('HGET', key, 'available') or 0)
 local reserved = tonumber(redis.call('HGET', key, 'reserved') or 0)
@@ -56,7 +56,7 @@ if reservation_id and reservation_id ~= '' then
     redis.call('HSET', reservation_key, 'created_at', now)
 
     if ttl > 0 then
-        redis.call('EXPIRE', reservation_key, ttl)
+        redis.call('HSET', reservation_key, 'expires_at_ms', tonumber(now) + (ttl * 1000))
     end
 end
 

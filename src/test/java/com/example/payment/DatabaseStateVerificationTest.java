@@ -1,17 +1,16 @@
 package com.example.payment;
 
 import com.example.payment.application.dto.PaymentGatewayResult;
-import com.example.payment.domain.InventoryTransaction;
 import com.example.payment.domain.model.inventory.Inventory;
 import com.example.payment.domain.model.inventory.Reservation;
 import com.example.payment.domain.repository.InventoryRepository;
-import com.example.payment.domain.repository.InventoryTransactionRepository;
 import com.example.payment.domain.repository.ReservationRepository;
 import com.example.payment.infrastructure.gateway.MockPaymentGateway;
 import com.example.payment.infrastructure.util.ResourceReservationService;
 import com.example.payment.presentation.dto.request.CompleteReservationRequest;
 import com.example.payment.presentation.dto.response.CompleteReservationResponse;
 import org.junit.jupiter.api.*;
+import org.testcontainers.junit.jupiter.Testcontainers;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -40,9 +39,9 @@ import static org.mockito.Mockito.when;
  * 검증 대상:
  * 1. Reservation 엔티티 - 예약 상태 (CONFIRMED, CANCELLED 등)
  * 2. Inventory 엔티티 - 재고 수량 변화
- * 3. InventoryTransaction 엔티티 - 재고 변경 이력
  */
 @org.junit.jupiter.api.Tag("integration")
+@Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Transactional
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
@@ -62,9 +61,6 @@ class DatabaseStateVerificationTest extends TestcontainersIntegrationSupport {
 
     @Autowired
     private InventoryRepository inventoryRepository;
-
-    @Autowired
-    private InventoryTransactionRepository inventoryTransactionRepository;
 
     @MockBean
     private MockPaymentGateway mockPaymentGateway;
@@ -254,55 +250,7 @@ class DatabaseStateVerificationTest extends TestcontainersIntegrationSupport {
     }
 
     @Test
-    @DisplayName("[DB 검증 4] WAL 로그가 올바르게 기록되는지 확인")
-    void test_walLogsRecordedCorrectly() {
-        System.out.println("\n[테스트 4] WAL 로그 기록 검증");
-
-        // [Given & When] 예약 생성
-        String customerId = "DB-CUSTOMER-004";
-        CompleteReservationRequest request = createReservationRequest(TEST_PRODUCT_ID, customerId);
-        String correlationId = request.getCorrelationId();
-        String url = "http://localhost:" + port + "/api/reservations/complete";
-
-        ResponseEntity<CompleteReservationResponse> response =
-                restTemplate.postForEntity(url, request, CompleteReservationResponse.class);
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        String reservationId = response.getBody().getReservation().getReservationId();
-
-        System.out.println("✅ 예약 완료: reservationId=" + reservationId);
-
-        // [Then] WAL 로그가 기록되었는지 확인
-        // 참고: WalLogJpaRepository를 autowire하여 조회
-        System.out.println("\n📝 WAL 로그 확인:");
-        System.out.println("  - Transaction ID: " + correlationId);
-
-        // WAL 로그가 DB에 기록되었는지 간접 확인
-        // (실제 조회는 WalLogVerificationTest에서 상세히 수행)
-        assertTrue(true, "WAL 로그 검증은 WalLogVerificationTest에서 수행됩니다.");
-
-        // [옵션] InventoryTransaction이 구현되어 있다면 확인
-        List<InventoryTransaction> transactions =
-                inventoryTransactionRepository.findByReservationId(reservationId);
-
-        System.out.println("\n📊 InventoryTransaction 이력 개수: " + transactions.size());
-
-        if (!transactions.isEmpty()) {
-            System.out.println("✅ InventoryTransaction 이력이 기록되었습니다!");
-            for (int i = 0; i < transactions.size(); i++) {
-                InventoryTransaction tx = transactions.get(i);
-                System.out.println("\n  Transaction #" + (i + 1) + ":");
-                System.out.println("    - Type: " + tx.getTransactionType());
-                System.out.println("    - Quantity Change: " + tx.getQuantityChange());
-            }
-        } else {
-            System.out.println("ℹ️ InventoryTransaction이 아직 구현되지 않았습니다 (정상)");
-        }
-
-        System.out.println("\n✅✅✅ WAL 로그 및 트랜잭션 이력 검증 완료!");
-    }
-
-    @Test
-    @DisplayName("[DB 검증 5] 결제 실패 시 Redis 재고가 롤백되는지 확인")
+    @DisplayName("[DB 검증 4] 결제 실패 시 Redis 재고가 롤백되는지 확인")
     void test_paymentFailureRollsBackInventory() {
         System.out.println("\n[테스트 5] 결제 실패 시 재고 롤백 검증");
 

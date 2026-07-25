@@ -41,11 +41,20 @@ public class RaffleWinner {
     @Column(name = "draw_seed")
     private String drawSeed;
 
+    @Column(name = "draw_seed_commitment", length = 64)
+    private String drawSeedCommitment;
+
+    @Column(name = "entry_snapshot_hash", length = 64)
+    private String entrySnapshotHash;
+
     @Column(name = "drawn_by")
     private String drawnBy;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
+    @Column(name = "checkout_expires_at")
+    private LocalDateTime checkoutExpiresAt;
 
     @Column(name = "checkout_completed_at")
     private LocalDateTime checkoutCompletedAt;

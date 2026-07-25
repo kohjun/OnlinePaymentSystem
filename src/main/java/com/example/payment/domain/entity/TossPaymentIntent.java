@@ -80,6 +80,27 @@ public class TossPaymentIntent {
     @Column(name = "marketplace_source_id")
     private String marketplaceSourceId;
 
+    @Column(name = "shipping_address_id")
+    private String shippingAddressId;
+
+    @Column(name = "shipping_recipient_name")
+    private String shippingRecipientName;
+
+    @Column(name = "shipping_contact_phone")
+    private String shippingContactPhone;
+
+    @Column(name = "shipping_postal_code")
+    private String shippingPostalCode;
+
+    @Column(name = "shipping_address", length = 1000)
+    private String shippingAddress;
+
+    @Column(name = "shipping_method")
+    private String shippingMethod;
+
+    @Column(name = "shipping_memo", length = 1000)
+    private String shippingMemo;
+
     @Column(nullable = false)
     private String status;
 

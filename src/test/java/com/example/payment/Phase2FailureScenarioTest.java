@@ -10,6 +10,7 @@ import com.example.payment.infrastructure.util.ResourceReservationService;
 import com.example.payment.presentation.dto.request.CompleteReservationRequest;
 import com.example.payment.presentation.dto.response.CompleteReservationResponse;
 import org.junit.jupiter.api.*;
+import org.testcontainers.junit.jupiter.Testcontainers;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,6 +36,7 @@ import static org.mockito.Mockito.*;
  * Phase 2 실패 시나리오 테스트 (WAL 제거)
  */
 @org.junit.jupiter.api.Tag("integration")
+@Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Transactional
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)

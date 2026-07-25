@@ -1,19 +1,26 @@
 package com.example.payment.domain.repository;
 
 import com.example.payment.domain.model.inventory.Inventory;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 재고 리포지토리
  */
 @Repository
 public interface InventoryRepository extends JpaRepository<Inventory, String> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT i FROM Inventory i WHERE i.productId = :productId")
+    Optional<Inventory> findByIdForUpdate(@Param("productId") String productId);
 
     /**
      * 낙관적 락을 사용한 재고 업데이트

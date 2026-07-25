@@ -9,7 +9,6 @@ import lombok.Data;
 @Data
 public class MarketplaceCheckoutRequest {
 
-    @NotBlank(message = "customerId is required")
     private String customerId;
 
     @NotNull(message = "quantity is required")

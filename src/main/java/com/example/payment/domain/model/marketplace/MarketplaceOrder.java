@@ -83,6 +83,30 @@ public class MarketplaceOrder {
     @Column(name = "source_id")
     private String sourceId;
 
+    @Column(name = "seat_id")
+    private String seatId;
+
+    @Column(name = "shipping_address_id")
+    private String shippingAddressId;
+
+    @Column(name = "shipping_recipient_name", length = 100)
+    private String shippingRecipientName;
+
+    @Column(name = "shipping_contact_phone", length = 50)
+    private String shippingContactPhone;
+
+    @Column(name = "shipping_postal_code", length = 30)
+    private String shippingPostalCode;
+
+    @Column(name = "shipping_address", length = 1000)
+    private String shippingAddress;
+
+    @Column(name = "shipping_method", length = 50)
+    private String shippingMethod;
+
+    @Column(name = "shipping_memo", length = 1000)
+    private String shippingMemo;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
@@ -94,6 +118,37 @@ public class MarketplaceOrder {
 
     @Column(name = "fulfilled_at")
     private LocalDateTime fulfilledAt;
+
+    @Column(name = "shipped_at")
+    private LocalDateTime shippedAt;
+
+    @Column(name = "tracking_carrier", length = 100)
+    private String trackingCarrier;
+
+    @Column(name = "tracking_number", length = 100)
+    private String trackingNumber;
+
+    @Column(name = "buyer_confirmed_at")
+    private LocalDateTime buyerConfirmedAt;
+
+    @Column(name = "disputed_at")
+    private LocalDateTime disputedAt;
+
+    @Column(name = "dispute_reason", length = 1000)
+    private String disputeReason;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "dispute_resolution")
+    private DisputeResolution disputeResolution;
+
+    @Column(name = "dispute_resolution_note", length = 1000)
+    private String disputeResolutionNote;
+
+    @Column(name = "dispute_resolved_by")
+    private String disputeResolvedBy;
+
+    @Column(name = "dispute_resolved_at")
+    private LocalDateTime disputeResolvedAt;
 
     @PrePersist
     void onCreate() {

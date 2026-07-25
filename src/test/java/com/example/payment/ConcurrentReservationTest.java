@@ -7,6 +7,7 @@ import com.example.payment.presentation.dto.response.CompleteReservationResponse
 import com.example.payment.infrastructure.util.ResourceReservationService;
 
 import org.junit.jupiter.api.*;
+import org.testcontainers.junit.jupiter.Testcontainers;
 import org.mockito.Mockito; // 3. 임포트 추가
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -32,8 +33,8 @@ import static org.mockito.Mockito.when;
  * 1. MockPaymentGateway를 MockBean으로 만들어 10% 랜덤 실패를 제거 (테스트 안정성 확보)
  */
 @org.junit.jupiter.api.Tag("integration")
+@Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ConcurrentReservationTest extends TestcontainersIntegrationSupport {
 
     @LocalServerPort
@@ -54,7 +55,7 @@ class ConcurrentReservationTest extends TestcontainersIntegrationSupport {
     private static final int CONCURRENT_USERS = 10;
 
     @BeforeAll
-    void setupOnce() {
+    static void setupOnce() {
         System.out.println("\n" + "=".repeat(60));
         System.out.println("🧪 ConcurrentReservationTest 시작 (Payment Mock)");
         System.out.println("=".repeat(60) + "\n");

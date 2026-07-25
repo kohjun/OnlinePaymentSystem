@@ -2,6 +2,7 @@ package com.example.payment.infrastructure.gateway;
 
 import com.example.payment.application.dto.PaymentGatewayRequest;
 import com.example.payment.application.dto.PaymentGatewayResult;
+import com.example.payment.domain.exception.PaymentGatewayResultUnknownException;
 import com.example.payment.domain.service.PaymentGatewayService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,6 +15,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
@@ -60,7 +62,9 @@ public class TossPaymentsGateway implements PaymentGatewayService {
             );
             return toResult(parse(response.getBody()));
         } catch (HttpStatusCodeException e) {
-            return errorResult(e);
+            return gatewayErrorResult(e);
+        } catch (RestClientException e) {
+            return unknownResult("TOSS_NETWORK_ERROR", e.getMessage());
         }
     }
 
@@ -82,6 +86,10 @@ public class TossPaymentsGateway implements PaymentGatewayService {
             log.warn("Toss refund failed: paymentKey={}, status={}, body={}",
                     mask(transactionId), e.getStatusCode(), safeBody(e.getResponseBodyAsString()));
             return false;
+        } catch (RestClientException e) {
+            log.warn("Toss refund result is unknown: paymentKey={}, reason={}",
+                    mask(transactionId), safeMessage(e.getMessage()));
+            throw new PaymentGatewayResultUnknownException("Toss refund result is unknown.", e);
         }
     }
 
@@ -98,7 +106,9 @@ public class TossPaymentsGateway implements PaymentGatewayService {
             );
             return toResult(parse(response.getBody()));
         } catch (HttpStatusCodeException e) {
-            return errorResult(e);
+            return gatewayErrorResult(e);
+        } catch (RestClientException e) {
+            return unknownResult("TOSS_NETWORK_ERROR", e.getMessage());
         }
     }
 
@@ -115,7 +125,9 @@ public class TossPaymentsGateway implements PaymentGatewayService {
             );
             return toResult(parse(response.getBody()));
         } catch (HttpStatusCodeException e) {
-            return errorResult(e);
+            return gatewayErrorResult(e);
+        } catch (RestClientException e) {
+            return unknownResult("TOSS_NETWORK_ERROR", e.getMessage());
         }
     }
 
@@ -137,7 +149,7 @@ public class TossPaymentsGateway implements PaymentGatewayService {
             return false;
         }
         return switch (paymentMethod.toUpperCase().trim()) {
-            case "CREDIT_CARD", "DEBIT_CARD", "TOSS_PAY", "BANK_TRANSFER", "MOBILE_PAY", "MOCK", "TEST" -> true;
+            case "CREDIT_CARD", "DEBIT_CARD", "TOSS_PAY", "BANK_TRANSFER", "MOBILE_PAY" -> true;
             default -> false;
         };
     }
@@ -184,7 +196,12 @@ public class TossPaymentsGateway implements PaymentGatewayService {
         return "UNKNOWN";
     }
 
-    private PaymentGatewayResult errorResult(HttpStatusCodeException e) {
+    private PaymentGatewayResult gatewayErrorResult(HttpStatusCodeException e) {
+        if (e.getStatusCode().is5xxServerError()
+                || e.getStatusCode().value() == 408
+                || e.getStatusCode().value() == 429) {
+            return unknownResult("TOSS_HTTP_" + e.getStatusCode().value(), e.getResponseBodyAsString());
+        }
         String code = "TOSS_HTTP_" + e.getStatusCode().value();
         String message = e.getResponseBodyAsString();
         try {
@@ -198,6 +215,17 @@ public class TossPaymentsGateway implements PaymentGatewayService {
                 .gatewayStatus("FAILED")
                 .errorCode(code)
                 .errorMessage(message)
+                .gatewayName(getGatewayName())
+                .processedAt(LocalDateTime.now())
+                .build();
+    }
+
+    private PaymentGatewayResult unknownResult(String code, String message) {
+        return PaymentGatewayResult.builder()
+                .success(false)
+                .gatewayStatus("UNKNOWN")
+                .errorCode(code)
+                .errorMessage(safeMessage(message))
                 .gatewayName(getGatewayName())
                 .processedAt(LocalDateTime.now())
                 .build();
@@ -268,5 +296,12 @@ public class TossPaymentsGateway implements PaymentGatewayService {
 
     private String safeBody(String body) {
         return body == null ? "" : body.replaceAll("(?i)authorization[^,}]*", "authorization=****");
+    }
+
+    private String safeMessage(String message) {
+        if (!hasText(message)) {
+            return "Toss response could not be determined.";
+        }
+        return safeBody(message).replaceAll("(?i)(paymentKey[=: ]+)[^, }]+", "$1****");
     }
 }

@@ -16,12 +16,19 @@ import com.example.payment.domain.repository.SellerProfileRepository;
 import com.example.payment.presentation.dto.response.MarketplaceEventResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -34,6 +41,15 @@ public class MarketplaceQueryService {
     private final InventoryRepository inventoryRepository;
 
     public List<MarketplaceEventResponse> getEvents(String status, String saleType, String keyword, String sort) {
+        return getEventsPage(status, saleType, keyword, sort, 0, 100).getContent();
+    }
+
+    public Page<MarketplaceEventResponse> getEventsPage(String status,
+                                                        String saleType,
+                                                        String keyword,
+                                                        String sort,
+                                                        int page,
+                                                        int size) {
         SaleEventStatus statusFilter = parseOptionalEnum(SaleEventStatus.class, status, "status");
         SaleType saleTypeFilter = parseOptionalEnum(SaleType.class, saleType, "saleType");
 
@@ -41,17 +57,42 @@ public class MarketplaceQueryService {
                 ? List.of(SaleEventStatus.LIVE, SaleEventStatus.SCHEDULED)
                 : List.of(statusFilter);
 
-        List<MarketplaceEventResponse> responses = saleEventRepository.findByStatusInOrderByStartsAtAsc(statuses)
-                .stream()
-                .filter(event -> saleTypeFilter == null || event.getSaleType() == saleTypeFilter)
-                .map(this::toResponse)
-                .flatMap(Optional::stream)
-                .filter(response -> matchesKeyword(response, keyword))
-                .toList();
+        int safePage = Math.max(0, page);
+        int safeSize = Math.max(1, Math.min(size, 100));
+        String keywordFilter = notBlank(keyword)
+                ? "%" + keyword.trim().toLowerCase(Locale.ROOT) + "%"
+                : null;
+        Page<SaleEvent> events = saleEventRepository.searchPublicEvents(
+                statuses,
+                saleTypeFilter,
+                keywordFilter,
+                PageRequest.of(safePage, safeSize, eventSort(sort))
+        );
 
-        return responses.stream()
-                .sorted(comparator(sort))
+        Map<String, MarketplaceListing> listings = marketplaceListingRepository
+                .findAllById(events.stream().map(SaleEvent::getListingId).distinct().toList())
+                .stream().collect(Collectors.toMap(MarketplaceListing::getListingId, Function.identity()));
+        Map<String, Product> products = productRepository
+                .findAllById(events.stream().map(SaleEvent::getProductId).distinct().toList())
+                .stream().collect(Collectors.toMap(Product::getId, Function.identity()));
+        Map<String, SellerProfile> sellers = sellerProfileRepository
+                .findAllById(events.stream().map(SaleEvent::getSellerId).distinct().toList())
+                .stream().collect(Collectors.toMap(SellerProfile::getSellerId, Function.identity()));
+        Map<String, Inventory> inventories = inventoryRepository
+                .findAllById(events.stream().map(SaleEvent::getProductId).distinct().toList())
+                .stream().collect(Collectors.toMap(Inventory::getProductId, Function.identity()));
+
+        List<MarketplaceEventResponse> content = events.stream()
+                .map(event -> toResponse(
+                        event,
+                        listings.get(event.getListingId()),
+                        products.get(event.getProductId()),
+                        sellers.get(event.getSellerId()),
+                        inventories.get(event.getProductId())
+                ))
+                .flatMap(Optional::stream)
                 .toList();
+        return new PageImpl<>(content, events.getPageable(), events.getTotalElements());
     }
 
     public Optional<MarketplaceEventResponse> getEvent(String saleEventId) {
@@ -84,11 +125,15 @@ public class MarketplaceQueryService {
                 .listingId(event.getListingId())
                 .sellerId(event.getSellerId())
                 .sellerName(sellerOpt.map(SellerProfile::getDisplayName).orElse("EverySale Partner"))
+                .sellerVerificationStatus(sellerOpt
+                        .map(profile -> profile.getVerificationStatus().name())
+                        .orElse("UNVERIFIED"))
                 .productId(event.getProductId())
                 .title(title)
                 .description(description)
                 .imageUrl(listing.getImageUrl())
                 .category(productOpt.map(Product::getCategory).orElse(""))
+                .digitalTicket("DIGITAL_TICKET".equalsIgnoreCase(listing.getItemCondition()))
                 .saleType(event.getSaleType())
                 .status(event.getStatus())
                 .price(event.getPrice())
@@ -100,6 +145,57 @@ public class MarketplaceQueryService {
                 .startsAt(event.getStartsAt())
                 .endsAt(event.getEndsAt())
                 .build());
+    }
+
+    private Optional<MarketplaceEventResponse> toResponse(SaleEvent event,
+                                                          MarketplaceListing listing,
+                                                          Product product,
+                                                          SellerProfile seller,
+                                                          Inventory inventory) {
+        if (listing == null || listing.getStatus() != ListingStatus.ACTIVE) {
+            return Optional.empty();
+        }
+        String title = notBlank(listing.getTitle())
+                ? listing.getTitle()
+                : product != null ? product.getName() : event.getProductId();
+        String description = notBlank(listing.getDescription())
+                ? listing.getDescription()
+                : product != null ? product.getDescription() : "";
+        return Optional.of(MarketplaceEventResponse.builder()
+                .saleEventId(event.getSaleEventId())
+                .listingId(event.getListingId())
+                .sellerId(event.getSellerId())
+                .sellerName(seller != null ? seller.getDisplayName() : "EverySale Partner")
+                .sellerVerificationStatus(seller != null && seller.getVerificationStatus() != null
+                        ? seller.getVerificationStatus().name()
+                        : "UNVERIFIED")
+                .productId(event.getProductId())
+                .title(title)
+                .description(description)
+                .imageUrl(listing.getImageUrl())
+                .category(product != null ? product.getCategory() : "")
+                .digitalTicket("DIGITAL_TICKET".equalsIgnoreCase(listing.getItemCondition()))
+                .saleType(event.getSaleType())
+                .status(event.getStatus())
+                .price(event.getPrice())
+                .currency("KRW")
+                .totalQuantity(inventory != null ? inventory.getTotalQuantity() : event.getStockQuantity())
+                .availableQuantity(inventory != null ? inventory.getAvailableQuantity() : event.getStockQuantity())
+                .minBidIncrement(event.getMinBidIncrement())
+                .reservePrice(event.getReservePrice())
+                .startsAt(event.getStartsAt())
+                .endsAt(event.getEndsAt())
+                .build());
+    }
+
+    private Sort eventSort(String sort) {
+        String normalized = notBlank(sort) ? sort.trim().toLowerCase(Locale.ROOT) : "startsat";
+        return switch (normalized) {
+            case "endingsoon" -> Sort.by(Sort.Direction.ASC, "endsAt");
+            case "priceasc" -> Sort.by(Sort.Direction.ASC, "price");
+            case "pricedesc" -> Sort.by(Sort.Direction.DESC, "price");
+            default -> Sort.by(Sort.Direction.ASC, "startsAt").and(Sort.by("saleEventId"));
+        };
     }
 
     private boolean matchesKeyword(MarketplaceEventResponse response, String keyword) {

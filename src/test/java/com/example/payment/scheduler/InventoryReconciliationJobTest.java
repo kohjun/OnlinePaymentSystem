@@ -6,6 +6,8 @@ import com.example.payment.infrastructure.util.ResourceReservationService;
 import org.junit.jupiter.api.Test;
 
 import com.example.payment.domain.repository.InventoryReservationRecordRepository;
+import com.example.payment.domain.repository.InventorySyncIssueRepository;
+import com.example.payment.application.service.InventorySyncIssueService;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.data.redis.core.RedisTemplate;
 import java.util.List;
@@ -23,12 +25,16 @@ class InventoryReconciliationJobTest {
     private final PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
     @SuppressWarnings("unchecked")
     private final RedisTemplate<String, Object> redisTemplate = mock(RedisTemplate.class);
+    private final InventorySyncIssueRepository inventorySyncIssueRepository = mock(InventorySyncIssueRepository.class);
+    private final InventorySyncIssueService inventorySyncIssueService = mock(InventorySyncIssueService.class);
     private final InventoryReconciliationJob job = new InventoryReconciliationJob(
             inventoryRepository,
             resourceReservationService,
             inventoryReservationRecordRepository,
             transactionManager,
-            redisTemplate
+            redisTemplate,
+            inventorySyncIssueRepository,
+            inventorySyncIssueService
     );
 
     @Test

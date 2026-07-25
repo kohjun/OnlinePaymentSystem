@@ -20,6 +20,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +31,7 @@ import java.util.Map;
 
 @Slf4j
 @Component
+@ConditionalOnProperty(name = "app.distribution.mode", havingValue = "DEMO", matchIfMissing = true)
 @RequiredArgsConstructor
 public class StartupDataInitializer implements ApplicationRunner {
 
@@ -79,12 +81,17 @@ public class StartupDataInitializer implements ApplicationRunner {
 
     private void initializeRedisInventoryIfMissing(String productId, int total, int available) {
         String resourceKey = "inventory:" + productId;
-        Map<String, Object> current = resourceReservationService.getResourceStatus(resourceKey);
-        if (current.isEmpty()) {
-            resourceReservationService.initializeResource(resourceKey, total, available);
-            return;
+        try {
+            Map<String, Object> current = resourceReservationService.getResourceStatus(resourceKey);
+            if (current.isEmpty()) {
+                resourceReservationService.initializeResource(resourceKey, total, available);
+                return;
+            }
+            log.info("Redis inventory already exists, skipping initialization: key={}", resourceKey);
+        } catch (RuntimeException redisUnavailable) {
+            log.warn("Redis inventory initialization deferred to reconciliation: key={}, reason={}",
+                    resourceKey, redisUnavailable.getMessage());
         }
-        log.info("Redis inventory already exists, skipping initialization: key={}", resourceKey);
     }
 
     private void seedProduct(String id, String name, String description,
@@ -186,6 +193,11 @@ public class StartupDataInitializer implements ApplicationRunner {
                 null,
                 null
         );
+        refreshExpiredDemoTicketEvent(
+                "EVT-CONCERT-VIP",
+                now.minusMinutes(10),
+                now.plusDays(1)
+        );
     }
 
     private void seedSeller(String sellerId, String displayName, SellerVerificationStatus verificationStatus) {
@@ -235,5 +247,21 @@ public class StartupDataInitializer implements ApplicationRunner {
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build()));
+    }
+
+    private void refreshExpiredDemoTicketEvent(String saleEventId,
+                                               LocalDateTime startsAt,
+                                               LocalDateTime endsAt) {
+        saleEventRepository.findById(saleEventId).ifPresent(event -> {
+            boolean expired = event.getEndsAt() != null && !event.getEndsAt().isAfter(LocalDateTime.now());
+            if (expired || event.getStatus() == SaleEventStatus.ENDED) {
+                event.setStatus(SaleEventStatus.LIVE);
+                event.setStartsAt(startsAt);
+                event.setEndsAt(endsAt);
+                event.setUpdatedAt(LocalDateTime.now());
+                saleEventRepository.save(event);
+                log.info("Refreshed expired demo ticket event: saleEventId={}, endsAt={}", saleEventId, endsAt);
+            }
+        });
     }
 }

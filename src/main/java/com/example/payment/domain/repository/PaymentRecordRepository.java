@@ -17,4 +17,6 @@ public interface PaymentRecordRepository extends JpaRepository<PaymentRecord, St
     List<PaymentRecord> findByCustomerIdOrderByCreatedAtDesc(String customerId, Pageable pageable);
 
     long countByStatus(String status);
+
+    List<PaymentRecord> findByStatusOrderByCreatedAtAsc(String status, Pageable pageable);
 }

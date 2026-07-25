@@ -14,11 +14,11 @@ import com.example.payment.domain.repository.AuctionSettlementRepository;
 import com.example.payment.domain.repository.MarketplaceListingRepository;
 import com.example.payment.domain.repository.SaleEventRepository;
 import com.example.payment.presentation.dto.request.AuctionBidRequest;
-import com.example.payment.presentation.dto.request.CompleteReservationRequest;
-import com.example.payment.presentation.dto.request.MarketplaceCheckoutRequest;
 import com.example.payment.presentation.dto.response.AuctionBidResponse;
-import com.example.payment.presentation.dto.response.CompleteReservationResponse;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.redis.core.RedisTemplate;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
 
 import java.math.BigDecimal;
@@ -28,9 +28,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AuctionServiceTest {
@@ -39,17 +37,27 @@ class AuctionServiceTest {
     private final MarketplaceListingRepository listingRepository = mock(MarketplaceListingRepository.class);
     private final AuctionBidRepository bidRepository = mock(AuctionBidRepository.class);
     private final AuctionSettlementRepository settlementRepository = mock(AuctionSettlementRepository.class);
-    private final CompleteReservationGateway completeReservationGateway = mock(CompleteReservationGateway.class);
-    private final MarketplaceOrderService marketplaceOrderService = mock(MarketplaceOrderService.class);
+    private final MarketplaceRealtimeService marketplaceRealtimeService = mock(MarketplaceRealtimeService.class);
+    private final RedisTemplate<String, Object> redisTemplate = mock(RedisTemplate.class);
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     private final AuctionService service = new AuctionService(
             saleEventRepository,
             listingRepository,
             bidRepository,
             settlementRepository,
-            completeReservationGateway,
-            marketplaceOrderService
+            marketplaceRealtimeService,
+            redisTemplate,
+            objectMapper
     );
+
+    @BeforeEach
+    void setUp() {
+        org.springframework.data.redis.core.ValueOperations valueOps = mock(org.springframework.data.redis.core.ValueOperations.class);
+        org.springframework.data.redis.core.SetOperations setOps = mock(org.springframework.data.redis.core.SetOperations.class);
+        when(redisTemplate.opsForValue()).thenReturn(valueOps);
+        when(redisTemplate.opsForSet()).thenReturn(setOps);
+    }
 
     @Test
     void placeBidRequiresMinimumIncrement() {
@@ -85,46 +93,8 @@ class AuctionServiceTest {
         assertEquals(new BigDecimal("8600000"), response.getBidAmount());
     }
 
-    @Test
-    void winnerCheckoutMarksSettlementPaidAndCreatesHeldPayout() {
-        stubLiveAuction();
-        when(settlementRepository.findBySaleEventIdAndCustomerIdAndStatus(
-                "EVT-AUCTION", "CUST-1", AuctionSettlementStatus.AWAITING_PAYMENT
-        )).thenReturn(Optional.of(AuctionSettlement.builder()
-                .settlementId("SET-1")
-                .saleEventId("EVT-AUCTION")
-                .winningBidId("BID-1")
-                .customerId("CUST-1")
-                .sellerId("SELLER-1")
-                .amount(new BigDecimal("9000000"))
-                .status(AuctionSettlementStatus.AWAITING_PAYMENT)
-                .createdAt(LocalDateTime.now())
-                .build()));
-        when(completeReservationGateway.processCompleteReservation(any()))
-                .thenReturn(CompleteReservationResponse.success(
-                        "RES-1", "ORD-1", "PAY-1", "TX-1",
-                        "PROD-AUCTION", 1, new BigDecimal("9000000"), "KRW"
-                ));
-        when(settlementRepository.save(any(AuctionSettlement.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        MarketplaceCheckoutRequest request = new MarketplaceCheckoutRequest();
-        request.setCustomerId("CUST-1");
-        request.setQuantity(1);
-        request.setIdempotencyKey("IDEMP-1");
-        request.setPaymentInfo(CompleteReservationRequest.PaymentInfo.builder()
-                .amount(new BigDecimal("1"))
-                .currency("KRW")
-                .paymentMethod("CREDIT_CARD")
-                .build());
-
-        CompleteReservationResponse response = service.winnerCheckout("EVT-AUCTION", request);
-
-        assertEquals("SUCCESS", response.getStatus());
-        verify(marketplaceOrderService).recordCheckout(any(), any(), any(), any(), any(), eq("SET-1"), eq(new BigDecimal("9000000")));
-    }
-
     private void stubLiveAuction() {
-        when(saleEventRepository.findById("EVT-AUCTION")).thenReturn(Optional.of(SaleEvent.builder()
+        SaleEvent event = SaleEvent.builder()
                 .saleEventId("EVT-AUCTION")
                 .listingId("LIST-AUCTION")
                 .sellerId("SELLER-1")
@@ -136,7 +106,9 @@ class AuctionServiceTest {
                 .price(new BigDecimal("8500000"))
                 .minBidIncrement(new BigDecimal("100000"))
                 .stockQuantity(1)
-                .build()));
+                .build();
+        when(saleEventRepository.findById("EVT-AUCTION")).thenReturn(Optional.of(event));
+        when(saleEventRepository.findByIdForUpdate("EVT-AUCTION")).thenReturn(Optional.of(event));
         when(listingRepository.findById("LIST-AUCTION")).thenReturn(Optional.of(MarketplaceListing.builder()
                 .listingId("LIST-AUCTION")
                 .sellerId("SELLER-1")

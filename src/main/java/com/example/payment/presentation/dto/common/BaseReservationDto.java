@@ -17,7 +17,6 @@ public abstract class BaseReservationDto {
     @NotBlank(message = "상품 ID는 필수입니다")
     protected String productId;
 
-    @NotBlank(message = "고객 ID는 필수입니다")
     protected String customerId;
 
     @NotNull(message = "수량은 필수입니다")

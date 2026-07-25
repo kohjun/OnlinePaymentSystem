@@ -7,12 +7,16 @@ import com.example.payment.presentation.dto.request.CompleteReservationRequest;
 import com.example.payment.presentation.dto.response.CompleteReservationResponse;
 
 import org.junit.jupiter.api.*;
+import org.testcontainers.junit.jupiter.Testcontainers;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +34,7 @@ import static org.mockito.ArgumentMatchers.any;
  * 3. 연속 예약 테스트 제거 (단일 예약에 집중)
  */
 @org.junit.jupiter.api.Tag("integration")
+@Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
@@ -136,16 +141,25 @@ class SimpleIntegrationTest extends TestcontainersIntegrationSupport {
         System.out.println("✅ 예약 성공: " + reservationId);
 
         // [Then] 고객 예매 내역 조회 API 검증
-        String bookingsUrl = "http://localhost:" + port + "/api/system/customer/TEST-001/bookings";
-        ResponseEntity<java.util.List> bookingsResponse = restTemplate.getForEntity(bookingsUrl, java.util.List.class);
+        String bookingsUrl = "http://localhost:" + port + "/api/reservations/customer/TEST-001/complete?page=0&size=10";
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-EverySale-User-Id", "USER-TEST-001");
+        headers.set("X-EverySale-Customer-Id", "TEST-001");
+        headers.set("X-EverySale-Roles", "CUSTOMER");
+        ResponseEntity<CompleteReservationResponse[]> bookingsResponse = restTemplate.exchange(
+                bookingsUrl,
+                HttpMethod.GET,
+                new HttpEntity<>(headers),
+                CompleteReservationResponse[].class
+        );
         assertEquals(HttpStatus.OK, bookingsResponse.getStatusCode());
         assertNotNull(bookingsResponse.getBody());
-        assertFalse(bookingsResponse.getBody().isEmpty());
+        assertTrue(bookingsResponse.getBody().length > 0);
 
-        java.util.Map<String, Object> firstBooking = (java.util.Map<String, Object>) bookingsResponse.getBody().get(0);
-        assertEquals(reservationId, firstBooking.get("reservationId"));
-        assertEquals("PROD-001", firstBooking.get("productId"));
-        assertEquals("CONFIRMED", firstBooking.get("status"));
+        CompleteReservationResponse firstBooking = bookingsResponse.getBody()[0];
+        assertEquals(reservationId, firstBooking.getReservation().getReservationId());
+        assertEquals("PROD-001", firstBooking.getReservation().getProductId());
+        assertEquals("SUCCESS", firstBooking.getStatus());
         System.out.println("✅ 고객 예매 내역 조회 검증 완료: " + bookingsResponse.getBody());
     }
 

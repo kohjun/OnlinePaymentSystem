@@ -47,6 +47,9 @@ public class AuctionSettlement {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
+    @Column(name = "checkout_expires_at")
+    private LocalDateTime checkoutExpiresAt;
+
     @Column(name = "paid_at")
     private LocalDateTime paidAt;
 }
