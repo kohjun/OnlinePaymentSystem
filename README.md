@@ -122,8 +122,9 @@ TOSS_CLIENT_KEY=live_...
 TOSS_SECRET_KEY=live_...
 TOSS_WEBHOOK_PATH_TOKEN=at-least-32-random-characters
 CORS_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com
-PAYOUT_TRANSFER_PROVIDER=your-provider-bean-name
+PAYOUT_TRANSFER_PROVIDER=TOSS_PAYOUTS
 PAYOUT_TRANSFER_ADAPTER_ENABLED=true
+PAYOUT_TOSS_SECRET_KEY=live_...
 ```
 
 Use `.env.prod.example` as the deployment-variable inventory. Do not load it as credentials. After injecting real values from the deployment secret manager, run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-production-env.ps1`; the preflight validates required values without printing secrets.
@@ -431,7 +432,9 @@ Use Temporal UI to inspect workflow duration and activity retries. Use the `outb
 - `app.inventory.reconciliation.enabled=true` enables scheduled mismatch detection between Redis and Postgres.
 - `app.outbox.enabled=true` enables scheduled outbox publishing to Kafka.
 - Production enables Redis Pub/Sub broadcast for marketplace SSE so auction and raffle updates cross application instances.
-- Local payout transfer uses `LEDGER_ONLY` for workflow testing. Production readiness blocks until `PAYOUT_TRANSFER_PROVIDER` and a real external adapter are configured.
+- Local payout transfer uses `LEDGER_ONLY` for workflow testing, which only writes the ledger and never moves money. Set `PAYOUT_TRANSFER_PROVIDER=TOSS_PAYOUTS` with `PAYOUT_TRANSFER_ADAPTER_ENABLED=true` and `PAYOUT_TOSS_SECRET_KEY` to activate the real transfer adapter; the two gateway beans are mutually exclusive by property value. Production readiness blocks while the stub is still active.
+- The payout adapter classifies provider responses the same way the payment gateway does: `4xx` is a terminal `FAILED`, while `5xx`, `408`, `429`, and network timeouts are `UNKNOWN`. `UNKNOWN` never triggers a second transfer — the coordinator resolves it through a provider status lookup using the original idempotency key (`seller-payout:{payoutId}`). Misclassifying an indeterminate result as failed is what would send the money twice.
+- Payout transfers use a dedicated HTTP client with a longer read timeout than the shared one, because a timeout on a bank transfer means "result unknown" rather than "failed".
 - Production also requires the seller payout reconciliation worker. Stale `PROCESSING` or `UNKNOWN` transfers are resolved through provider status lookup with the original idempotency key; they are never submitted as a second transfer.
 - The first commercial deployment uses `SINGLE_TENANT` mode. `EVERYSALE_TENANT_ID` pins anonymous storefront traffic and authenticated JWT tenant claims to one marketplace; spoofed tenant headers are rejected. `MULTI_TENANT_RLS` remains blocked until database row-level security is explicitly implemented and enabled.
 - `app.kafka.listeners.payment-events.enabled=false` keeps the sample payment-event listener disabled by default.

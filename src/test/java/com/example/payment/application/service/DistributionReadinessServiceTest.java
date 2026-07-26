@@ -199,6 +199,56 @@ class DistributionReadinessServiceTest {
         assertTrue(check.message().contains("gateway bean"));
     }
 
+    @Test
+    void payoutReadinessPassesWhenRealAdapterNameMatchesConfiguredProvider() {
+        CacheService cacheService = mock(CacheService.class);
+        when(cacheService.isRedisConnected()).thenReturn(true);
+
+        SellerPayoutTransferGateway realAdapter = mock(SellerPayoutTransferGateway.class);
+        when(realAdapter.providerName()).thenReturn("TOSS_PAYOUTS");
+        ObjectProvider<SellerPayoutTransferGateway> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(realAdapter);
+
+        MockEnvironment environment = baseEnvironment()
+                .withProperty("app.distribution.mode", "PRODUCTION")
+                .withProperty("app.payout.transfer.provider", "TOSS_PAYOUTS")
+                .withProperty("app.payout.transfer.external-adapter-enabled", "true");
+
+        DistributionReadinessService.ReadinessCheck check =
+                new DistributionReadinessService(cacheService, environment, provider).evaluate().checks().stream()
+                        .filter(candidate -> "seller-payout-transfer-provider".equals(candidate.id()))
+                        .findFirst()
+                        .orElseThrow();
+
+        assertEquals("PASS", check.status());
+        assertFalse(check.blocking());
+    }
+
+    @Test
+    void payoutReadinessBlocksWhileLedgerOnlyStubIsStillActive() {
+        CacheService cacheService = mock(CacheService.class);
+        when(cacheService.isRedisConnected()).thenReturn(true);
+
+        SellerPayoutTransferGateway stub = mock(SellerPayoutTransferGateway.class);
+        when(stub.providerName()).thenReturn("LEDGER_ONLY");
+        ObjectProvider<SellerPayoutTransferGateway> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(stub);
+
+        MockEnvironment environment = baseEnvironment()
+                .withProperty("app.distribution.mode", "PRODUCTION")
+                .withProperty("app.payout.transfer.provider", "LEDGER_ONLY")
+                .withProperty("app.payout.transfer.external-adapter-enabled", "true");
+
+        DistributionReadinessService.ReadinessCheck check =
+                new DistributionReadinessService(cacheService, environment, provider).evaluate().checks().stream()
+                        .filter(candidate -> "seller-payout-transfer-provider".equals(candidate.id()))
+                        .findFirst()
+                        .orElseThrow();
+
+        assertEquals("FAIL", check.status());
+        assertTrue(check.blocking());
+    }
+
     private MockEnvironment baseEnvironment() {
         return new MockEnvironment()
                 .withProperty("app.distribution.brand-name", "EverySale")

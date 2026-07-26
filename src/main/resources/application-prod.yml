@@ -58,6 +58,14 @@ app:
     transfer:
       provider: ${PAYOUT_TRANSFER_PROVIDER:}
       external-adapter-enabled: ${PAYOUT_TRANSFER_ADAPTER_ENABLED:false}
+      toss:
+        # 수납용 TOSS_SECRET_KEY와 분리한다. 지급대행은 돈이 나가는
+        # 방향이라 권한과 회전 주기를 따로 관리해야 한다.
+        secret-key: ${PAYOUT_TOSS_SECRET_KEY:}
+        base-url: ${PAYOUT_TOSS_BASE_URL:https://api.tosspayments.com}
+        mode: ${PAYOUT_TOSS_MODE:live}
+        connect-timeout-ms: ${PAYOUT_TOSS_CONNECT_TIMEOUT_MS:5000}
+        read-timeout-ms: ${PAYOUT_TOSS_READ_TIMEOUT_MS:30000}
       reconciliation:
         enabled: true
         stale-seconds: ${PAYOUT_TRANSFER_STALE_SECONDS:300}

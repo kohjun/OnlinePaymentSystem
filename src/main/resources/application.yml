@@ -133,8 +133,16 @@ app:
       stream-timeout-ms: 1800000
   payout:
     transfer:
+      # 로컬은 원장만 기록한다. 실제 송금은 TOSS_PAYOUTS로 바꾸고
+      # external-adapter-enabled를 켜야 준비도 검사가 통과한다.
       provider: LEDGER_ONLY
       external-adapter-enabled: false
+      toss:
+        secret-key: ${PAYOUT_TOSS_SECRET_KEY:}
+        base-url: ${PAYOUT_TOSS_BASE_URL:https://api.tosspayments.com}
+        mode: ${PAYOUT_TOSS_MODE:test}
+        connect-timeout-ms: 5000
+        read-timeout-ms: 30000
       reconciliation:
         enabled: false
         stale-seconds: 300

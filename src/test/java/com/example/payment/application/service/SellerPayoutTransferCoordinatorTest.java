@@ -9,6 +9,7 @@ import com.example.payment.domain.repository.SellerPayoutAccountRepository;
 import com.example.payment.domain.repository.SellerPayoutRepository;
 import com.example.payment.domain.repository.SellerPayoutTransferRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.Pageable;
@@ -156,6 +157,75 @@ class SellerPayoutTransferCoordinatorTest {
         IllegalStateException error = assertThrows(IllegalStateException.class, () -> coordinator.transfer(payout()));
 
         assertEquals("Payout transfer did not succeed: UNKNOWN", error.getMessage());
+    }
+
+    @Test
+    @DisplayName("게이트웨이 빈이 없으면 송금을 시도하지 않는다")
+    void missingGatewayIsRejectedBeforeAnyTransfer() {
+        when(gatewayProvider.getIfAvailable()).thenReturn(null);
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> coordinator.transfer(payout()));
+
+        assertEquals("Seller payout transfer gateway is not configured.", error.getMessage());
+        verify(transferRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("검증되지 않은 정산 계좌로는 송금하지 않는다")
+    void unverifiedAccountIsRejected() {
+        when(gatewayProvider.getIfAvailable()).thenReturn(gateway);
+        when(accountRepository.findBySellerId("SELLER-1")).thenReturn(Optional.of(SellerPayoutAccount.builder()
+                .payoutAccountId("PACCT-1")
+                .sellerId("SELLER-1")
+                .accountRef("vault://account/1")
+                .status(SellerPayoutAccountStatus.PENDING_REVIEW)
+                .build()));
+
+        assertThrows(IllegalArgumentException.class, () -> coordinator.transfer(payout()));
+
+        verify(gateway, never()).transfer(any());
+    }
+
+    @Test
+    @DisplayName("설정된 제공자와 기존 송금의 제공자가 다르면 진행하지 않는다")
+    void providerMismatchIsRejected() {
+        stubVerifiedAccount();
+        when(gatewayProvider.getIfAvailable()).thenReturn(gateway);
+        when(gateway.providerName()).thenReturn("OTHER_BANK");
+        when(transferRepository.findByPayoutIdAndIdempotencyKey("PAYOUT-1", "seller-payout:PAYOUT-1"))
+                .thenReturn(Optional.of(transfer(PayoutTransferStatus.PROCESSING)));
+
+        assertThrows(IllegalStateException.class, () -> coordinator.transfer(payout()));
+
+        verify(gateway, never()).transfer(any());
+        verify(gateway, never()).getStatus(any(), any());
+    }
+
+    @Test
+    @DisplayName("게이트웨이가 null 결과를 주면 UNKNOWN으로 닫는다")
+    void nullResultIsTreatedAsUnknown() {
+        stubVerifiedAccount();
+        when(gatewayProvider.getIfAvailable()).thenReturn(gateway);
+        when(transferRepository.findByPayoutIdAndIdempotencyKey("PAYOUT-1", "seller-payout:PAYOUT-1"))
+                .thenReturn(Optional.empty());
+        when(transferRepository.save(any(SellerPayoutTransfer.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(gateway.transfer(any())).thenReturn(null);
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> coordinator.transfer(payout()));
+
+        assertEquals("Payout transfer did not succeed: UNKNOWN", error.getMessage());
+    }
+
+    @Test
+    @DisplayName("재조정 파라미터가 유효하지 않으면 배치를 돌리지 않는다")
+    void reconciliationRejectsInvalidArguments() {
+        assertThrows(IllegalArgumentException.class,
+                () -> coordinator.reconcileStaleTransfers(Duration.ZERO, 50));
+        assertThrows(IllegalArgumentException.class,
+                () -> coordinator.reconcileStaleTransfers(Duration.ofMinutes(5), 0));
     }
 
     private void stubVerifiedAccount() {
