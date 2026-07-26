@@ -35,13 +35,17 @@ public class ResourceReservationService {
             List<String> keys = Collections.singletonList(resourceKey);
             long ttlSeconds = (ttl != null) ? ttl.getSeconds() : 0;
 
+            // Pass the timestamp as a number, not a String. Script arguments are
+            // serialized with the template's JSON value serializer, which wraps a
+            // String in quotes; the script then reads "1753..." and tonumber()
+            // returns nil, failing the expiry arithmetic in reserve_resource.lua.
             Object rawResult = redisTemplate.execute(
                     reserveScript,
                     keys,
                     quantity,
                     reservationId,
                     ttlSeconds,
-                    String.valueOf(System.currentTimeMillis())
+                    System.currentTimeMillis()
             );
 
             Map<String, Object> result = readScriptResult(rawResult);
