@@ -102,6 +102,14 @@ Services:
 - Temporal gRPC: `localhost:7233`
 - Temporal UI: `http://localhost:8088`
 
+Create your local `.env`. It is deliberately not tracked, so a fresh clone does not have one:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Fill in your own Toss **test** keys (`test_ck_...` / `test_sk_...`) from the Toss Payments dashboard. The application starts without `.env` — the run script warns and falls back to the current process environment — but checkout will not work until the keys are present.
+
 Start the application:
 
 ```powershell
@@ -109,6 +117,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-local.ps1 
 ```
 
 The script resolves JDK 17, loads `.env` values without printing them, verifies required Docker services, and runs Spring Boot in the foreground. If infrastructure is already running, omit `-StartInfrastructure`.
+
+The React marketplace is already built into `src/main/resources/static/app`, so `http://localhost:8080/app/` works on a fresh clone without installing the Node toolchain. Install it only if you intend to change the frontend.
 
 ## Frontend Development
 
