@@ -26,6 +26,31 @@ Reserve inventory in Redis
 
 `/api/reservations/complete` remains an internal Saga test hook and is disabled by default with `app.checkout.public-complete-enabled=false`. The former public payment process/retry/refund, non-Toss marketplace checkout, simulation, and demo-auth APIs have been removed. The local mock-auth filter is development-only and is disabled by the `prod` profile.
 
+## Implementation Scope
+
+The backend exposes more than the web client drives. That gap is deliberate, not an oversight — the API surface was built out first, and the React client covers the paths a reviewer needs to walk end to end. This table states where the line currently sits.
+
+| Area | Backend | Web client | Notes |
+| --- | --- | --- | --- |
+| Fixed-price / drop checkout | Yes | Yes | Toss intent → payment window → confirm |
+| Raffle entry, draw result, winner checkout | Yes | Yes | Draw itself is admin-only |
+| Auction bidding, live status, winner checkout | Yes | Yes | SSE stream with polling fallback |
+| Seat-based ticketing with standby queue | Yes | Yes | One held seat per customer |
+| Seller listing, review submission, sale events | Yes | Yes | |
+| Seller order fulfillment and payout ledger | Yes | Yes | |
+| Buyer order confirmation, dispute filing | Yes | Yes | |
+| Seller reviews (write and read) | Yes | Yes | Ratings render on the item detail page |
+| Listing reports (submit) | Yes | Yes | |
+| Admin operations console and audit trail | Yes | Yes | Server declares the allowed actions |
+| Shipping addresses | Yes | Yes | |
+| Seller payout account submission | Yes | Yes | |
+| Dispute resolution (operator side) | Yes | No | Reachable through the admin operations queue |
+| Report and review moderation | Yes | Partial | Surfaces in the admin queue, no dedicated screen |
+| Reservation and order lookup APIs | Yes | No | Operational and test surface, not a buyer screen |
+| Queue clear, raffle draw, auction close | Yes | Partial | Admin-only actions, driven from the operations queue |
+
+Endpoints outside this table are health, readiness, webhook, and internal Saga hooks that have no user-facing screen by design.
+
 ## Stack
 
 - Java 17 or newer

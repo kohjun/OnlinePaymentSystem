@@ -372,3 +372,13 @@ export interface ShippingAddress {
   deliveryMemo?: string;
   defaultAddress: boolean;
 }
+
+export interface SellerReview {
+  reviewId: string;
+  marketplaceOrderId: string;
+  reviewerCustomerId: string;
+  targetSellerId: string;
+  rating: number;
+  comment?: string;
+  createdAt?: string;
+}

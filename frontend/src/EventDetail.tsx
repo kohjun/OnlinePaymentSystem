@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, CheckCircle2, Flag, Gavel, Loader2, LockKeyhole, Radio, ShieldCheck, Ticket, Users } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Flag, Gavel, Loader2, LockKeyhole, Radio, ShieldCheck, Star, Ticket, Users } from 'lucide-react';
 import { ApiError, api, openTossPayment } from './api';
 import { formatMoney } from './EventCard';
 import { TicketPanel } from './TicketPanel';
-import type { AuctionStatus, Identity, MarketplaceEvent, RaffleStatus } from './types';
+import type { AuctionStatus, Identity, MarketplaceEvent, RaffleStatus, SellerReview } from './types';
 
 interface Props {
   event: MarketplaceEvent;
@@ -22,6 +22,17 @@ export function EventDetail({ event, identity, onClose, notify }: Props) {
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState('MISLEADING');
   const [reportDetails, setReportDetails] = useState('');
+  const [reviews, setReviews] = useState<SellerReview[]>();
+
+  useEffect(() => {
+    let cancelled = false;
+    // 판매자 평판은 구매 판단의 근거이므로 실패해도 상세 화면 전체를
+    // 막지 않는다. 조회에 실패하면 빈 목록으로 두고 안내만 바꾼다.
+    api.listSellerReviews(event.sellerId)
+      .then(loaded => { if (!cancelled) setReviews(loaded); })
+      .catch(() => { if (!cancelled) setReviews([]); });
+    return () => { cancelled = true; };
+  }, [event.sellerId]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setTick(value => value + 1), 1000);
@@ -145,6 +156,8 @@ export function EventDetail({ event, identity, onClose, notify }: Props) {
             <span><CheckCircle2 />{event.sellerVerificationStatus === 'VERIFIED' ? '본인 확인 완료' : '판매자 확인 중'}</span>
           </div>
 
+          <SellerReviewPanel sellerName={event.sellerName} reviews={reviews} />
+
           {(event.saleType === 'FIXED_PRICE' || event.saleType === 'DROP') && !isTicketEvent && (
             <div className="action-panel">
               <div className="stock-line"><span>구매 가능 수량</span><strong>{event.availableQuantity.toLocaleString('ko-KR')}개</strong></div>
@@ -217,6 +230,51 @@ function RafflePanel({ status, busy, enter, checkout }: { status?: RaffleStatus;
     {status.drawn && !status.winner && <div className="result-notice">이번 추첨에는 선정되지 않았습니다.</div>}
     {status.drawSeedCommitment && <details className="audit-detail"><summary>추첨 검증 정보</summary><code>{status.drawSeedCommitment}</code><code>{status.entrySnapshotHash}</code></details>}
   </div>;
+}
+
+/**
+ * 판매자 평판 표시.
+ *
+ * 구매자는 주문 후 판매자를 평가할 수 있었지만 그 평가를 읽을 화면이
+ * 없었다. C2C에서 평판은 구매 판단의 근거이므로 상세 화면에서 바로
+ * 보이게 한다. 검수를 통과한 리뷰만 서버가 내려준다.
+ */
+function SellerReviewPanel({ sellerName, reviews }: { sellerName: string; reviews?: SellerReview[] }) {
+  if (!reviews) {
+    return <div className="seller-reviews loading-line"><Loader2 className="spin" />판매자 평가 확인 중</div>;
+  }
+
+  if (reviews.length === 0) {
+    return (
+      <section className="seller-reviews" aria-labelledby="seller-reviews-title">
+        <h2 id="seller-reviews-title">판매자 평가</h2>
+        <p className="seller-reviews__empty">아직 등록된 구매자 평가가 없습니다.</p>
+      </section>
+    );
+  }
+
+  const average = reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length;
+
+  return (
+    <section className="seller-reviews" aria-labelledby="seller-reviews-title">
+      <h2 id="seller-reviews-title">판매자 평가</h2>
+      <p className="seller-reviews__summary">
+        <Star size={14} aria-hidden="true" />
+        <strong>{average.toFixed(1)}</strong>
+        <span>{sellerName} · 구매자 평가 {reviews.length.toLocaleString('ko-KR')}건</span>
+      </p>
+      <ul className="seller-reviews__list">
+        {reviews.slice(0, 5).map(review => (
+          <li key={review.reviewId}>
+            <span className="seller-reviews__rating" aria-label={`별점 ${review.rating}점`}>
+              {'★'.repeat(review.rating)}{'☆'.repeat(Math.max(0, 5 - review.rating))}
+            </span>
+            {review.comment && <p>{review.comment}</p>}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 function connectStream(url: string, names: string[], receive: (payload: any) => void,

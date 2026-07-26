@@ -19,6 +19,7 @@ import type {
   SellerPayout,
   SellerPayoutAccount,
   SellerPayoutAccountInput,
+  SellerReview,
   TicketSeatHold,
   TicketSeatMap,
   TossIntent
@@ -183,6 +184,8 @@ export const api = {
   reviewSeller: (orderId: string, rating: number, comment: string) => request(`/api/c2c/orders/${encodeURIComponent(orderId)}/seller-review`, {
     method: 'POST', body: JSON.stringify({ rating, comment })
   }),
+  listSellerReviews: (sellerId: string) =>
+    request<SellerReview[]>(`/api/c2c/sellers/${encodeURIComponent(sellerId)}/reviews`),
   reportListing: (listingId: string, reason: string, details: string) => request('/api/c2c/reports', {
     method: 'POST', body: JSON.stringify({ targetType: 'LISTING', targetId: listingId, reason, details })
   }),
