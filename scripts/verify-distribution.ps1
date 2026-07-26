@@ -43,12 +43,14 @@ function Invoke-Native {
 }
 
 function Clear-GradleProblemsReport {
-    $problemReport = Join-Path $repoRoot "build_sim\reports\problems\problems-report.html"
-    if (Test-Path $problemReport) {
-        try {
-            Remove-Item -LiteralPath $problemReport -Force
-        } catch {
-            Write-Warning "Could not remove existing Gradle problems report; continuing with --no-problems-report."
+    foreach ($buildDirectory in @("build_sim", "build_sim_new")) {
+        $problemReport = Join-Path $repoRoot "$buildDirectory\reports\problems\problems-report.html"
+        if (Test-Path $problemReport) {
+            try {
+                Remove-Item -LiteralPath $problemReport -Force
+            } catch {
+                Write-Warning "Could not remove existing Gradle problems report; continuing with --no-problems-report."
+            }
         }
     }
 }
@@ -78,6 +80,49 @@ function Enable-Java {
     & $javaCommand.Source -version
 }
 
+# rg recurses into directories; Select-String does not. Callers pass directory
+# paths, so expand them before falling back or the scan silently matches nothing.
+function Resolve-ScanPaths {
+    param(
+        [Parameter(Mandatory = $true)] [string[]] $Paths
+    )
+
+    $resolved = @()
+    foreach ($path in $Paths) {
+        if (Test-Path -LiteralPath $path -PathType Container) {
+            $resolved += Get-ChildItem -LiteralPath $path -Recurse -File |
+                Select-Object -ExpandProperty FullName
+        } else {
+            $resolved += $path
+        }
+    }
+    return $resolved
+}
+
+# Reads UTF-8 explicitly instead of using Select-String -Encoding UTF8. Under
+# Windows PowerShell 5.1 that switch still decodes these files wrongly and
+# reports a replacement character on every non-ASCII line -- 164 false hits on
+# desktop-app\splash.html alone, which is valid UTF-8 with no U+FFFD in it.
+function Find-LiteralInFiles {
+    param(
+        [Parameter(Mandatory = $true)] [string] $Text,
+        [Parameter(Mandatory = $true)] [string[]] $Paths
+    )
+
+    $utf8 = New-Object System.Text.UTF8Encoding($false, $false)
+    $found = @()
+    foreach ($path in (Resolve-ScanPaths $Paths)) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            continue
+        }
+        $content = [System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $path).ProviderPath, $utf8)
+        if ($content.Contains($Text)) {
+            $found += $path
+        }
+    }
+    return $found
+}
+
 function Assert-NoLiteralMatch {
     param(
         [Parameter(Mandatory = $true)] [string] $Text,
@@ -97,9 +142,9 @@ function Assert-NoLiteralMatch {
         return
     }
 
-    $matches = Select-String -Path $Paths -Pattern $Text -SimpleMatch -Encoding UTF8 -ErrorAction SilentlyContinue
-    if ($matches) {
-        $matches | ForEach-Object { Write-Host $_ }
+    $hits = Find-LiteralInFiles -Text $Text -Paths $Paths
+    if ($hits) {
+        $hits | ForEach-Object { Write-Host $_ }
         throw "Unexpected match found: $Description"
     }
 }
@@ -120,8 +165,8 @@ function Assert-LiteralMatch {
         return
     }
 
-    $matches = Select-String -Path $Paths -Pattern $Text -SimpleMatch -Encoding UTF8 -ErrorAction SilentlyContinue
-    if (-not $matches) {
+    $hits = Find-LiteralInFiles -Text $Text -Paths $Paths
+    if (-not $hits) {
         throw "Expected match was not found: $Description"
     }
 }
@@ -154,46 +199,23 @@ Invoke-Step "React marketplace quality gate" {
     }
 }
 
+# The whole unit suite, not a hand-picked list. The previous 20 --tests filters
+# silently omitted 19 existing test classes and still referenced a test that had
+# been deleted. build.gradle already excludes the integration and toss-sandbox
+# tags, so a bare `test` needs no Docker and no credentials.
 if (-not $SkipTests) {
-    Invoke-Step "Focused quality tests" {
+    Invoke-Step "Unit test suite" {
         Clear-GradleProblemsReport
-        Invoke-Native $gradle @(
-            "test",
-            "--tests", "*DistributionReadinessServiceTest",
-            "--tests", "*AuctionServiceTest",
-            "--tests", "*MarketplaceQueryServiceTest",
-            "--tests", "*MarketplaceCheckoutServiceTest",
-            "--tests", "*MarketplaceOrderServiceTest",
-            "--tests", "*RaffleServiceTest",
-            "--tests", "*SellerMarketplaceServiceTest",
-            "--tests", "*SellerPayoutServiceTest",
-            "--tests", "*PaymentProcessingServiceTest",
-            "--tests", "*CompleteReservationWorkflowTest",
-            "--tests", "*OutboxPublisherTest",
-            "--tests", "*InventoryReconciliationJobTest",
-            "--tests", "*MarketplaceRealtimeServiceTest",
-            "--tests", "*RedisMarketplaceRealtimeBridgeTest",
-            "--tests", "*StandbyQueueServiceTest",
-            "--tests", "*TicketingServiceTest",
-            "--tests", "*TossPaymentIntentServiceTest",
-            "--tests", "*SellerPayoutTransferCoordinatorTest",
-            "--tests", "*ApiExceptionHandlerTest",
-            "--tests", "*MarketplaceFrontendControllerTest",
-            "--no-daemon",
-            "--no-problems-report"
-        )
+        Invoke-Native $gradle @("test", "--no-daemon", "--no-problems-report")
     }
 }
 
-$sourcePaths = @(
-    "frontend\index.html",
-    "frontend\src\App.tsx",
-    "frontend\src\AdminOperations.tsx",
-    "frontend\src\EventCard.tsx",
-    "frontend\src\EventDetail.tsx",
-    "frontend\src\SellerCenter.tsx",
-    "frontend\src\SellerOperations.tsx",
-    "frontend\src\TicketPanel.tsx",
+# Enumerated rather than hardcoded: a hand-written list lets every new page
+# component escape the branding and mojibake scans without anyone noticing.
+$sourcePaths = @("frontend\index.html")
+$sourcePaths += Get-ChildItem -LiteralPath "frontend\src" -Recurse -File -Include *.tsx, *.ts |
+    Select-Object -ExpandProperty FullName
+$sourcePaths += @(
     "desktop-app\main.js",
     "desktop-app\package.json",
     "desktop-app\package-lock.json",
@@ -255,7 +277,10 @@ Invoke-Step "Frontend checkout flow scan" {
     Assert-NoLiteralMatch "/api/simulation/products" $frontendPaths "marketplace UI simulation product lookup"
     Assert-LiteralMatch "/api/payments/toss/intents" $frontendPaths "Toss payment intent endpoint"
     Assert-LiteralMatch "/api/payments/toss/confirm" $frontendPaths "Toss payment confirm endpoint"
-    Assert-NoLiteralMatch "MOCK 결제" $frontendPaths "user-visible mock payment window"
+    # Built from code points like every other Korean literal here. This file has
+    # no BOM, so Windows PowerShell 5.1 reads a raw literal in the ANSI codepage
+    # and the negative assertion would search for a string that cannot occur.
+    Assert-NoLiteralMatch ("MOCK " + (New-TextFromCodePoints @(0xACB0, 0xC81C))) $frontendPaths "user-visible mock payment window"
     Assert-LiteralMatch "/auction/stream" $frontendPaths "auction SSE endpoint"
     Assert-LiteralMatch "/raffle/stream" $frontendPaths "raffle SSE endpoint"
 }

@@ -326,22 +326,27 @@ Fast compile check:
 .\gradlew.bat compileJava compileTestJava --no-daemon
 ```
 
-Focused unit tests:
+Unit test suite (excludes Docker-backed and Toss-sandbox tests by tag):
 
 ```powershell
-.\gradlew.bat test `
-  --tests "*PaymentProcessingServiceTest" `
-  --tests "*CompleteReservationWorkflowTest" `
-  --tests "*MarketplaceOrderServiceTest" `
-  --tests "*MarketplaceCheckoutServiceTest" `
-  --tests "*RaffleServiceTest" `
-  --tests "*AuctionServiceTest" `
-  --tests "*OutboxPublisherTest" `
-  --tests "*InventoryReconciliationJobTest" `
-  --no-daemon
+.\gradlew.bat test --no-daemon
 ```
 
-The integration suite uses Testcontainers PostgreSQL 16 and Redis. It verifies Flyway migrations, reservation compensation, 50 concurrent auction bids, 30 duplicate raffle entries, 100 distinct raffle entries, and 100 concurrent queue joins.
+Docker-backed integration suite:
+
+```powershell
+.\gradlew.bat integrationTest --no-daemon
+```
+
+Coverage report, merging unit and integration execution data:
+
+```powershell
+.\gradlew.bat test integrationTest jacocoTestReport --no-daemon
+```
+
+The report is written to `build_sim_new/reports/jacoco/test/html/index.html`.
+
+The integration suite uses Testcontainers PostgreSQL 16 and Redis. It verifies Flyway migrations, reservation compensation, 50 concurrent auction bids, 30 duplicate raffle entries, 100 distinct raffle entries, and 100 concurrent queue joins. Both suites run in CI: the unit suite and the integration suite execute on an `ubuntu-latest` job, because Testcontainers requires Linux containers that the Windows distribution job cannot start.
 
 ## Distribution Quality Gate
 

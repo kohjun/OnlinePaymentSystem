@@ -1,4 +1,4 @@
-name: EverySale Distribution Quality Gate
+name: EverySale Quality Gate
 
 on:
   pull_request:
@@ -6,9 +6,18 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  distribution-quality:
-    runs-on: windows-latest
+  # Linux runner, because Testcontainers needs Linux containers. The Windows
+  # runner below cannot start postgres:16-alpine or redis:7-alpine at all,
+  # which is why the compensation and concurrency suites never ran in CI.
+  jvm-tests:
+    name: JVM tests (unit + Testcontainers)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -19,18 +28,91 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle
+
+      - name: Unit tests
+        run: ./gradlew test --no-daemon --no-problems-report
+
+      - name: Integration tests (PostgreSQL 16 + Redis 7 via Testcontainers)
+        run: ./gradlew integrationTest --no-daemon --no-problems-report
+
+      - name: Coverage report
+        if: always()
+        run: ./gradlew jacocoTestReport --no-daemon --no-problems-report
+
+      - name: Publish test summary
+        if: always()
+        uses: mikepenz/action-junit-report@v5
+        with:
+          report_paths: build_sim_new/test-results/**/*.xml
+          detailed_summary: true
+          fail_on_failure: false
+
+      - name: Upload test and coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jvm-reports
+          # Build output is redirected to build_sim_new in build.gradle.
+          path: |
+            build_sim_new/reports/tests/**
+            build_sim_new/reports/jacoco/**
+            build_sim_new/test-results/**
+          retention-days: 14
+          if-no-files-found: warn
+
+  windows-distribution:
+    name: Windows distribution and branding gate
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
-          cache-dependency-path: desktop-app/package-lock.json
+          cache-dependency-path: |
+            desktop-app/package-lock.json
+            frontend/package-lock.json
+
+      # The branding and encoding scans prefer ripgrep. Without it they fall
+      # back to Select-String, which does not recurse into directories and
+      # would pass silently.
+      - name: Install ripgrep
+        run: choco install ripgrep -y --no-progress
 
       - name: Install desktop dependencies
         working-directory: desktop-app
         run: npm ci
 
-      - name: Run distribution quality gate
+      # -SkipTests because the ubuntu job above already runs the full suite.
+      # Electron packaging only on main; it is the slowest step and packaging
+      # regressions are a release concern, not a per-PR one.
+      - name: Distribution gate (pull request)
+        if: github.event_name == 'pull_request'
         shell: pwsh
-        run: .\scripts\verify-distribution.ps1
+        run: .\scripts\verify-distribution.ps1 -SkipTests -SkipDesktopPackage
+
+      - name: Distribution gate (main, with Electron packaging)
+        if: github.event_name == 'push'
+        shell: pwsh
+        run: .\scripts\verify-distribution.ps1 -SkipTests
+
+      - name: Upload gate reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-gate-reports
+          path: build_sim_new/reports/**
+          if-no-files-found: ignore

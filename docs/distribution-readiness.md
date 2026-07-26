@@ -130,7 +130,7 @@ X-Correlation-Id: request-or-trace-id
 - Confirm Temporal workflow status via `GET /api/reservations/workflows/{workflowId}`.
 - Confirm order, payment, reservation, refund, and outbox rows are written to Postgres.
 - Confirm sensitive admin actions write rows to `security_audit_events`.
-- Confirm raffle draw, auction close, queue clear, simulation reset, reconciliation, and refund APIs require admin role.
+- Confirm raffle draw, auction close, queue clear, reconciliation, and refund APIs require admin role.
 - Confirm a non-owner customer cannot read another customer's order, payment, reservation, workflow, Toss intent, seat, or queue state.
 - Confirm outbox events progress through `PENDING`, `IN_PROGRESS`, and `PUBLISHED`, or retry to `FAILED` after max attempts.
 

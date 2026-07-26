@@ -1,5 +1,6 @@
 plugins {
     id 'java'
+    id 'jacoco'
     id 'org.springframework.boot' version '3.2.3'
     id 'io.spring.dependency-management' version '1.1.4'
 }
@@ -81,6 +82,16 @@ dependencies {
     testImplementation 'org.testcontainers:kafka:1.20.4'
 }
 
+tasks.withType(Test).configureEach {
+    testLogging {
+        events "passed", "skipped", "failed"
+        exceptionFormat "full"
+        showExceptions = true
+        showCauses = true
+        showStackTraces = true
+    }
+}
+
 tasks.named('test') {
     useJUnitPlatform {
         excludeTags 'integration', 'toss-sandbox'
@@ -104,6 +115,29 @@ tasks.register('tossSandboxTest', Test) {
         System.getenv('TOSS_CLIENT_KEY') && System.getenv('TOSS_SECRET_KEY')
     }
     shouldRunAfter test
+}
+
+jacoco {
+    toolVersion = '0.8.12'
+}
+
+// Merges test.exec and integrationTest.exec so the compensation and concurrency
+// scenarios count toward coverage, not just the mocked unit tests.
+tasks.named('jacocoTestReport', JacocoReport) {
+    dependsOn tasks.named('test')
+    executionData.setFrom(fileTree(layout.buildDirectory).include('jacoco/*.exec'))
+    reports {
+        xml.required = true
+        html.required = true
+        csv.required = false
+    }
+    classDirectories.setFrom(
+            files(sourceSets.main.output.classesDirs).asFileTree.matching {
+                exclude 'com/example/payment/PaymentApplication*'
+                exclude 'com/example/payment/presentation/dto/**'
+                exclude 'com/example/payment/domain/model/**/*Status*'
+            }
+    )
 }
 
 layout.buildDirectory.set(file('build_sim_new'))
