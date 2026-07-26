@@ -472,7 +472,25 @@ management.tracing.sampling.probability
 management.otlp.tracing.endpoint OTLP_TRACES_ENDPOINT    http://localhost:4318/v1/traces
 ```
 
-`docker compose up -d` starts Jaeger; open `http://localhost:16686` and pick the `payment` service. Spans currently cover inbound HTTP, the security filter chain, scheduled jobs, outbound HTTP through both `RestTemplate` beans, and Kafka publish/consume.
+`docker compose up -d` starts Jaeger; open `http://localhost:16686` and pick the `payment` service. Spans cover inbound HTTP, the security filter chain, scheduled jobs, outbound HTTP through both `RestTemplate` beans, Kafka publish/consume, and the Temporal Saga down to each activity.
+
+A failed checkout looks like this in the trace view, compensation included:
+
+```text
+http post /api/reservations/complete
+  secured request
+    StartWorkflow:CompleteReservationWorkflow
+      RunWorkflow:CompleteReservationWorkflow
+        ReserveInventory
+        CreateOrder
+        ProcessPayment          <- fails here
+        VerifyPaymentStatus
+        CancelOrder             <- compensation
+        CancelReservation       <- compensation
+        BuildFailureResponse
+```
+
+Temporal exposes its instrumentation through the OpenTracing API, so `OpenTracingShim` bridges it to OpenTelemetry. Interceptors are registered on **both** the client and the worker: the span context travels in Temporal headers when the workflow starts, so instrumenting only one side leaves the workflow as an orphan trace.
 
 Both `RestTemplate` beans are built through `RestTemplateBuilder`. Constructing one with `new RestTemplate(...)` skips Spring Boot's observation wiring, which would silently drop the outbound Toss and payout calls from every trace — exactly the hops where external latency turns into user-visible wait.
 
@@ -480,7 +498,9 @@ Log lines carry `[trace:{traceId}/{spanId}]` alongside the correlation id, so a 
 
 Production samples 10% by default. Tracing every payment makes the collector and the application pay for data nobody reads; raise `TRACING_SAMPLE_RATE` when investigating a specific incident.
 
-Not yet instrumented: Temporal workflow and activity spans. A Saga currently appears as the span that starts it, and the workflow steps are not linked. Adding `io.temporal:temporal-opentracing` interceptors is the next step there.
+Not yet instrumented: Redis command spans. Inventory Lua scripts appear inside the enclosing activity rather than as their own spans, which is usually enough because the activity boundary already isolates them.
+
+`TemporalTracingConfig` deliberately avoids `@ConditionalOnBean`. A user `@Configuration` is evaluated before auto-configuration registers the `OpenTelemetry` bean, so the condition would always be false, the configuration would drop out silently, and the application would start clean with only the workflow spans missing.
 
 ## Operational Notes
 

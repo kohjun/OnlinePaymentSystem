@@ -67,6 +67,10 @@ dependencies {
 
     // Temporal workflow orchestration
     implementation 'io.temporal:temporal-spring-boot-starter:1.35.0'
+    // Saga 워크플로와 액티비티를 호출자 추적에 잇는다. Temporal SDK는
+    // OpenTracing API로 계측을 노출하므로 OTel과 잇는 shim이 함께 필요하다.
+    implementation 'io.temporal:temporal-opentracing:1.35.0'
+    implementation 'io.opentelemetry:opentelemetry-opentracing-shim:1.31.0'
 
     // H2 Database (테스트용 인메모리 DB)
     runtimeOnly 'com.h2database:h2'
