@@ -131,13 +131,41 @@ tasks.named('jacocoTestReport', JacocoReport) {
         html.required = true
         csv.required = false
     }
-    classDirectories.setFrom(
-            files(sourceSets.main.output.classesDirs).asFileTree.matching {
-                exclude 'com/example/payment/PaymentApplication*'
-                exclude 'com/example/payment/presentation/dto/**'
-                exclude 'com/example/payment/domain/model/**/*Status*'
+    classDirectories.setFrom(jacocoCoveredClasses())
+}
+
+// 래칫. 실측치(명령어 57%, 분기 44%)보다 낮게 잡아 일상적인 변경이 CI를
+// 빨갛게 만들지 않게 하되, 커버리지가 눈에 띄게 내려가면 잡히도록 한다.
+// 추측으로 높게 걸어 자기 저장소를 상시 빨간 상태로 두는 것이 더 나쁘다.
+// 수치가 오르면 이 값도 함께 올린다.
+tasks.named('jacocoTestCoverageVerification', JacocoCoverageVerification) {
+    executionData.setFrom(fileTree(layout.buildDirectory).include('jacoco/*.exec'))
+    classDirectories.setFrom(jacocoCoveredClasses())
+    violationRules {
+        rule {
+            limit {
+                counter = 'INSTRUCTION'
+                minimum = 0.52
             }
-    )
+            limit {
+                counter = 'BRANCH'
+                minimum = 0.40
+            }
+        }
+    }
+}
+
+/**
+ * 커버리지 대상 클래스. 생성 코드와 값 객체는 빼고 실제 로직만 센다.
+ * lombok.config의 addLombokGeneratedAnnotation이 Lombok 생성 멤버를
+ * 따로 제외해준다.
+ */
+def jacocoCoveredClasses() {
+    return files(sourceSets.main.output.classesDirs).asFileTree.matching {
+        exclude 'com/example/payment/PaymentApplication*'
+        exclude 'com/example/payment/presentation/dto/**'
+        exclude 'com/example/payment/domain/model/**/*Status*'
+    }
 }
 
 layout.buildDirectory.set(file('build_sim_new'))

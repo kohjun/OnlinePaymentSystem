@@ -370,7 +370,13 @@ Coverage report, merging unit and integration execution data:
 .\gradlew.bat test integrationTest jacocoTestReport --no-daemon
 ```
 
-The report is written to `build_sim_new/reports/jacoco/test/html/index.html`.
+The report is written to `build_sim_new/reports/jacoco/test/html/index.html`. Merging both execution files currently yields 57% instruction and 44% branch coverage; unit tests alone are 47% / 37%, so the Docker-backed suites carry a real share of it.
+
+CI enforces a ratchet below the measured figure:
+
+```powershell
+.\gradlew.bat jacocoTestCoverageVerification --no-daemon
+```
 
 The integration suite uses Testcontainers PostgreSQL 16 and Redis. It verifies Flyway migrations, reservation compensation, 50 concurrent auction bids, 30 duplicate raffle entries, 100 distinct raffle entries, and 100 concurrent queue joins. Both suites run in CI: the unit suite and the integration suite execute on an `ubuntu-latest` job, because Testcontainers requires Linux containers that the Windows distribution job cannot start.
 

@@ -48,6 +48,10 @@ jobs:
         if: always()
         run: ./gradlew jacocoTestReport --no-daemon --no-problems-report
 
+      # 유닛과 통합 실행 데이터를 합친 커버리지가 래칫 아래로 떨어지면 실패한다.
+      - name: Coverage ratchet
+        run: ./gradlew jacocoTestCoverageVerification --no-daemon --no-problems-report
+
       - name: Publish test summary
         if: always()
         uses: mikepenz/action-junit-report@v5

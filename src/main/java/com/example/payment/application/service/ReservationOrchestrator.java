@@ -462,23 +462,45 @@ public class ReservationOrchestrator {
             }
 
             // 3. 주문(Order) 취소
+            boolean orderCancelled = false;
             if (orderId != null) {
-                orderService.cancelOrder(transactionId, orderId, customerId, reason);
-                log.info("Step 2/3: Order cancelled: txId={}, orderId={}", transactionId, orderId);
+                orderCancelled = orderService.cancelOrder(transactionId, orderId, customerId, reason);
+                if (orderCancelled) {
+                    log.info("Step 2/3: Order cancelled: txId={}, orderId={}", transactionId, orderId);
+                } else {
+                    log.warn("Step 2/3: Order was not cancellable: txId={}, orderId={}", transactionId, orderId);
+                }
             }
 
             // 4. 결제(Payment) 환불
+            boolean refunded = false;
             if (paymentId != null) {
-                paymentProcessingService.refundPayment(paymentId);
-                log.info("Step 3/3: Payment refund processed: txId={}, paymentId={}", transactionId, paymentId);
+                refunded = paymentProcessingService.refundPayment(paymentId);
+                if (refunded) {
+                    log.info("Step 3/3: Payment refund processed: txId={}, paymentId={}", transactionId, paymentId);
+                } else {
+                    log.warn("Step 3/3: Payment refund did not proceed: txId={}, paymentId={}", transactionId, paymentId);
+                }
             }
 
             // 5. 통합 캐시 삭제
             String cacheKey = "complete_reservation:" + reservationId;
             cacheService.deleteCache(cacheKey);
 
-            log.info("Complete reservation cancellation finished: txId={}, reservationId={}",
-                    transactionId, reservationId);
+            // 세 단계가 모두 아무것도 하지 못했다면 취소된 것이 없다. 그런데도
+            // true를 반환하면 호출자에게는 200이 나가고, 재고는 그대로인 채
+            // "취소되었습니다"라는 응답만 남는다. 하위 단계가 반환하는 결과를
+            // 버리지 않고 그대로 반영한다.
+            boolean anythingCompensated = reservationCancelled || orderCancelled || refunded;
+            if (!anythingCompensated) {
+                log.warn("Nothing was cancelled for reservation: txId={}, reservationId={}",
+                        transactionId, reservationId);
+                return false;
+            }
+
+            log.info("Complete reservation cancellation finished: txId={}, reservationId={}, "
+                            + "reservation={}, order={}, refund={}",
+                    transactionId, reservationId, reservationCancelled, orderCancelled, refunded);
             return true;
 
         } catch (Exception e) {

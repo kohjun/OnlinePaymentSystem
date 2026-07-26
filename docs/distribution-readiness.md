@@ -57,13 +57,21 @@ TEMPORAL_TARGET=temporal.example.com:7233
 TEMPORAL_NAMESPACE=payment
 TEMPORAL_TASK_QUEUE=payment-reservation-task-queue
 OIDC_ISSUER_URI=https://idp.example.com/realms/everysale
+OIDC_AUDIENCE=everysale-api
 TOSS_CLIENT_KEY=live_...
 TOSS_SECRET_KEY=live_...
 TOSS_WEBHOOK_PATH_TOKEN=at-least-32-random-characters
 CORS_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com
-DEFAULT_TENANT_ID=...
+EVERYSALE_TENANT_ID=everysale
 DEFAULT_PARTNER_ID=...
+PAYOUT_TRANSFER_PROVIDER=TOSS_PAYOUTS
+PAYOUT_TRANSFER_ADAPTER_ENABLED=true
+PAYOUT_TOSS_SECRET_KEY=live_...
 ```
+
+`EVERYSALE_TENANT_ID` replaced the earlier `DEFAULT_TENANT_ID`. It pins anonymous storefront traffic and authenticated JWT tenant claims to one marketplace in `SINGLE_TENANT` mode, and spoofed tenant headers are rejected.
+
+Payout transfer variables activate the real seller payout adapter. While `PAYOUT_TRANSFER_PROVIDER` is unset or `LEDGER_ONLY`, the stub only writes the ledger and never moves money, and production readiness blocks.
 
 Optional Kafka security variables:
 
