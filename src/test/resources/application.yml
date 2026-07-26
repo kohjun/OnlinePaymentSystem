@@ -133,3 +133,9 @@ app:
         enabled: false
   legacy-wal:
     enabled: false
+
+management:
+  tracing:
+    # 테스트는 추적을 끈다. 도달할 수 없는 OTLP 수집기로 내보내려다
+    # 로그만 시끄러워지고, 검증하려는 대상도 아니다.
+    enabled: false

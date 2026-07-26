@@ -74,6 +74,13 @@ spring:
       properties:
         spring.json.trusted.packages: com.example.payment.event,com.example.payment.dto,com.example.payment.domain.event,com.example.payment.presentation.dto.response
       enable-auto-commit: false
+    # Outbox 발행과 소비를 추적에 연결한다. 이게 없으면 결제 스팬이 Kafka로
+    # 넘어가는 순간 끊겨서, 이벤트가 늦게 처리된 건지 발행이 안 된 건지
+    # 구분할 수 없다.
+    template:
+      observation-enabled: true
+    listener:
+      observation-enabled: true
 
 server:
   port: 8080
@@ -91,7 +98,20 @@ logging:
     com.example.payment: INFO
     org.springframework.kafka: WARN
   pattern:
-    level: "%5p [tenant:%X{tenantId:-everysale-demo}] [partner:%X{partnerId:-demo-partner}] [corr:%X{correlationId:-n/a}]"
+    # traceId를 함께 찍어야 로그에서 본 요청을 추적 화면에서 바로 찾을 수 있다.
+    # correlationId는 그대로 둔다. 클라이언트가 건네주는 업무 식별자라
+    # 추적 ID와 역할이 다르고, 추적을 꺼도 남아야 한다.
+    level: "%5p [tenant:%X{tenantId:-everysale-demo}] [partner:%X{partnerId:-demo-partner}] [corr:%X{correlationId:-n/a}] [trace:%X{traceId:-n/a}/%X{spanId:-n/a}]"
+
+management:
+  tracing:
+    enabled: ${TRACING_ENABLED:true}
+    sampling:
+      # 로컬은 전량 수집한다. 한 건을 끝까지 따라가 보는 것이 목적이다.
+      probability: ${TRACING_SAMPLE_RATE:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
 
 payment:
   processing:

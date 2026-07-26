@@ -101,6 +101,8 @@ Services:
 - Kafka: `localhost:9092`
 - Temporal gRPC: `localhost:7233`
 - Temporal UI: `http://localhost:8088`
+- Jaeger UI (distributed traces): `http://localhost:16686`
+- OTLP/HTTP trace intake: `localhost:4318`
 
 Create your local `.env`. It is deliberately not tracked, so a fresh clone does not have one:
 
@@ -458,6 +460,27 @@ python analysis\analyze_temporal_performance.py load-test\results\{timestamp}\re
 ```
 
 Use Temporal UI to inspect workflow duration and activity retries. Use the `outbox_events` table to inspect event publication latency, retry state, and failed events.
+
+## Distributed Tracing
+
+One checkout spans an HTTP request, a Temporal Saga, Redis inventory scripts, Postgres writes, and Kafka publication. The existing `X-Correlation-Id` ties log lines together but says nothing about where the time went, so the application also emits OpenTelemetry spans over OTLP.
+
+```text
+management.tracing.enabled       TRACING_ENABLED         default true
+management.tracing.sampling.probability
+                                 TRACING_SAMPLE_RATE     1.0 local, 0.1 in prod
+management.otlp.tracing.endpoint OTLP_TRACES_ENDPOINT    http://localhost:4318/v1/traces
+```
+
+`docker compose up -d` starts Jaeger; open `http://localhost:16686` and pick the `payment` service. Spans currently cover inbound HTTP, the security filter chain, scheduled jobs, outbound HTTP through both `RestTemplate` beans, and Kafka publish/consume.
+
+Both `RestTemplate` beans are built through `RestTemplateBuilder`. Constructing one with `new RestTemplate(...)` skips Spring Boot's observation wiring, which would silently drop the outbound Toss and payout calls from every trace — exactly the hops where external latency turns into user-visible wait.
+
+Log lines carry `[trace:{traceId}/{spanId}]` alongside the correlation id, so a log line found in production can be opened directly in the trace view. `TracingLogCorrelationTest` pins that propagation; without it the pattern would keep rendering while the values quietly became `n/a`.
+
+Production samples 10% by default. Tracing every payment makes the collector and the application pay for data nobody reads; raise `TRACING_SAMPLE_RATE` when investigating a specific incident.
+
+Not yet instrumented: Temporal workflow and activity spans. A Saga currently appears as the span that starts it, and the workflow steps are not linked. Adding `io.temporal:temporal-opentracing` interceptors is the next step there.
 
 ## Operational Notes
 

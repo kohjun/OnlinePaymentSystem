@@ -1,23 +1,34 @@
 package com.example.payment.infrastructure.config;
 
 import com.example.payment.infrastructure.gateway.TossPayoutsProperties;
+import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.Duration;
+
+/**
+ * 외부 호출용 HTTP 클라이언트.
+ *
+ * 두 클라이언트 모두 RestTemplateBuilder로 만든다. new RestTemplate()으로
+ * 직접 만들면 Spring Boot의 관찰(observation) 배선을 타지 않아 나가는 호출에
+ * 스팬이 생기지 않는다. 결제 승인과 정산 송금은 외부 지연이 그대로 사용자
+ * 대기 시간이 되는 구간이라, 추적에서 빠지면 정작 봐야 할 곳이 비게 된다.
+ */
 @Configuration
 public class RestConfig {
 
     @Bean
     @Primary
-    public RestTemplate restTemplate() {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(5000);  // 연결 타임아웃 5초
-        factory.setReadTimeout(10000);    // 읽기 타임아웃 10초
-
-        return new RestTemplate(factory);
+    public RestTemplate restTemplate(RestTemplateBuilder builder) {
+        return builder
+                .requestFactory(SimpleClientHttpRequestFactory.class)
+                .setConnectTimeout(Duration.ofSeconds(5))
+                .setReadTimeout(Duration.ofSeconds(10))
+                .build();
     }
 
     /**
@@ -29,11 +40,11 @@ public class RestConfig {
      * 별도 타임아웃을 준다.
      */
     @Bean
-    public RestTemplate payoutsRestTemplate(TossPayoutsProperties properties) {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(properties.getConnectTimeoutMs());
-        factory.setReadTimeout(properties.getReadTimeoutMs());
-
-        return new RestTemplate(factory);
+    public RestTemplate payoutsRestTemplate(RestTemplateBuilder builder, TossPayoutsProperties properties) {
+        return builder
+                .requestFactory(SimpleClientHttpRequestFactory.class)
+                .setConnectTimeout(Duration.ofMillis(properties.getConnectTimeoutMs()))
+                .setReadTimeout(Duration.ofMillis(properties.getReadTimeoutMs()))
+                .build();
     }
 }

@@ -142,3 +142,13 @@ management:
     health:
       probes:
         enabled: true
+  tracing:
+    enabled: ${TRACING_ENABLED:true}
+    sampling:
+      # 상용은 전량 수집하지 않는다. 결제 트래픽 전부에 스팬을 남기면
+      # 수집기 비용과 애플리케이션 오버헤드가 모두 커진다. 장애 조사에는
+      # 표본으로 충분하고, 특정 요청을 끝까지 봐야 하면 값을 올린다.
+      probability: ${TRACING_SAMPLE_RATE:0.1}
+  otlp:
+    tracing:
+      endpoint: ${OTLP_TRACES_ENDPOINT:}
