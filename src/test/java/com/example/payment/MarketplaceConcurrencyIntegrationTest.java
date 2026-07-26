@@ -41,6 +41,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Tag("integration")
@@ -163,11 +164,18 @@ class MarketplaceConcurrencyIntegrationTest extends TestcontainersIntegrationSup
 
         var status = auctionService.status(AUCTION_EVENT_ID);
         assertEquals(new BigDecimal("13500000.00"), status.getHighestBid());
-        assertEquals("AUCTION-CUSTOMER-50", status.getHighestBidder());
-        assertEquals(1L, auctionBidRepository.findAll().stream()
+
+        // 공개 경매 상태는 입찰자를 별칭으로 가린다. 실제 고객 식별자가
+        // 그대로 새어나가지 않는지 함께 확인한다.
+        assertTrue(status.getHighestBidder().startsWith("bidder-"));
+        assertFalse(status.getHighestBidder().contains("AUCTION-CUSTOMER-"));
+
+        var winningBids = auctionBidRepository.findAll().stream()
                 .filter(bid -> AUCTION_EVENT_ID.equals(bid.getSaleEventId()))
                 .filter(bid -> bid.getStatus() == AuctionBidStatus.WINNING)
-                .count());
+                .toList();
+        assertEquals(1, winningBids.size());
+        assertEquals("AUCTION-CUSTOMER-50", winningBids.get(0).getCustomerId());
     }
 
     @Test

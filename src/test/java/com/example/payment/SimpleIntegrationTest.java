@@ -125,9 +125,21 @@ class SimpleIntegrationTest extends TestcontainersIntegrationSupport {
 
         String url = "http://localhost:" + port + "/api/reservations/complete";
 
+        // 서버는 요청 본문의 customerId를 믿지 않고 인증 신원으로 덮어쓴다.
+        // 신원 헤더 없이 호출하면 예약 소유자가 목 인증 기본값이 되어버려
+        // 아래 TEST-001 예매 내역 조회가 비게 된다.
+        HttpHeaders identityHeaders = new HttpHeaders();
+        identityHeaders.set("X-EverySale-User-Id", "USER-TEST-001");
+        identityHeaders.set("X-EverySale-Customer-Id", "TEST-001");
+        identityHeaders.set("X-EverySale-Roles", "CUSTOMER");
+
         // [When] API 호출
-        ResponseEntity<CompleteReservationResponse> response =
-                restTemplate.postForEntity(url, request, CompleteReservationResponse.class);
+        ResponseEntity<CompleteReservationResponse> response = restTemplate.exchange(
+                url,
+                HttpMethod.POST,
+                new HttpEntity<>(request, identityHeaders),
+                CompleteReservationResponse.class
+        );
 
         // [Then] 응답 검증
         System.out.println("응답: " + response.getStatusCode());

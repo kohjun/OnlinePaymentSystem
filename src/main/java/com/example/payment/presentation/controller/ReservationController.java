@@ -227,9 +227,21 @@ public class ReservationController {
                                                     @RequestParam String customerId,
                                                     @RequestParam(required = false) String reason) {
 
+        // customerId 파라미터가 호출자 본인인지 확인한 뒤, 그 예약이 실제로
+        // 호출자의 것인지까지 확인한다. 후자가 없으면 남의 예약에 취소를 걸어도
+        // 서비스 계층이 조용히 false를 반환하고 200 OK가 나간다.
+        // requireReservationAccess는 예약이 없으면 404, 소유자가 아니면 403을
+        // 던지고 보안 감사 이벤트를 남긴다.
         authorizationGuard.requireCustomerAccess(customerId);
+        authorizationGuard.requireReservationAccess(reservationId);
+
+        // 예약 생성 경로와 마찬가지로 클라이언트가 보낸 customerId를 그대로
+        // 하위 계층에 넘기지 않는다. 인증된 신원을 넘겨야 서비스의 소유권
+        // 확인이 실제 의미를 갖는다.
+        String actingCustomerId = authorizationGuard.currentCustomerId();
+
         log.info("Reservation cancellation requested: reservationId={}, customerId={}, reason={}",
-                reservationId, customerId, reason);
+                reservationId, actingCustomerId, reason);
 
         try {
             String cancelReason = reason != null ? reason : "고객 요청";
@@ -237,7 +249,7 @@ public class ReservationController {
             // 오케스트레이터를 통해 통합 취소 처리 (주문/결제도 함께 취소)
             boolean cancelled = reservationOrchestrator.cancelCompleteReservation(
                     reservationId,
-                    customerId,
+                    actingCustomerId,
                     cancelReason
             );
 
