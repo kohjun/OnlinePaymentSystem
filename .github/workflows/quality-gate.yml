@@ -10,6 +10,14 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# checks: write lets the junit reporter publish the test summary. Without it the
+# reporter fails with "Resource not accessible by integration" and the run has
+# no readable record of which tests failed.
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
 jobs:
   # Linux runner, because Testcontainers needs Linux containers. The Windows
   # runner below cannot start postgres:16-alpine or redis:7-alpine at all,
