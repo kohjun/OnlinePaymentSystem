@@ -139,6 +139,12 @@ tasks.named('jacocoTestReport', JacocoReport) {
 // 추측으로 높게 걸어 자기 저장소를 상시 빨간 상태로 두는 것이 더 나쁘다.
 // 수치가 오르면 이 값도 함께 올린다.
 tasks.named('jacocoTestCoverageVerification', JacocoCoverageVerification) {
+    // 두 실행 데이터가 모두 나온 뒤에 판정해야 한다. 순서를 걸지 않으면
+    // integrationTest보다 먼저 돌아 test.exec만 보고, 통합 테스트 몫이 빠진
+    // 수치로 래칫에 걸린다. dependsOn이 아니라 mustRunAfter인 이유는
+    // integrationTest가 Docker를 요구하기 때문이다. Docker 없이 단위 커버리지만
+    // 확인하려는 경우까지 막을 이유는 없다.
+    mustRunAfter tasks.named('test'), tasks.named('integrationTest')
     executionData.setFrom(fileTree(layout.buildDirectory).include('jacoco/*.exec'))
     classDirectories.setFrom(jacocoCoveredClasses())
     violationRules {

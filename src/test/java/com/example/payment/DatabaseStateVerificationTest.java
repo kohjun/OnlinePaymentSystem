@@ -62,6 +62,9 @@ class DatabaseStateVerificationTest extends TestcontainersIntegrationSupport {
     @Autowired
     private InventoryRepository inventoryRepository;
 
+    @Autowired
+    private org.springframework.data.redis.core.RedisTemplate<String, Object> redisTemplate;
+
     @MockBean
     private MockPaymentGateway mockPaymentGateway;
 
@@ -105,6 +108,28 @@ class DatabaseStateVerificationTest extends TestcontainersIntegrationSupport {
                         .processedAmount(new BigDecimal("100.00"))
                         .build());
         when(mockPaymentGateway.getGatewayName()).thenReturn("MOCK_PAYMENT_GATEWAY");
+    }
+
+    @Test
+    @DisplayName("[DB 검증 0] Redis 예약 키에 따옴표가 섞이지 않는지 확인")
+    void test_reservationKeyIsNotQuoted() {
+        // Lua 스크립트 인자를 JSON 직렬화기로 넘기면 문자열 인자가 따옴표째
+        // 전달되어 예약 키가 inventory:reservation:"RES-x" 형태로 저장됐다.
+        // 동작은 일관됐지만 키를 사람이 읽거나 다른 도구로 조회할 수 없었다.
+        String reservationId = "RES-KEY-FORMAT-001";
+        String resourceKey = "inventory:" + TEST_PRODUCT_ID;
+
+        redisReservationService.initializeResource(resourceKey, 5, 5);
+        assertTrue(redisReservationService.reserveResource(
+                resourceKey, 1, java.time.Duration.ofSeconds(300), reservationId));
+
+        assertTrue(redisTemplate.hasKey("inventory:reservation:" + reservationId),
+                "예약 키는 따옴표 없이 저장되어야 합니다");
+        assertFalse(redisTemplate.hasKey("inventory:reservation:\"" + reservationId + "\""),
+                "따옴표가 포함된 예약 키가 남아 있으면 안 됩니다");
+
+        // 확정과 취소도 같은 키를 찾아야 한다.
+        assertTrue(redisReservationService.confirmResource(resourceKey, 1, reservationId));
     }
 
     @Test

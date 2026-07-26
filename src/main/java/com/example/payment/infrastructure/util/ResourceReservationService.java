@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.data.redis.serializer.RedisSerializer;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -19,10 +20,22 @@ public class ResourceReservationService {
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
 
-    private final DefaultRedisScript<Object> reserveScript;
-    private final DefaultRedisScript<Object> cancelScript;
-    private final DefaultRedisScript<Object> confirmScript;
+    private final DefaultRedisScript<String> reserveScript;
+    private final DefaultRedisScript<String> cancelScript;
+    private final DefaultRedisScript<String> confirmScript;
     private static final TypeReference<Map<String, Object>> SCRIPT_RESULT_TYPE = new TypeReference<>() {};
+
+    /**
+     * Lua 스크립트 인자와 결과는 문자열로 주고받는다.
+     *
+     * RedisTemplate은 값 직렬화기로 스크립트 인자까지 직렬화한다. 이 템플릿의
+     * 값 직렬화기는 Jackson이라 문자열 인자가 따옴표째 전달됐고, 그 결과
+     * 예약 키가 inventory:reservation:"RES-x" 형태로 저장되고 있었다.
+     * 숫자 인자는 따옴표가 없어 멀쩡했기 때문에 오랫동안 드러나지 않았다.
+     * 스크립트는 어차피 Redis에서 모든 ARGV를 문자열로 받고 필요할 때
+     * tonumber()로 바꾸므로, 처음부터 문자열로 넘기는 편이 정확하다.
+     */
+    private static final RedisSerializer<String> SCRIPT_SERIALIZER = RedisSerializer.string();
 
     /**
      * 리소스 예약 (ReservationService에서 사용)
@@ -35,17 +48,15 @@ public class ResourceReservationService {
             List<String> keys = Collections.singletonList(resourceKey);
             long ttlSeconds = (ttl != null) ? ttl.getSeconds() : 0;
 
-            // Pass the timestamp as a number, not a String. Script arguments are
-            // serialized with the template's JSON value serializer, which wraps a
-            // String in quotes; the script then reads "1753..." and tonumber()
-            // returns nil, failing the expiry arithmetic in reserve_resource.lua.
             Object rawResult = redisTemplate.execute(
                     reserveScript,
+                    SCRIPT_SERIALIZER,
+                    SCRIPT_SERIALIZER,
                     keys,
-                    quantity,
+                    String.valueOf(quantity),
                     reservationId,
-                    ttlSeconds,
-                    System.currentTimeMillis()
+                    String.valueOf(ttlSeconds),
+                    String.valueOf(System.currentTimeMillis())
             );
 
             Map<String, Object> result = readScriptResult(rawResult);
@@ -88,8 +99,10 @@ public class ResourceReservationService {
 
             Object rawResult = redisTemplate.execute(
                     cancelScript,
+                    SCRIPT_SERIALIZER,
+                    SCRIPT_SERIALIZER,
                     keys,
-                    quantity,
+                    String.valueOf(quantity),
                     reservationId
             );
 
@@ -127,8 +140,10 @@ public class ResourceReservationService {
 
             Object rawResult = redisTemplate.execute(
                     confirmScript,
+                    SCRIPT_SERIALIZER,
+                    SCRIPT_SERIALIZER,
                     keys,
-                    quantity,
+                    String.valueOf(quantity),
                     reservationId
             );
 

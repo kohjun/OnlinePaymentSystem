@@ -136,35 +136,40 @@ public class RedisConfig {
 
     // ==================== Lua Script Beans 추가 ====================
 
+    /**
+     * 재고 선점 스크립트.
+     *
+     * 세 스크립트 모두 cjson.encode()로 문자열을 돌려주므로 결과 타입은
+     * String이다. 호출부에서 인자와 결과 모두 String 직렬화기로 실행해,
+     * JSON 직렬화기가 문자열 인자를 따옴표로 감싸는 것을 피한다.
+     */
     @Bean
-    public DefaultRedisScript<Object> reserveScript() {
-        DefaultRedisScript<Object> script = new DefaultRedisScript<>();
+    public DefaultRedisScript<String> reserveScript() {
+        DefaultRedisScript<String> script = new DefaultRedisScript<>();
         script.setLocation(new ClassPathResource("scripts/reserve_resource.lua"));
-        script.setResultType(Object.class);
+        script.setResultType(String.class);
         return script;
     }
 
     /**
      * 예약 확정 스크립트
-     * [수정] 4. 경로를 'redis/'에서 'scripts/'로 변경
      */
     @Bean
-    public DefaultRedisScript<Object> confirmScript() {
-        DefaultRedisScript<Object> script = new DefaultRedisScript<>();
+    public DefaultRedisScript<String> confirmScript() {
+        DefaultRedisScript<String> script = new DefaultRedisScript<>();
         script.setLocation(new ClassPathResource("scripts/confirm_reservation.lua"));
-        script.setResultType(Object.class);
+        script.setResultType(String.class);
         return script;
     }
 
     /**
      * 예약 취소 스크립트
-     * [수정] 5. 경로를 'redis/'에서 'scripts/'로 변경
      */
     @Bean
-    public DefaultRedisScript<Object> cancelScript() {
-        DefaultRedisScript<Object> script = new DefaultRedisScript<>();
+    public DefaultRedisScript<String> cancelScript() {
+        DefaultRedisScript<String> script = new DefaultRedisScript<>();
         script.setLocation(new ClassPathResource("scripts/cancel_reservation.lua"));
-        script.setResultType(Object.class);
+        script.setResultType(String.class);
         return script;
     }
 }
