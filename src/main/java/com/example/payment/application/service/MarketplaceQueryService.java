@@ -27,6 +27,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Map;
+import com.example.payment.infrastructure.search.SaleEventSearchIndex;
+import org.springframework.beans.factory.ObjectProvider;
+
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -40,8 +43,44 @@ public class MarketplaceQueryService {
     private final ProductRepository productRepository;
     private final InventoryRepository inventoryRepository;
 
+    /**
+     * 검색 색인. app.search.enabled가 꺼져 있으면 빈이 없다.
+     * 그때는 키워드 검색이 DB 질의로만 동작한다.
+     */
+    private final ObjectProvider<SaleEventSearchIndex> searchIndexProvider;
+
     public List<MarketplaceEventResponse> getEvents(String status, String saleType, String keyword, String sort) {
         return getEventsPage(status, saleType, keyword, sort, 0, 100).getContent();
+    }
+
+    /**
+     * 키워드 검색 경로.
+     *
+     * 색인을 쓸 수 있으면 색인이 고른 후보를 DB 조건으로 다시 거른다.
+     * 색인이 꺼져 있거나 응답하지 않으면 기존 LIKE 질의로 되돌아간다.
+     * 검색 품질이 떨어지는 것과 상품 목록이 아예 안 뜨는 것은 다른 문제라,
+     * 색인 장애가 마켓플레이스를 멈추게 두지 않는다.
+     */
+    private Page<SaleEvent> searchEvents(List<SaleEventStatus> statuses,
+                                         SaleType saleTypeFilter,
+                                         String keyword,
+                                         PageRequest pageRequest) {
+        SaleEventSearchIndex searchIndex = searchIndexProvider.getIfAvailable();
+        if (notBlank(keyword) && searchIndex != null) {
+            List<String> candidateIds = searchIndex.findEventIds(keyword).orElse(null);
+            if (candidateIds != null) {
+                if (candidateIds.isEmpty()) {
+                    return Page.empty(pageRequest);
+                }
+                return saleEventRepository.findPublicEventsByIds(
+                        statuses, saleTypeFilter, candidateIds, pageRequest);
+            }
+        }
+
+        String keywordFilter = notBlank(keyword)
+                ? "%" + keyword.trim().toLowerCase(Locale.ROOT) + "%"
+                : null;
+        return saleEventRepository.searchPublicEvents(statuses, saleTypeFilter, keywordFilter, pageRequest);
     }
 
     public Page<MarketplaceEventResponse> getEventsPage(String status,
@@ -59,15 +98,8 @@ public class MarketplaceQueryService {
 
         int safePage = Math.max(0, page);
         int safeSize = Math.max(1, Math.min(size, 100));
-        String keywordFilter = notBlank(keyword)
-                ? "%" + keyword.trim().toLowerCase(Locale.ROOT) + "%"
-                : null;
-        Page<SaleEvent> events = saleEventRepository.searchPublicEvents(
-                statuses,
-                saleTypeFilter,
-                keywordFilter,
-                PageRequest.of(safePage, safeSize, eventSort(sort))
-        );
+        Page<SaleEvent> events = searchEvents(
+                statuses, saleTypeFilter, keyword, PageRequest.of(safePage, safeSize, eventSort(sort)));
 
         Map<String, MarketplaceListing> listings = marketplaceListingRepository
                 .findAllById(events.stream().map(SaleEvent::getListingId).distinct().toList())

@@ -61,6 +61,9 @@ dependencies {
     // Kafka
     implementation 'org.springframework.kafka:spring-kafka'
 
+    // 상품 검색 색인. 키워드 질의만 담당하고 상세는 DB가 채운다.
+    implementation 'org.springframework.boot:spring-boot-starter-data-elasticsearch'
+
     // Database and migrations
     implementation 'org.flywaydb:flyway-core'
     runtimeOnly 'org.postgresql:postgresql'

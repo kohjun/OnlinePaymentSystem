@@ -59,6 +59,10 @@ spring:
           min-idle: 10
           max-wait: 50ms
 
+  elasticsearch:
+    uris: ${ELASTICSEARCH_URIS:http://localhost:9200}
+    connection-timeout: 3s
+    socket-timeout: 5s
   kafka:
     bootstrap-servers: localhost:9092
     producer:
@@ -151,6 +155,13 @@ app:
       heartbeat-ms: 15000
       reconnect-ms: 1000
       stream-timeout-ms: 1800000
+  search:
+    # 상품 검색 색인. 꺼도 마켓플레이스는 그대로 동작하고 키워드 검색만
+    # DB 질의로 되돌아간다.
+    enabled: ${SEARCH_INDEX_ENABLED:false}
+    max-candidates: 200
+    reindex-fixed-delay-ms: 300000
+    reindex-initial-delay-ms: 20000
   payout:
     transfer:
       # 로컬은 원장만 기록한다. 실제 송금은 TOSS_PAYOUTS로 바꾸고

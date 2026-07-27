@@ -26,6 +26,9 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import com.example.payment.infrastructure.search.SaleEventSearchIndex;
+import org.springframework.beans.factory.ObjectProvider;
+
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
@@ -38,12 +41,17 @@ class MarketplaceQueryServiceTest {
     private final ProductRepository productRepository = mock(ProductRepository.class);
     private final InventoryRepository inventoryRepository = mock(InventoryRepository.class);
 
+    /** 검색 색인이 꺼진 구성. 키워드 검색은 DB 질의로만 동작한다. */
+    @SuppressWarnings("unchecked")
+    private final ObjectProvider<SaleEventSearchIndex> searchIndexProvider = mock(ObjectProvider.class);
+
     private final MarketplaceQueryService service = new MarketplaceQueryService(
             saleEventRepository,
             listingRepository,
             sellerRepository,
             productRepository,
-            inventoryRepository
+            inventoryRepository,
+            searchIndexProvider
     );
 
     @Test

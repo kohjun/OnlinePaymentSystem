@@ -461,6 +461,21 @@ python analysis\analyze_temporal_performance.py load-test\results\{timestamp}\re
 
 Use Temporal UI to inspect workflow duration and activity retries. Use the `outbox_events` table to inspect event publication latency, retry state, and failed events.
 
+## Product Search
+
+Keyword search runs against Elasticsearch when it is enabled, and falls back to the original SQL `LIKE` query otherwise.
+
+```text
+app.search.enabled          SEARCH_INDEX_ENABLED   default false
+spring.elasticsearch.uris   ELASTICSEARCH_URIS     http://localhost:9200
+```
+
+The index holds only searchable text — title, description, seller name, brand, tags. Price, stock, and status stay out of it on purpose: an index is always slightly behind, and reading those from it would show a sold-out item as available. Search picks candidate ids; the database fills in everything the card renders and re-applies the public-visibility conditions, so a stale index cannot surface an item whose sale has ended.
+
+`SaleEventSearchIndexJob` reindexes published events on a fixed delay rather than hooking every write path. The catalog is small, and because volatile fields are not indexed, a lagging index only delays when a new listing becomes findable.
+
+Every index call swallows its own failures and reports "unavailable" rather than throwing. `SaleEventSearchFallbackTest` pins the resulting behaviour, including the distinction that matters most: an empty result means nothing matched, while an unavailable index means fall back to the database. Collapsing those two would make an Elasticsearch outage look like an empty catalog.
+
 ## Distributed Tracing
 
 One checkout spans an HTTP request, a Temporal Saga, Redis inventory scripts, Postgres writes, and Kafka publication. The existing `X-Correlation-Id` ties log lines together but says nothing about where the time went, so the application also emits OpenTelemetry spans over OTLP.

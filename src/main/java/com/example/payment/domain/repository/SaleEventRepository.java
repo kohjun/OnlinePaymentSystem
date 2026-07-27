@@ -91,4 +91,34 @@ public interface SaleEventRepository extends JpaRepository<SaleEvent, String> {
                                        @Param("saleType") SaleType saleType,
                                        @Param("keyword") String keyword,
                                        Pageable pageable);
+
+    /**
+     * 검색 색인이 고른 후보 중에서 공개 조건을 만족하는 것만 돌려준다.
+     *
+     * 공개 여부·판매 방식 조건은 키워드 질의와 똑같이 적용한다. 색인이
+     * 뒤처져 이미 내려간 상품을 후보로 주더라도 여기서 걸러지므로,
+     * 검색 결과에 판매가 끝난 상품이 섞이지 않는다.
+     */
+    @Query(value = """
+            select distinct event
+            from SaleEvent event
+            join MarketplaceListing listing on listing.listingId = event.listingId
+            where event.status in :statuses
+              and listing.status = com.example.payment.domain.model.marketplace.ListingStatus.ACTIVE
+              and (:saleType is null or event.saleType = :saleType)
+              and event.saleEventId in :saleEventIds
+            """,
+            countQuery = """
+            select count(distinct event)
+            from SaleEvent event
+            join MarketplaceListing listing on listing.listingId = event.listingId
+            where event.status in :statuses
+              and listing.status = com.example.payment.domain.model.marketplace.ListingStatus.ACTIVE
+              and (:saleType is null or event.saleType = :saleType)
+              and event.saleEventId in :saleEventIds
+            """)
+    Page<SaleEvent> findPublicEventsByIds(@Param("statuses") Collection<SaleEventStatus> statuses,
+                                          @Param("saleType") SaleType saleType,
+                                          @Param("saleEventIds") Collection<String> saleEventIds,
+                                          Pageable pageable);
 }
