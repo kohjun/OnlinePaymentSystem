@@ -390,3 +390,14 @@ export interface WishlistItem {
   /** 판매가 끝났거나 비공개로 바뀐 이벤트는 비어 있을 수 있다. */
   event?: MarketplaceEvent;
 }
+
+export interface AuthToken {
+  accessToken: string;
+  tokenType: string;
+  expiresIn: number;
+  userId: string;
+  customerId: string;
+  email: string;
+  displayName: string;
+  roles: string[];
+}

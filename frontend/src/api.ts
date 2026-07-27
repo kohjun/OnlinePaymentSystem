@@ -1,5 +1,6 @@
 import type {
   AdminOperationsAudit,
+  AuthToken,
   AdminOperationsQueues,
   DistributionReadiness,
   AuctionStatus,
@@ -37,6 +38,25 @@ export class ApiError extends Error {
   }
 }
 
+const TOKEN_STORAGE_KEY = 'everysale.accessToken';
+
+/**
+ * 로그인해서 받은 액세스 토큰.
+ *
+ * 토큰이 없으면 서버의 로컬 목 인증이 기본 계정으로 처리한다. 로그인하면
+ * 그 계정으로 바뀐다. 운영에서는 목 인증이 꺼져 있어 토큰이 없으면 401이다.
+ */
+export const authToken = {
+  get: () => localStorage.getItem(TOKEN_STORAGE_KEY) ?? undefined,
+  set: (token: string) => localStorage.setItem(TOKEN_STORAGE_KEY, token),
+  clear: () => localStorage.removeItem(TOKEN_STORAGE_KEY)
+};
+
+function authHeaders(): Record<string, string> {
+  const token = authToken.get();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const correlationId = crypto.randomUUID();
   const response = await fetch(path, {
@@ -45,6 +65,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: {
       'Content-Type': 'application/json',
       'X-Correlation-Id': correlationId,
+      ...authHeaders(),
       ...init?.headers
     }
   });
@@ -73,7 +94,7 @@ async function requestAllowing<T>(path: string, allowedStatuses: number[]): Prom
   const correlationId = crypto.randomUUID();
   const response = await fetch(path, {
     credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json', 'X-Correlation-Id': correlationId }
+    headers: { 'Content-Type': 'application/json', 'X-Correlation-Id': correlationId, ...authHeaders() }
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok && !allowedStatuses.includes(response.status)) {
@@ -89,6 +110,16 @@ async function requestAllowing<T>(path: string, allowedStatuses: number[]): Prom
 
 export const api = {
   me: () => request<Identity>('/api/me'),
+  signUp: (email: string, password: string, displayName?: string) =>
+    request<AuthToken>('/api/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, displayName: displayName || undefined })
+    }),
+  login: (email: string, password: string) =>
+    request<AuthToken>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password })
+    }),
   createSellerProfile: (displayName: string) => request<SellerProfile>('/api/me/seller-profile', {
     method: 'POST', body: JSON.stringify({ displayName })
   }),

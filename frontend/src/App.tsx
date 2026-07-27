@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Check, ChevronLeft, ChevronRight, Heart, Loader2, MapPin, Maximize2, Minus, PackageCheck, Plus, Search, ShieldCheck, ShoppingBag, Store, Trash2, UserRound, X } from 'lucide-react';
-import { api } from './api';
+import { AlertCircle, Check, ChevronLeft, ChevronRight, Heart, LogIn, LogOut, Loader2, MapPin, Maximize2, Minus, PackageCheck, Plus, Search, ShieldCheck, ShoppingBag, Store, Trash2, UserRound, X } from 'lucide-react';
+import { api, authToken } from './api';
 import { EventCard, formatMoney } from './EventCard';
 import { EventDetail } from './EventDetail';
 import { SellerCenter } from './SellerCenter';
 import { AdminOperations } from './AdminOperations';
+import { AuthPanel } from './AuthPanel';
 import type { Identity, MarketplaceEvent, MarketplaceOrder, Page, SaleType, ShippingAddress, WishlistItem } from './types';
 
 const filters: Array<{ value: '' | SaleType; label: string }> = [
@@ -28,6 +29,8 @@ export function App() {
   const [adminOpen, setAdminOpen] = useState(false);
   const [wishlist, setWishlist] = useState<WishlistItem[]>();
   const [wishlistOpen, setWishlistOpen] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [signedIn, setSignedIn] = useState(() => Boolean(authToken.get()));
   const [notice, setNotice] = useState<{ message: string; tone: 'success' | 'error' | 'info' }>();
 
   const notify = useCallback((message: string, tone: 'success' | 'error' | 'info' = 'info') => {
@@ -96,6 +99,7 @@ export function App() {
     setSellerCenterOpen(false);
     setAdminOpen(false);
     setWishlistOpen(false);
+    setAuthOpen(false);
     setLoading(true);
     try { setOrders(await api.orders(identity.customerId)); } catch (error) { notify((error as Error).message, 'error'); }
     finally { setLoading(false); }
@@ -107,6 +111,7 @@ export function App() {
     setSellerCenterOpen(false);
     setAdminOpen(false);
     setWishlistOpen(false);
+    setAuthOpen(false);
     setAddressBookOpen(true);
   }
 
@@ -116,6 +121,7 @@ export function App() {
     setAddressBookOpen(false);
     setAdminOpen(false);
     setWishlistOpen(false);
+    setAuthOpen(false);
     setSellerCenterOpen(true);
   }
 
@@ -125,7 +131,34 @@ export function App() {
     setAddressBookOpen(false);
     setSellerCenterOpen(false);
     setWishlistOpen(false);
+    setAuthOpen(false);
     setAdminOpen(true);
+  }
+
+  function openAuth() {
+    setSelected(undefined);
+    setOrders(undefined);
+    setAddressBookOpen(false);
+    setSellerCenterOpen(false);
+    setAdminOpen(false);
+    setWishlistOpen(false);
+    setAuthOpen(true);
+  }
+
+  function signOut() {
+    authToken.clear();
+    setSignedIn(false);
+    // 신원과 찜 목록을 다시 읽는다. 로그아웃하면 로컬 목 인증 기본 계정으로
+    // 돌아가므로 화면에 남아 있던 이전 계정 데이터를 그대로 두면 안 된다.
+    void api.me().then(setIdentity).catch(() => undefined);
+    refreshWishlist();
+    notify('로그아웃했습니다.', 'info');
+  }
+
+  function afterAuthenticated() {
+    setSignedIn(true);
+    void api.me().then(setIdentity).catch(error => notify(error.message, 'error'));
+    refreshWishlist();
   }
 
   function openWishlist() {
@@ -134,6 +167,7 @@ export function App() {
     setAddressBookOpen(false);
     setSellerCenterOpen(false);
     setAdminOpen(false);
+    setAuthOpen(false);
     setWishlistOpen(true);
     refreshWishlist();
   }
@@ -150,7 +184,7 @@ export function App() {
       </div>
     </div>}
     <header className="topbar">
-      <button className="brand" type="button" onClick={() => { setSelected(undefined); setOrders(undefined); setAddressBookOpen(false); setSellerCenterOpen(false); setAdminOpen(false); setWishlistOpen(false); }}><span>EVERYSALE</span><strong>에브리세일</strong></button>
+      <button className="brand" type="button" onClick={() => { setSelected(undefined); setOrders(undefined); setAddressBookOpen(false); setSellerCenterOpen(false); setAdminOpen(false); setWishlistOpen(false); setAuthOpen(false); }}><span>EVERYSALE</span><strong>에브리세일</strong></button>
       <form className="search-box" onSubmit={event => { event.preventDefault(); setPage(0); setKeyword(searchValue.trim()); }} role="search">
         <Search size={18} /><input value={searchValue} onChange={event => setSearchValue(event.target.value)} placeholder="상품, 브랜드, 판매자 검색" aria-label="마켓 검색" />
         {searchValue && <button type="button" onClick={() => { setSearchValue(''); setKeyword(''); }} title="검색어 지우기"><X size={16} /></button>}
@@ -162,6 +196,9 @@ export function App() {
         <button type="button" onClick={openWishlist}><Heart />찜 목록</button>
         <button type="button" onClick={() => void openOrders()}><ShoppingBag />구매 내역</button>
         <span className="account-chip"><UserRound />{displayName}</span>
+        {signedIn
+          ? <button type="button" onClick={signOut}><LogOut />로그아웃</button>
+          : <button type="button" onClick={openAuth}><LogIn />로그인</button>}
       </nav>
     </header>
 
@@ -170,6 +207,7 @@ export function App() {
         : adminOpen ? <AdminOperations close={() => setAdminOpen(false)} notify={notify} />
           : sellerCenterOpen ? <SellerCenter identity={identity} close={() => setSellerCenterOpen(false)} notify={notify} onIdentityChange={setIdentity} />
           : addressBookOpen ? <AddressBook close={() => setAddressBookOpen(false)} notify={notify} />
+          : authOpen ? <AuthPanel close={() => setAuthOpen(false)} notify={notify} onAuthenticated={afterAuthenticated} />
           : wishlistOpen ? <Wishlist items={wishlist} close={() => setWishlistOpen(false)}
               onOpen={event => { setWishlistOpen(false); setSelected(event); }}
               onRemove={saleEventId => toggleWishlist(saleEventId, true)} />

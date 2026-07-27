@@ -579,3 +579,17 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 30px 32px 64px; }
   border: 1px dashed #d5ddd9; background: #fafcfb; }
 .event-card--gone h2 { font-size: 14px; font-weight: 700; color: #44504a; }
 .wishlist-gone__id { margin: 4px 0 10px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+
+.auth-view { max-width: 420px; margin: 0 auto; }
+.auth-view > header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.auth-view > header h1 { font-size: 19px; font-weight: 800; }
+.auth-view > header p { color: var(--muted); font-size: 12px; }
+.auth-tabs { display: flex; border: 1px solid #cfd7d3; border-radius: 6px; overflow: hidden; margin-bottom: 18px; }
+.auth-tabs button { flex: 1; height: 40px; border: 0; border-right: 1px solid #e3e7e5; background: white; color: var(--muted); font-weight: 700; }
+.auth-tabs button:last-child { border-right: 0; }
+.auth-tabs button[aria-selected="true"] { color: white; background: var(--ink); }
+.auth-form { display: grid; gap: 14px; padding: 20px; border: 1px solid #d5ddd9; background: #fafcfb; }
+.auth-form label { display: grid; gap: 6px; font-size: 12px; font-weight: 700; }
+.auth-form input { height: 40px; padding: 0 11px; border: 1px solid #cbd3cf; border-radius: 5px; background: white; }
+.auth-form__optional { color: var(--muted); font-weight: 400; }
+.auth-hint { margin-top: 14px; color: var(--muted); font-size: 12px; text-align: center; }
