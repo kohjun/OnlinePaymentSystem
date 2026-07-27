@@ -562,3 +562,20 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 30px 32px 64px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+.wishlist-view > header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.wishlist-view > header h1 { font-size: 19px; font-weight: 800; }
+.wishlist-view > header p { color: var(--muted); font-size: 12px; }
+
+/* 카드 위에 겹치는 하트. 상세 보기 버튼 바깥에 있어야 클릭이 겹치지 않는다. */
+.event-card { position: relative; }
+.wishlist-toggle { position: absolute; top: 10px; right: 10px; z-index: 1; display: flex; align-items: center;
+  justify-content: center; width: 34px; height: 34px; border: 1px solid #d5ddd9; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92); color: #6b7873; }
+.wishlist-toggle:hover { border-color: var(--green); color: var(--green-dark); }
+.wishlist-toggle--on { color: #d1435b; border-color: #f0c2ca; background: #fff2f4; }
+
+.event-card--gone { display: flex; align-items: center; min-height: 150px; padding: 18px;
+  border: 1px dashed #d5ddd9; background: #fafcfb; }
+.event-card--gone h2 { font-size: 14px; font-weight: 700; color: #44504a; }
+.wishlist-gone__id { margin: 4px 0 10px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }

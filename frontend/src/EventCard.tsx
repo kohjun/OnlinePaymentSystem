@@ -1,4 +1,4 @@
-import { Clock3, Gavel, Sparkles, Ticket, Zap } from 'lucide-react';
+import { Clock3, Gavel, Heart, Sparkles, Ticket, Zap } from 'lucide-react';
 import type { MarketplaceEvent } from './types';
 
 const saleLabels = {
@@ -8,12 +8,32 @@ const saleLabels = {
   AUCTION: { label: '실시간 경매', Icon: Gavel }
 } as const;
 
-export function EventCard({ event, onOpen }: { event: MarketplaceEvent; onOpen: () => void }) {
+interface EventCardProps {
+  event: MarketplaceEvent;
+  onOpen: () => void;
+  wishlisted?: boolean;
+  onToggleWishlist?: () => void;
+}
+
+export function EventCard({ event, onOpen, wishlisted, onToggleWishlist }: EventCardProps) {
   const base = saleLabels[event.saleType];
   const label = event.digitalTicket ? '티켓 예매' : event.saleType === 'DROP' ? '선착순 한정 판매' : base.label;
   const Icon = event.digitalTicket ? Ticket : base.Icon;
   return (
     <article className="event-card">
+      {onToggleWishlist && (
+        // 상세 보기 버튼 바깥에 둔다. 안에 중첩하면 하트를 누를 때
+        // 상세 화면이 함께 열린다.
+        <button
+          className={`wishlist-toggle${wishlisted ? ' wishlist-toggle--on' : ''}`}
+          type="button"
+          onClick={onToggleWishlist}
+          aria-pressed={wishlisted ?? false}
+          aria-label={`${event.title} ${wishlisted ? '찜 해제' : '찜하기'}`}
+        >
+          <Heart size={16} fill={wishlisted ? 'currentColor' : 'none'} />
+        </button>
+      )}
       <button className="event-card__open" type="button" onClick={onOpen} aria-label={`${event.title} 상세 보기`}>
         <div className="event-card__media">
           {event.imageUrl

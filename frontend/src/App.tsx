@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Check, ChevronLeft, ChevronRight, Loader2, MapPin, Maximize2, Minus, PackageCheck, Plus, Search, ShieldCheck, ShoppingBag, Store, Trash2, UserRound, X } from 'lucide-react';
+import { AlertCircle, Check, ChevronLeft, ChevronRight, Heart, Loader2, MapPin, Maximize2, Minus, PackageCheck, Plus, Search, ShieldCheck, ShoppingBag, Store, Trash2, UserRound, X } from 'lucide-react';
 import { api } from './api';
 import { EventCard, formatMoney } from './EventCard';
 import { EventDetail } from './EventDetail';
 import { SellerCenter } from './SellerCenter';
 import { AdminOperations } from './AdminOperations';
-import type { Identity, MarketplaceEvent, MarketplaceOrder, Page, SaleType, ShippingAddress } from './types';
+import type { Identity, MarketplaceEvent, MarketplaceOrder, Page, SaleType, ShippingAddress, WishlistItem } from './types';
 
 const filters: Array<{ value: '' | SaleType; label: string }> = [
   { value: '', label: '전체' }, { value: 'FIXED_PRICE', label: '일반 판매' }, { value: 'DROP', label: '한정 수량' },
@@ -26,6 +26,8 @@ export function App() {
   const [addressBookOpen, setAddressBookOpen] = useState(false);
   const [sellerCenterOpen, setSellerCenterOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
+  const [wishlist, setWishlist] = useState<WishlistItem[]>();
+  const [wishlistOpen, setWishlistOpen] = useState(false);
   const [notice, setNotice] = useState<{ message: string; tone: 'success' | 'error' | 'info' }>();
 
   const notify = useCallback((message: string, tone: 'success' | 'error' | 'info' = 'info') => {
@@ -33,8 +35,26 @@ export function App() {
     window.setTimeout(() => setNotice(current => current?.message === message ? undefined : current), 6000);
   }, []);
 
+  const refreshWishlist = useCallback(() => {
+    // 찜 조회 실패가 목록 화면을 막지 않게 한다. 하트가 빈 채로 보일 뿐이다.
+    void api.listWishlist().then(setWishlist).catch(() => setWishlist([]));
+  }, []);
+
+  const toggleWishlist = useCallback((saleEventId: string, wishlisted: boolean) => {
+    const action = wishlisted
+      ? api.removeFromWishlist(saleEventId)
+      : api.addToWishlist(saleEventId);
+    void action
+      .then(() => {
+        refreshWishlist();
+        notify(wishlisted ? '찜을 해제했습니다.' : '찜 목록에 담았습니다.', 'success');
+      })
+      .catch(error => notify(error.message, 'error'));
+  }, [notify, refreshWishlist]);
+
   useEffect(() => {
     void api.me().then(setIdentity).catch(error => notify(error.message, 'error'));
+    refreshWishlist();
     const params = new URLSearchParams(window.location.search);
     if (params.get('tossResult') === 'success') {
       const intentId = params.get('intentId');
@@ -55,7 +75,7 @@ export function App() {
       notify(params.get('message') ?? '결제가 취소되었거나 승인되지 않았습니다.', 'error');
       window.history.replaceState({}, '', '/app/');
     }
-  }, [notify]);
+  }, [notify, refreshWishlist]);
 
   useEffect(() => {
     setLoading(true);
@@ -67,6 +87,7 @@ export function App() {
 
   const displayName = identity?.buyerProfile?.displayName ?? identity?.user?.displayName ?? identity?.customerId ?? '고객';
   const liveCount = useMemo(() => events?.content.filter(event => event.status === 'LIVE').length ?? 0, [events]);
+  const wishlistedIds = useMemo(() => new Set((wishlist ?? []).map(item => item.saleEventId)), [wishlist]);
 
   async function openOrders() {
     if (!identity) return;
@@ -74,6 +95,7 @@ export function App() {
     setAddressBookOpen(false);
     setSellerCenterOpen(false);
     setAdminOpen(false);
+    setWishlistOpen(false);
     setLoading(true);
     try { setOrders(await api.orders(identity.customerId)); } catch (error) { notify((error as Error).message, 'error'); }
     finally { setLoading(false); }
@@ -84,6 +106,7 @@ export function App() {
     setOrders(undefined);
     setSellerCenterOpen(false);
     setAdminOpen(false);
+    setWishlistOpen(false);
     setAddressBookOpen(true);
   }
 
@@ -92,6 +115,7 @@ export function App() {
     setOrders(undefined);
     setAddressBookOpen(false);
     setAdminOpen(false);
+    setWishlistOpen(false);
     setSellerCenterOpen(true);
   }
 
@@ -100,7 +124,18 @@ export function App() {
     setOrders(undefined);
     setAddressBookOpen(false);
     setSellerCenterOpen(false);
+    setWishlistOpen(false);
     setAdminOpen(true);
+  }
+
+  function openWishlist() {
+    setSelected(undefined);
+    setOrders(undefined);
+    setAddressBookOpen(false);
+    setSellerCenterOpen(false);
+    setAdminOpen(false);
+    setWishlistOpen(true);
+    refreshWishlist();
   }
 
   if (!identity) return <div className="boot-screen"><Loader2 className="spin" /><strong>에브리세일 마켓을 준비하고 있습니다</strong></div>;
@@ -115,7 +150,7 @@ export function App() {
       </div>
     </div>}
     <header className="topbar">
-      <button className="brand" type="button" onClick={() => { setSelected(undefined); setOrders(undefined); setAddressBookOpen(false); setSellerCenterOpen(false); setAdminOpen(false); }}><span>EVERYSALE</span><strong>에브리세일</strong></button>
+      <button className="brand" type="button" onClick={() => { setSelected(undefined); setOrders(undefined); setAddressBookOpen(false); setSellerCenterOpen(false); setAdminOpen(false); setWishlistOpen(false); }}><span>EVERYSALE</span><strong>에브리세일</strong></button>
       <form className="search-box" onSubmit={event => { event.preventDefault(); setPage(0); setKeyword(searchValue.trim()); }} role="search">
         <Search size={18} /><input value={searchValue} onChange={event => setSearchValue(event.target.value)} placeholder="상품, 브랜드, 판매자 검색" aria-label="마켓 검색" />
         {searchValue && <button type="button" onClick={() => { setSearchValue(''); setKeyword(''); }} title="검색어 지우기"><X size={16} /></button>}
@@ -124,6 +159,7 @@ export function App() {
         {identity.roles.includes('ADMIN') && <button type="button" onClick={openAdmin}><ShieldCheck />운영 관리</button>}
         <button type="button" onClick={openSellerCenter}><Store />상품 판매</button>
         <button type="button" onClick={openAddressBook}><MapPin />배송지</button>
+        <button type="button" onClick={openWishlist}><Heart />찜 목록</button>
         <button type="button" onClick={() => void openOrders()}><ShoppingBag />구매 내역</button>
         <span className="account-chip"><UserRound />{displayName}</span>
       </nav>
@@ -134,6 +170,9 @@ export function App() {
         : adminOpen ? <AdminOperations close={() => setAdminOpen(false)} notify={notify} />
           : sellerCenterOpen ? <SellerCenter identity={identity} close={() => setSellerCenterOpen(false)} notify={notify} onIdentityChange={setIdentity} />
           : addressBookOpen ? <AddressBook close={() => setAddressBookOpen(false)} notify={notify} />
+          : wishlistOpen ? <Wishlist items={wishlist} close={() => setWishlistOpen(false)}
+              onOpen={event => { setWishlistOpen(false); setSelected(event); }}
+              onRemove={saleEventId => toggleWishlist(saleEventId, true)} />
         : orders ? <Orders orders={orders} close={() => setOrders(undefined)} notify={notify} refresh={openOrders} />
           : <>
             <section className="market-toolbar">
@@ -148,7 +187,10 @@ export function App() {
                 onClick={() => { setSaleType(filter.value); setPage(0); }}>{filter.label}</button>)}
             </div>
             {loading ? <div className="content-state"><Loader2 className="spin" />상품을 불러오는 중입니다</div>
-              : events?.content.length ? <section className="event-grid" aria-live="polite">{events.content.map(event => <EventCard key={event.saleEventId} event={event} onOpen={() => setSelected(event)} />)}</section>
+              : events?.content.length ? <section className="event-grid" aria-live="polite">{events.content.map(event => <EventCard key={event.saleEventId} event={event}
+                  onOpen={() => setSelected(event)}
+                  wishlisted={wishlistedIds.has(event.saleEventId)}
+                  onToggleWishlist={() => toggleWishlist(event.saleEventId, wishlistedIds.has(event.saleEventId))} />)}</section>
                 : <div className="content-state"><Search />조건에 맞는 상품이 없습니다</div>}
             {events && events.totalPages > 1 && <nav className="pagination" aria-label="상품 페이지">
               <button className="icon-button" disabled={events.first} onClick={() => setPage(value => value - 1)} title="이전 페이지"><ChevronLeft /></button>
@@ -203,6 +245,51 @@ function Orders({ orders, close, notify, refresh }: { orders: MarketplaceOrder[]
         </div>}
       </article>)}</div>}
   </section>;
+}
+
+/**
+ * 찜 목록.
+ *
+ * 판매가 끝나 이벤트가 내려간 항목도 기록은 남긴다. 사용자가 담아둔 것이
+ * 소리 없이 사라지면 무엇이 없어졌는지조차 알 수 없다.
+ */
+function Wishlist({ items, close, onOpen, onRemove }: {
+  items?: WishlistItem[];
+  close: () => void;
+  onOpen: (event: MarketplaceEvent) => void;
+  onRemove: (saleEventId: string) => void;
+}) {
+  if (!items) {
+    return <div className="content-state"><Loader2 className="spin" />찜 목록을 불러오는 중입니다</div>;
+  }
+
+  return (
+    <section className="wishlist-view" aria-labelledby="wishlist-title">
+      <header>
+        <button className="icon-button" type="button" onClick={close} title="마켓으로"><ChevronLeft /></button>
+        <div><h1 id="wishlist-title">찜 목록</h1><p>담아둔 상품 {items.length}개</p></div>
+      </header>
+
+      {items.length === 0
+        ? <div className="content-state">아직 찜한 상품이 없습니다.</div>
+        : <section className="event-grid">
+            {items.map(item => item.event
+              ? <EventCard key={item.wishlistItemId} event={item.event}
+                  onOpen={() => onOpen(item.event as MarketplaceEvent)}
+                  wishlisted
+                  onToggleWishlist={() => onRemove(item.saleEventId)} />
+              : <article key={item.wishlistItemId} className="event-card event-card--gone">
+                  <div className="event-card__body">
+                    <h2>판매가 종료된 상품</h2>
+                    <p className="wishlist-gone__id">{item.saleEventId}</p>
+                    <button className="text-button" type="button" onClick={() => onRemove(item.saleEventId)}>
+                      <Trash2 size={14} />찜 목록에서 빼기
+                    </button>
+                  </div>
+                </article>)}
+          </section>}
+    </section>
+  );
 }
 
 function AddressBook({ close, notify }: { close: () => void; notify: (message: string, tone?: 'success' | 'error' | 'info') => void }) {

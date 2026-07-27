@@ -20,6 +20,7 @@ import type {
   SellerPayoutAccount,
   SellerPayoutAccountInput,
   SellerReview,
+  WishlistItem,
   TicketSeatHold,
   TicketSeatMap,
   TossIntent
@@ -186,6 +187,11 @@ export const api = {
   }),
   listSellerReviews: (sellerId: string) =>
     request<SellerReview[]>(`/api/c2c/sellers/${encodeURIComponent(sellerId)}/reviews`),
+  listWishlist: () => request<WishlistItem[]>('/api/c2c/wishlist'),
+  addToWishlist: (saleEventId: string) =>
+    request<WishlistItem>(`/api/c2c/wishlist/${encodeURIComponent(saleEventId)}`, { method: 'POST' }),
+  removeFromWishlist: (saleEventId: string) =>
+    request<void>(`/api/c2c/wishlist/${encodeURIComponent(saleEventId)}`, { method: 'DELETE' }),
   reportListing: (listingId: string, reason: string, details: string) => request('/api/c2c/reports', {
     method: 'POST', body: JSON.stringify({ targetType: 'LISTING', targetId: listingId, reason, details })
   }),

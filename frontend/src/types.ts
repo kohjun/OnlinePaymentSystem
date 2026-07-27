@@ -382,3 +382,11 @@ export interface SellerReview {
   comment?: string;
   createdAt?: string;
 }
+
+export interface WishlistItem {
+  wishlistItemId: string;
+  saleEventId: string;
+  createdAt?: string;
+  /** 판매가 끝났거나 비공개로 바뀐 이벤트는 비어 있을 수 있다. */
+  event?: MarketplaceEvent;
+}
