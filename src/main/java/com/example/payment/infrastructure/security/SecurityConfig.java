@@ -45,6 +45,9 @@ public class SecurityConfig {
     @Value("${app.security.external-auth.enabled:false}")
     private boolean externalAuthEnabled;
 
+    @Value("${app.security.local-auth.enabled:true}")
+    private boolean localAuthEnabled;
+
     @Value("${app.security.external-auth.audience:}")
     private String externalAuthAudience;
 
@@ -162,6 +165,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/payments/toss/webhooks/**").permitAll()
+                        // 회원가입과 로그인은 토큰을 받기 전에 호출하는 경로다.
+                        .requestMatchers(HttpMethod.POST, "/api/auth/signup", "/api/auth/login").permitAll()
                         .requestMatchers(HttpMethod.GET,
                                 "/api/marketplace/events",
                                 "/api/marketplace/events/page",
@@ -186,7 +191,11 @@ public class SecurityConfig {
         if (mockAuthEnabled) {
             http.addFilterBefore(mockAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         }
-        if (externalAuthEnabled) {
+        // 자체 발급 토큰도 같은 리소스 서버 경로로 검증한다. 이 조건에
+        // localAuthEnabled가 빠져 있으면 로그인해서 받은 토큰이 아무 데서도
+        // 평가되지 않고, 목 인증이 모든 요청을 기본 계정으로 만들어버린다.
+        // 응답은 200이라 겉으로는 정상으로 보인다.
+        if (externalAuthEnabled || localAuthEnabled) {
             http.oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())));
             http.addFilterAfter(jwtTenantAuthorizationFilter, BearerTokenAuthenticationFilter.class);
         }

@@ -199,6 +199,13 @@ app:
       default-user-id: USER-CUST-1049
       default-customer-id: CUST-1049
       default-roles: CUSTOMER,ADMIN
+    local-auth:
+      # 자체 계정 회원가입/로그인. 외부 IdP를 붙이면 꺼야 한다.
+      enabled: ${LOCAL_AUTH_ENABLED:true}
+      # 로컬 개발용 기본값. 운영에서는 반드시 환경변수로 교체한다.
+      jwt-secret: ${LOCAL_AUTH_JWT_SECRET:everysale-local-development-signing-secret-change-me}
+      issuer: everysale-local
+      token-validity-minutes: ${LOCAL_AUTH_TOKEN_MINUTES:720}
     external-auth:
       enabled: false
       audience: ${OIDC_AUDIENCE:}

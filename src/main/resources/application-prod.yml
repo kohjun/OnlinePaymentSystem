@@ -88,6 +88,10 @@ app:
   security:
     mock-auth:
       enabled: false
+    local-auth:
+      # 상용은 외부 IdP가 인증을 담당한다. 자체 발급 토큰과 OIDC 토큰을
+      # 동시에 신뢰하면 어느 발급자가 만든 토큰인지 구분할 수 없다.
+      enabled: false
     external-auth:
       enabled: true
       audience: ${OIDC_AUDIENCE}

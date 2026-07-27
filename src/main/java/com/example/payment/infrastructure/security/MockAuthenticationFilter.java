@@ -36,7 +36,12 @@ public class MockAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-        if (enabled && SecurityContextHolder.getContext().getAuthentication() == null) {
+        // Bearer 토큰이 실려 있으면 목 인증은 비켜선다. 토큰 검증 필터보다
+        // 먼저 도는 위치라, 여기서 신원을 채워버리면 로그인해서 받은 토큰이
+        // 무시되고 모든 요청이 기본 계정으로 처리된다.
+        if (enabled
+                && SecurityContextHolder.getContext().getAuthentication() == null
+                && !hasBearerToken(request)) {
             String customerId = firstHeader(request, "X-EverySale-Customer-Id", "X-Customer-Id");
             String resolvedCustomerId = defaultText(customerId, defaultCustomerId);
             String userId = firstHeader(request, "X-EverySale-User-Id", "X-User-Id");
@@ -59,6 +64,11 @@ public class MockAuthenticationFilter extends OncePerRequestFilter {
             SecurityContextHolder.getContext().setAuthentication(authentication);
         }
         filterChain.doFilter(request, response);
+    }
+
+    private boolean hasBearerToken(HttpServletRequest request) {
+        String authorization = request.getHeader("Authorization");
+        return authorization != null && authorization.regionMatches(true, 0, "Bearer ", 0, 7);
     }
 
     private String firstHeader(HttpServletRequest request, String... names) {

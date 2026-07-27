@@ -115,6 +115,9 @@ app:
       enabled: true
       default-customer-id: CUST-1049
       default-roles: CUSTOMER,ADMIN
+    local-auth:
+      # 테스트 전용 서명 키. 32바이트 미만이면 컨텍스트가 뜨지 않는다.
+      jwt-secret: everysale-test-signing-secret-32bytes-minimum
     external-auth:
       enabled: false
   temporal:

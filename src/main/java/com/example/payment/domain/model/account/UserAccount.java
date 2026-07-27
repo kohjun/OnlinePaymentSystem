@@ -30,8 +30,16 @@ public class UserAccount {
     @Column(name = "customer_id", nullable = false, unique = true)
     private String customerId;
 
+    /** 로그인 식별자. 소문자로 정규화해 저장한다. 외부 인증 계정은 비어 있을 수 있다. */
     @Column(name = "email")
     private String email;
+
+    /**
+     * BCrypt 해시. 외부 IdP로 들어온 계정은 NULL이며 자체 로그인 대상이 아니다.
+     * 평문 비밀번호는 어디에도 저장하지 않는다.
+     */
+    @Column(name = "password_hash")
+    private String passwordHash;
 
     @Column(name = "display_name")
     private String displayName;
