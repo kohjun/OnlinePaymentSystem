@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -100,6 +101,25 @@ public class ApiExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     ProblemDetail illegalArgument(IllegalArgumentException exception) {
         return problem(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", exception.getMessage(), false);
+    }
+
+    /**
+     * 읽을 수 없는 요청 본문.
+     *
+     * 깨진 JSON이나 잘못된 인코딩으로 온 요청은 클라이언트 잘못이다. 이 핸들러가
+     * 없으면 일반 Exception 핸들러로 떨어져 500에 retryable=true가 나간다.
+     * 서버가 자기 잘못이라고 보고하면서 같은 요청을 다시 보내라고 안내하는
+     * 셈인데, 본문이 깨진 요청은 몇 번을 보내도 똑같이 실패한다.
+     *
+     * 원문 메시지에는 파서 내부 위치나 본문 일부가 섞여 나오므로 그대로
+     * 노출하지 않는다.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    ProblemDetail unreadableBody(HttpMessageNotReadableException exception) {
+        log.warn("Malformed request body: correlationId={}, reason={}",
+                TenantContext.getCorrelationId(), exception.getMostSpecificCause().getMessage());
+        return problem(HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST_BODY",
+                "요청 본문을 읽을 수 없습니다. JSON 형식과 UTF-8 인코딩을 확인하세요.", false);
     }
 
     @ExceptionHandler(Exception.class)

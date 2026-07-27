@@ -9,7 +9,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+
+import java.util.Map;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -70,6 +75,30 @@ class ApiExceptionHandlerTest {
                 .andExpect(jsonPath("$.retryable").value(false));
     }
 
+    @Test
+    void malformedBodyIsClientErrorNotServerError() throws Exception {
+        // 깨진 JSON. 서버 잘못이 아니므로 500이 아니라 400이어야 하고,
+        // 재시도해도 결과가 같으므로 retryable도 false여야 한다.
+        mockMvc.perform(post("/test/body")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ this is not json "))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST_BODY"))
+                .andExpect(jsonPath("$.retryable").value(false))
+                .andExpect(jsonPath("$.correlationId").value("corr-test-1"));
+    }
+
+    @Test
+    void malformedBodyDoesNotLeakParserInternals() throws Exception {
+        // 파서 원문에는 본문 일부와 내부 위치가 섞여 나온다. 그대로 노출하지 않는다.
+        mockMvc.perform(post("/test/body")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"secret\":\"s3cr3t-value\",}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("s3cr3t-value"))));
+    }
+
     @RestController
     static class FailureController {
         @GetMapping("/test/conflict")
@@ -80,6 +109,11 @@ class ApiExceptionHandlerTest {
         @GetMapping("/test/inventory")
         void inventory() {
             throw new ResourceReservationInfrastructureException("redis unavailable");
+        }
+
+        @PostMapping("/test/body")
+        void body(@RequestBody Map<String, String> payload) {
+            // 본문 파싱에 실패하면 이 메서드에는 도달하지 않는다.
         }
 
         @GetMapping("/test/missing")
