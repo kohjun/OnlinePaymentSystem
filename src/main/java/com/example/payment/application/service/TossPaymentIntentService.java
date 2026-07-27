@@ -74,8 +74,23 @@ public class TossPaymentIntentService {
     private final ObjectMapper objectMapper;
     private final RedisTemplate<String, Object> redisTemplate;
 
+    /**
+     * 결제창을 열 수 있는 상태인지 먼저 확인한다.
+     *
+     * 키 문제를 여기서 막지 않으면 재고를 선점하고 주문을 만든 뒤에야
+     * 결제 단계에서 실패하고, 사용자는 브라우저에서 Toss SDK의 내부 오류만
+     * 보게 된다. 어느 쪽이든 원인을 알기 어렵다.
+     */
+    private void requirePaymentWindowClientKey() {
+        String problem = tossProperties.clientKeyProblem();
+        if (problem != null) {
+            throw new MarketplaceCheckoutException(HttpStatus.SERVICE_UNAVAILABLE, problem);
+        }
+    }
+
     @Transactional
     public TossPaymentIntentResponse createIntent(CompleteReservationRequest request) {
+        requirePaymentWindowClientKey();
         checkoutPricingService.applyProductPrice(request, true);
         request.setShippingInfo(shippingAddressService.resolveShippingInfo(request.getCustomerId(), request.getShippingInfo()));
         String requestHash = requestHash(request);
@@ -128,6 +143,7 @@ public class TossPaymentIntentService {
     public TossPaymentIntentResponse createMarketplaceIntent(String eventId,
                                                              MarketplaceCheckoutType checkoutType,
                                                              MarketplaceCheckoutRequest request) {
+        requirePaymentWindowClientKey();
         SaleEvent event = saleEventRepository.findByIdForUpdate(eventId)
                 .orElseThrow(() -> new MarketplaceCheckoutException(HttpStatus.NOT_FOUND, "Sale event not found: " + eventId));
         MarketplaceListing listing = marketplaceListingRepository.findById(event.getListingId())

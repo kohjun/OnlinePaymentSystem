@@ -248,7 +248,23 @@ declare global {
 
 export async function openTossPayment(intent: TossIntent, customerName: string) {
   if (!window.TossPayments) throw new ApiError('Toss Payments SDK를 불러오지 못했습니다.', 503, 'TOSS_SDK_UNAVAILABLE');
+
+  // 결제창(payment)은 'API 개별 연동 키'의 클라이언트 키만 받는다.
+  // 결제위젯 연동 키(test_gck_/live_gck_)를 넘기면 SDK가 내부 오류로 거절하는데,
+  // 그 메시지만으로는 어느 키를 어디서 바꿔야 하는지 알기 어렵다.
+  if (!intent.clientKey) {
+    throw new ApiError('Toss 클라이언트 키가 서버에서 내려오지 않았습니다.', 503, 'TOSS_CLIENT_KEY_MISSING');
+  }
+  if (intent.clientKey.includes('_gck_')) {
+    throw new ApiError(
+      '결제위젯 연동 키는 지원하지 않습니다. API 개별 연동 키의 클라이언트 키(test_ck_/live_ck_)로 설정하세요.',
+      503,
+      'TOSS_WIDGET_KEY_NOT_SUPPORTED'
+    );
+  }
+
   const toss = window.TossPayments(intent.clientKey);
+  // widgets()가 아니라 payment(). 결제창 방식이며 API 개별 연동 키를 쓴다.
   const payment = toss.payment({ customerKey: intent.customerKey });
   await payment.requestPayment({
     method: 'CARD',
