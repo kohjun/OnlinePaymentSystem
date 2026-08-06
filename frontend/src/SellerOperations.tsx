@@ -3,6 +3,7 @@ import {
   Banknote,
   Check,
   CircleAlert,
+  CircleX,
   Clock3,
   Loader2,
   PackageCheck,
@@ -76,6 +77,16 @@ export function SellerOrders({ sellerId, notify }: { sellerId: string; notify: N
     finally { setBusyOrderId(undefined); }
   }
 
+  async function cancel(orderId: string) {
+    setBusyOrderId(orderId);
+    try {
+      await api.cancelOrder(orderId, '판매자 배송 전 취소');
+      notify('주문 취소와 환불을 처리했습니다.', 'success');
+      await load();
+    } catch (error) { notify((error as Error).message, 'error'); }
+    finally { setBusyOrderId(undefined); }
+  }
+
   return <section className="seller-operations">
     <header className="seller-section-header">
       <div><h2>판매 주문</h2><span>결제 완료 주문의 포장과 배송 상태를 처리합니다.</span></div>
@@ -96,8 +107,8 @@ export function SellerOrders({ sellerId, notify }: { sellerId: string; notify: N
             <div className="seller-order-address"><span>배송지</span><strong>{order.shippingRecipientName || (order.seatId ? '디지털 티켓' : '-')}</strong><small>{order.seatId || [order.shippingPostalCode, order.shippingAddress].filter(Boolean).join(' ') || '-'}</small></div>
             <div className="seller-list__actions">
               {order.disputedAt ? <span className="seller-order-alert"><CircleAlert />분쟁 처리 중</span>
-                : order.fulfillmentStatus === 'READY_TO_FULFILL' ? <button className="secondary-button" disabled={busyOrderId === order.marketplaceOrderId} onClick={() => void update(order.marketplaceOrderId, 'PROCESSING')}><PackageCheck />포장 시작</button>
-                  : order.fulfillmentStatus === 'PROCESSING' ? <button className="secondary-button" onClick={() => setShipping({ orderId: order.marketplaceOrderId, carrier: '', trackingNumber: '' })}><Truck />송장 등록</button>
+                : order.fulfillmentStatus === 'READY_TO_FULFILL' ? <><button className="secondary-button" disabled={busyOrderId === order.marketplaceOrderId} onClick={() => void update(order.marketplaceOrderId, 'PROCESSING')}><PackageCheck />포장 시작</button><button className="secondary-button" disabled={busyOrderId === order.marketplaceOrderId} onClick={() => void cancel(order.marketplaceOrderId)}><CircleX />판매 취소</button></>
+                  : order.fulfillmentStatus === 'PROCESSING' ? <><button className="secondary-button" onClick={() => setShipping({ orderId: order.marketplaceOrderId, carrier: '', trackingNumber: '' })}><Truck />송장 등록</button><button className="secondary-button" disabled={busyOrderId === order.marketplaceOrderId} onClick={() => void cancel(order.marketplaceOrderId)}><CircleX />판매 취소</button></>
                     : null}
             </div>
             {shipping?.orderId === order.marketplaceOrderId && <div className="shipping-editor">

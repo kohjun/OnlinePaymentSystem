@@ -11,9 +11,15 @@ import java.util.Optional;
 import java.util.Collection;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.jpa.repository.Lock;
+import jakarta.persistence.LockModeType;
 
 @Repository
 public interface MarketplaceOrderRepository extends JpaRepository<MarketplaceOrder, String> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select order from MarketplaceOrder order where order.marketplaceOrderId = :orderId")
+    Optional<MarketplaceOrder> findByIdForUpdate(@Param("orderId") String orderId);
 
     List<MarketplaceOrder> findByCustomerIdOrderByCreatedAtDesc(String customerId);
 

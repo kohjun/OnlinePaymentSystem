@@ -210,6 +210,9 @@ export const api = {
   setDefaultAddress: (addressId: string) => request<ShippingAddress>(`/api/c2c/addresses/${encodeURIComponent(addressId)}/default`, { method: 'PATCH' }),
   deleteAddress: (addressId: string) => request<void>(`/api/c2c/addresses/${encodeURIComponent(addressId)}`, { method: 'DELETE' }),
   confirmDelivery: (orderId: string) => request(`/api/c2c/orders/${encodeURIComponent(orderId)}/confirm-delivery`, { method: 'POST' }),
+  cancelOrder: (orderId: string, reason: string) => request(`/api/c2c/orders/${encodeURIComponent(orderId)}/cancellations`, {
+    method: 'POST', body: JSON.stringify({ reason })
+  }),
   openDispute: (orderId: string, reason: string) => request(`/api/c2c/orders/${encodeURIComponent(orderId)}/dispute`, {
     method: 'POST', body: JSON.stringify({ reason })
   }),

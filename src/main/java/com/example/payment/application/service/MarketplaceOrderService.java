@@ -341,6 +341,9 @@ public class MarketplaceOrderService {
         if (nextStatus == FulfillmentStatus.NOT_READY) {
             throw new IllegalArgumentException("Fulfillment cannot be moved back to NOT_READY.");
         }
+        if (nextStatus == FulfillmentStatus.CANCELLED) {
+            throw new IllegalArgumentException("CANCELLATION_API_REQUIRED");
+        }
         if (order.getDisputedAt() != null && nextStatus != FulfillmentStatus.CANCELLED) {
             throw new IllegalArgumentException("Disputed marketplace orders cannot be fulfilled until the dispute is resolved.");
         }

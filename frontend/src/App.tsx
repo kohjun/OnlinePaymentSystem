@@ -245,7 +245,7 @@ export function App() {
 }
 
 function Orders({ orders, close, notify, refresh }: { orders: MarketplaceOrder[]; close: () => void; notify: (message: string, tone?: 'success' | 'error' | 'info') => void; refresh: () => Promise<void> }) {
-  const [action, setAction] = useState<{ orderId: string; type: 'dispute' | 'review' }>();
+  const [action, setAction] = useState<{ orderId: string; type: 'cancel' | 'dispute' | 'review' }>();
   const [reason, setReason] = useState('');
   const [rating, setRating] = useState(5);
 
@@ -257,9 +257,11 @@ function Orders({ orders, close, notify, refresh }: { orders: MarketplaceOrder[]
   async function submitAction() {
     if (!action) return;
     try {
-      if (action.type === 'dispute') await api.openDispute(action.orderId, reason);
+      if (action.type === 'cancel') await api.cancelOrder(action.orderId, reason);
+      else if (action.type === 'dispute') await api.openDispute(action.orderId, reason);
       else await api.reviewSeller(action.orderId, rating, reason);
-      notify(action.type === 'dispute' ? '분쟁 조정 요청이 접수되었습니다.' : '판매자 후기가 등록되었습니다.', 'success');
+      notify(action.type === 'cancel' ? '주문 취소 및 환불 요청이 처리되었습니다.'
+        : action.type === 'dispute' ? '분쟁 조정 요청이 접수되었습니다.' : '판매자 후기가 등록되었습니다.', 'success');
       setAction(undefined); setReason(''); await refresh();
     } catch (error) { notify((error as Error).message, 'error'); }
   }
@@ -273,12 +275,13 @@ function Orders({ orders, close, notify, refresh }: { orders: MarketplaceOrder[]
         <div><span>{order.seatId ? '티켓' : '배송'}</span><strong>{order.seatId ? '발급 완료' : order.fulfillmentStatus}</strong></div>
         <div className="order-price"><strong>{formatMoney(order.amount)}</strong><div className="order-buttons">
           {(order.fulfillmentStatus === 'SHIPPED' || order.fulfillmentStatus === 'DELIVERED') && !order.buyerConfirmedAt && <button onClick={() => void confirm(order.marketplaceOrderId)}>구매 확정</button>}
+          {order.status === 'PAID' && (order.fulfillmentStatus === 'READY_TO_FULFILL' || order.fulfillmentStatus === 'PROCESSING') && <button onClick={() => setAction({ orderId: order.marketplaceOrderId, type: 'cancel' })}>주문 취소</button>}
           {!order.disputedAt && <button onClick={() => setAction({ orderId: order.marketplaceOrderId, type: 'dispute' })}>분쟁 요청</button>}
           {order.buyerConfirmedAt && <button onClick={() => setAction({ orderId: order.marketplaceOrderId, type: 'review' })}>후기</button>}
         </div></div>
         {action?.orderId === order.marketplaceOrderId && <div className="order-action">
           {action.type === 'review' && <label>평점<select value={rating} onChange={event => setRating(Number(event.target.value))}><option value="5">5점</option><option value="4">4점</option><option value="3">3점</option><option value="2">2점</option><option value="1">1점</option></select></label>}
-          <label>{action.type === 'dispute' ? '요청 사유' : '후기'}<textarea maxLength={1000} value={reason} onChange={event => setReason(event.target.value)} /></label>
+          <label>{action.type === 'review' ? '후기' : '요청 사유'}<textarea maxLength={1000} value={reason} onChange={event => setReason(event.target.value)} /></label>
           <div><button onClick={() => setAction(undefined)}>취소</button><button className="primary-button" onClick={() => void submitAction()}>등록</button></div>
         </div>}
       </article>)}</div>}

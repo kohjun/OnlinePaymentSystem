@@ -127,6 +127,17 @@ public class SellerPayoutService {
     }
 
     @Transactional
+    public Optional<SellerPayoutResponse> cancelForOrderCancellation(String sourceType, String sourceId) {
+        return sellerPayoutRepository.findBySourceTypeAndSourceId(sourceType, sourceId)
+                .map(payout -> {
+                    payout.setStatus(payout.getStatus() == SellerPayoutStatus.RELEASED
+                            ? SellerPayoutStatus.RECOVERY_REQUIRED
+                            : SellerPayoutStatus.CANCELLED);
+                    return toResponse(sellerPayoutRepository.save(payout));
+                });
+    }
+
+    @Transactional
     public Optional<SellerPayoutResponse> applyProviderRefundStatus(String sourceType, String sourceId, boolean partialRefund) {
         return sellerPayoutRepository.findBySourceTypeAndSourceId(sourceType, sourceId)
                 .map(payout -> {

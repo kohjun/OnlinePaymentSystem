@@ -42,6 +42,25 @@ class MarketplaceOrderServiceTest {
     );
 
     @Test
+    void sellerCannotBypassRefundBySettingFulfillmentCancelled() {
+        MarketplaceOrder order = MarketplaceOrder.builder()
+                .marketplaceOrderId("MORD-CANCEL")
+                .sellerId("SELLER-1")
+                .status(MarketplaceOrderStatus.PAID)
+                .fulfillmentStatus(FulfillmentStatus.READY_TO_FULFILL)
+                .build();
+        when(repository.findByMarketplaceOrderIdAndSellerId("MORD-CANCEL", "SELLER-1"))
+                .thenReturn(Optional.of(order));
+
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> service.updateFulfillment(
+                        "SELLER-1", "MORD-CANCEL", FulfillmentStatus.CANCELLED));
+
+        assertEquals("CANCELLATION_API_REQUIRED", failure.getMessage());
+        verify(repository, never()).save(order);
+    }
+
+    @Test
     void recordsSuccessfulDirectCheckoutAsPaidFulfillmentReadyOrder() {
         when(repository.findByOrderId("ORD-1")).thenReturn(Optional.empty());
         when(repository.save(any(MarketplaceOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
