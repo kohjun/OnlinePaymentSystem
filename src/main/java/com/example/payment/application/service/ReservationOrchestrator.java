@@ -25,7 +25,6 @@ import com.example.payment.presentation.dto.request.CompleteReservationRequest;
 // [추가] 2. CompleteReservationResponse 임포트 (문제 2.A)
 import com.example.payment.presentation.dto.response.CompleteReservationResponse;
 import com.example.payment.presentation.dto.response.ReservationResponse;
-import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -44,7 +43,6 @@ import java.util.Map;
 @Service
 @Slf4j
 @RequiredArgsConstructor
-@Transactional
 public class ReservationOrchestrator {
 
     // 도메인 서비스들

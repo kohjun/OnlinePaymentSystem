@@ -113,8 +113,20 @@ tasks.named('test') {
 tasks.register('integrationTest', Test) {
     description = 'Runs Docker/Testcontainers-backed integration tests.'
     group = 'verification'
+    def executedIntegrationTests = 0
     useJUnitPlatform {
         includeTags 'integration'
+    }
+    afterTest { descriptor, result ->
+        if (result.resultType != org.gradle.api.tasks.testing.TestResult.ResultType.SKIPPED) {
+            executedIntegrationTests++
+        }
+    }
+    doLast {
+        if (executedIntegrationTests == 0) {
+            throw new GradleException(
+                    'No Docker integration tests executed. Start Docker Desktop and verify its Linux engine before retrying.')
+        }
     }
     shouldRunAfter test
 }

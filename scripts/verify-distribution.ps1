@@ -313,6 +313,13 @@ Invoke-Step "Toss payment configuration scan" {
     Assert-LiteralMatch "auction-auto-close-enabled" @("src\main\java\com\example\payment\application\service\DistributionReadinessService.java") "auction auto-close readiness check"
     Assert-LiteralMatch "marketplace-realtime-broadcast-enabled" @("src\main\java\com\example\payment\application\service\DistributionReadinessService.java") "distributed marketplace realtime readiness check"
     Assert-LiteralMatch "MarketplaceConcurrencyIntegrationTest" @("README.md", "src\test\java\com\example\payment\MarketplaceConcurrencyIntegrationTest.java") "commercial concurrency integration gate"
+    Assert-LiteralMatch "CommerceLifecycleHttpIntegrationTest" @("README.md", "src\test\java\com\example\payment\CommerceLifecycleHttpIntegrationTest.java") "commercial HTTP lifecycle integration gate"
+    $commercialSmokePath = @("scripts\verify-c2c-commercial-smoke.ps1")
+    Assert-LiteralMatch "FIXED_PRICE" $commercialSmokePath "fixed-price commercial smoke coverage"
+    Assert-LiteralMatch "DROP" $commercialSmokePath "drop commercial smoke coverage"
+    Assert-LiteralMatch "AUCTION" $commercialSmokePath "auction commercial smoke coverage"
+    Assert-LiteralMatch "RAFFLE" $commercialSmokePath "raffle commercial smoke coverage"
+    Assert-LiteralMatch "CUST-BUYER-SMOKE" @("scripts\verify-c2c-commercial-smoke.ps1") "commercial smoke distinct buyer identity"
     Assert-LiteralMatch "redis-broadcast-enabled: true" @("src\main\resources\application-prod.yml") "production distributed marketplace realtime broadcast"
     Assert-LiteralMatch "seller-payout-transfer-provider" @("src\main\java\com\example\payment\application\service\DistributionReadinessService.java") "seller payout transfer readiness check"
     Assert-LiteralMatch "seller-payout-reconciliation-enabled" @("src\main\java\com\example\payment\application\service\DistributionReadinessService.java") "seller payout reconciliation readiness check"

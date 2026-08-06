@@ -373,8 +373,10 @@ Unit test suite (excludes Docker-backed and Toss-sandbox tests by tag):
 Docker-backed integration suite:
 
 ```powershell
-.\gradlew.bat integrationTest --no-daemon
+.\gradlew.bat integrationTest --no-daemon --no-problems-report
 ```
+
+The integration gate starts PostgreSQL, Redis, Kafka, Temporal, and a Toss-compatible HTTP stub for the commercial checkout lifecycle. It fails when Docker is unavailable or when every integration test is skipped; a green task therefore means that at least one Docker scenario actually ran.
 
 Coverage report, merging unit and integration execution data:
 
@@ -431,7 +433,10 @@ C2C seller onboarding, review, listing publication, Toss intent creation, and op
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-c2c-commercial-smoke.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-c2c-commercial-smoke.ps1 -SaleType DROP
 ```
+
+The smoke script always uses distinct seller and buyer identities. `FIXED_PRICE` and `DROP` also create a Toss test payment intent; `AUCTION` and `RAFFLE` validate publication and operations readiness before their winner flow is exercised in the UI scenario.
 
 See [docs/c2c-commercial-e2e.md](docs/c2c-commercial-e2e.md) for the two-browser auction/raffle scenarios and final success criteria.
 

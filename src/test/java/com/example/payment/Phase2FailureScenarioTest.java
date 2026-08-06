@@ -1,6 +1,7 @@
 package com.example.payment;
 
 import com.example.payment.application.dto.PaymentGatewayResult;
+import com.example.payment.application.dto.PaymentRefundRequest;
 import com.example.payment.application.service.InventoryManagementService;
 import com.example.payment.application.service.OrderService;
 import com.example.payment.domain.model.inventory.Reservation;
@@ -88,7 +89,7 @@ class Phase2FailureScenarioTest extends TestcontainersIntegrationSupport {
                         .approvalNumber("MOCK_APPROVAL_PHASE2")
                         .processedAmount(new BigDecimal("100.00"))
                         .build());
-        when(mockPaymentGateway.refundPayment(any(String.class))).thenReturn(true);
+        when(mockPaymentGateway.refundPayment(any(PaymentRefundRequest.class))).thenReturn(true);
         when(mockPaymentGateway.getGatewayName()).thenReturn("MOCK_PAYMENT_GATEWAY");
 
         System.out.println("✅ Setup 완료: Redis 재고 초기화, MockGateway 설정");
@@ -177,7 +178,7 @@ class Phase2FailureScenarioTest extends TestcontainersIntegrationSupport {
         System.out.println("✅ Redis 재고 롤백 확인");
 
         // [검증 2] PG 환불이 호출되었는지 확인
-        verify(mockPaymentGateway, atLeastOnce()).refundPayment(any(String.class));
+        verify(mockPaymentGateway, atLeastOnce()).refundPayment(any(PaymentRefundRequest.class));
         System.out.println("✅ PG 환불 호출 확인");
 
         System.out.println("\n✅✅✅ Phase 2 주문 업데이트 실패 시 보상 트랜잭션이 정상 작동했습니다!");

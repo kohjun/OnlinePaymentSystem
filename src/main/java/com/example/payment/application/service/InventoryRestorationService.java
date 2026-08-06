@@ -11,6 +11,7 @@ import com.example.payment.infrastructure.util.IdGenerator;
 import com.example.payment.infrastructure.util.ResourceReservationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -25,7 +26,7 @@ public class InventoryRestorationService {
     private final ResourceReservationService resourceReservationService;
     private final InventorySyncIssueService inventorySyncIssueService;
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public InventoryMovement restoreCancelledOrder(MarketplaceOrder order, String operationKey) {
         InventoryMovement existing = movementRepository.findByOperationKey(operationKey).orElse(null);
         if (existing != null) {

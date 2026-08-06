@@ -14,6 +14,7 @@ import com.example.payment.infrastructure.security.CommerceActor;
 import com.example.payment.infrastructure.util.IdGenerator;
 import com.example.payment.presentation.dto.response.OrderCancellationResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -25,6 +26,7 @@ import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class OrderCancellationLedgerWriter {
 
     private final MarketplaceOrderRepository orderRepository;
@@ -97,6 +99,8 @@ public class OrderCancellationLedgerWriter {
                 inventoryRestorationService.restoreCancelledOrder(
                         order, "order-cancel-restore-" + order.getMarketplaceOrderId());
             } catch (RuntimeException syncFailure) {
+                log.error("Inventory restoration deferred after order cancellation: orderId={}, productId={}",
+                        order.getMarketplaceOrderId(), order.getProductId(), syncFailure);
                 cancellation.setFailureReason("Inventory restoration queued for reconciliation: "
                         + safeMessage(syncFailure));
             }

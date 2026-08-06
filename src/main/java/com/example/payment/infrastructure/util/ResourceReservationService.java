@@ -27,18 +27,18 @@ public class ResourceReservationService {
             local quantity = tonumber(ARGV[1])
             local operationTtl = tonumber(ARGV[2])
             if redis.call('SETNX', KEYS[2], '1') == 0 then
-              return 0
+              return '0'
             end
             redis.call('EXPIRE', KEYS[2], operationTtl)
             local total = tonumber(redis.call('HGET', KEYS[1], 'total'))
             local available = tonumber(redis.call('HGET', KEYS[1], 'available'))
             if total == nil or available == nil then
               redis.call('DEL', KEYS[2])
-              return -1
+              return '-1'
             end
             local restored = math.min(total, available + quantity)
             redis.call('HSET', KEYS[1], 'available', restored)
-            return restored - available
+            return tostring(restored - available)
             """, String.class);
     private static final TypeReference<Map<String, Object>> SCRIPT_RESULT_TYPE = new TypeReference<>() {};
 
