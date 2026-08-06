@@ -1,5 +1,6 @@
 export type SaleType = 'FIXED_PRICE' | 'DROP' | 'RAFFLE' | 'AUCTION';
-export type EventStatus = 'SCHEDULED' | 'LIVE' | 'ENDED' | 'CANCELLED';
+export type EventStatus = 'SCHEDULED' | 'LIVE' | 'ACTIVATION_FAILED' | 'ENDED' | 'CANCELLED';
+export type ActivationMode = 'IMMEDIATE' | 'SCHEDULED';
 export type ListingStatus = 'DRAFT' | 'PENDING_REVIEW' | 'ACTIVE' | 'REJECTED' | 'PAUSED' | 'ENDED';
 export type SellerVerificationStatus = 'UNVERIFIED' | 'PENDING_REVIEW' | 'VERIFIED' | 'REJECTED';
 export type FulfillmentStatus = 'NOT_READY' | 'READY_TO_FULFILL' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
@@ -30,6 +31,8 @@ export interface MarketplaceEvent {
   digitalTicket: boolean;
   saleType: SaleType;
   status: EventStatus;
+  activationMode?: ActivationMode;
+  activationFailureReason?: string;
   price: number;
   currency: string;
   totalQuantity: number;
@@ -82,6 +85,8 @@ export interface SellerListing {
   saleEventId?: string;
   saleType?: SaleType;
   saleEventStatus?: EventStatus;
+  activationMode?: ActivationMode;
+  activationFailureReason?: string;
   startsAt?: string;
   endsAt?: string;
   reviewedBy?: string;
@@ -112,6 +117,7 @@ export interface SaleEventInput {
   endsAt?: string;
   minBidIncrement?: number;
   reservePrice?: number;
+  activationMode: ActivationMode;
   publishImmediately: boolean;
 }
 

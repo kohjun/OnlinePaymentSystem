@@ -34,6 +34,7 @@ import com.example.payment.infrastructure.security.CommerceActor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -227,7 +228,7 @@ class TossPaymentIntentServiceTest {
                 .status(AuctionSettlementStatus.AWAITING_PAYMENT)
                 .inventoryReservationId("WINRES-AUCTION-1")
                 .createdAt(LocalDateTime.now())
-                .checkoutExpiresAt(LocalDateTime.now().plusMinutes(30))
+                .checkoutExpiresAt(LocalDateTime.now(ZoneOffset.UTC).plusMinutes(30))
                 .build()));
         when(repository.countActiveMarketplaceSource(eq("SET-1"), any(), any())).thenReturn(0L);
         when(inventoryRepository.findByIdForUpdate("PROD-AUCTION")).thenReturn(Optional.of(Inventory.builder()
@@ -393,8 +394,8 @@ class TossPaymentIntentServiceTest {
                 .productId("PROD-DROP")
                 .saleType(SaleType.DROP)
                 .status(SaleEventStatus.LIVE)
-                .startsAt(LocalDateTime.now().minusMinutes(5))
-                .endsAt(LocalDateTime.now().plusHours(1))
+                .startsAt(LocalDateTime.now(ZoneOffset.UTC).minusMinutes(5))
+                .endsAt(LocalDateTime.now(ZoneOffset.UTC).plusHours(1))
                 .price(new BigDecimal("150000"))
                 .stockQuantity(10)
                 .build();

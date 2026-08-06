@@ -15,6 +15,7 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
 @Entity
 @Table(name = "sale_events")
@@ -44,6 +45,16 @@ public class SaleEvent {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private SaleEventStatus status;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "activation_mode", nullable = false)
+    private SaleEventActivationMode activationMode;
+
+    @Column(name = "activation_failure_reason", length = 1000)
+    private String activationFailureReason;
+
+    @Column(name = "active_schedule_slot", unique = true)
+    private String activeScheduleSlot;
 
     @Column(name = "starts_at", nullable = false)
     private LocalDateTime startsAt;
@@ -79,7 +90,7 @@ public class SaleEvent {
 
     @PrePersist
     void onCreate() {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         if (createdAt == null) {
             createdAt = now;
         }
@@ -87,6 +98,12 @@ public class SaleEvent {
         if (status == null) {
             status = SaleEventStatus.SCHEDULED;
         }
+        if (activationMode == null) {
+            activationMode = status == SaleEventStatus.LIVE
+                    ? SaleEventActivationMode.IMMEDIATE
+                    : SaleEventActivationMode.SCHEDULED;
+        }
+        synchronizeActiveScheduleSlot();
         if (maxQuantityPerCustomer == null) {
             maxQuantityPerCustomer = saleType == SaleType.FIXED_PRICE ? stockQuantity : 1;
         }
@@ -94,6 +111,13 @@ public class SaleEvent {
 
     @PreUpdate
     void onUpdate() {
-        updatedAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now(ZoneOffset.UTC);
+        synchronizeActiveScheduleSlot();
+    }
+
+    private void synchronizeActiveScheduleSlot() {
+        activeScheduleSlot = status == SaleEventStatus.SCHEDULED || status == SaleEventStatus.LIVE
+                ? listingId
+                : null;
     }
 }

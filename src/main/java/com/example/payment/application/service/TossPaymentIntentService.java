@@ -41,6 +41,7 @@ import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -634,7 +635,7 @@ public class TossPaymentIntentService {
     }
 
     private void validateEventWindow(SaleEvent event) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         if (event.getStartsAt() != null && event.getStartsAt().isAfter(now)) {
             throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "Sale event has not started.");
         }
@@ -675,13 +676,15 @@ public class TossPaymentIntentService {
     }
 
     private void validateRaffleWinnerPaymentWindow(RaffleWinner winner) {
-        if (winner.getCheckoutExpiresAt() != null && !winner.getCheckoutExpiresAt().isAfter(LocalDateTime.now())) {
+        if (winner.getCheckoutExpiresAt() != null
+                && !winner.getCheckoutExpiresAt().isAfter(LocalDateTime.now(ZoneOffset.UTC))) {
             throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "RAFFLE_WINNER_CHECKOUT_EXPIRED");
         }
     }
 
     private void validateAuctionSettlementPaymentWindow(AuctionSettlement settlement) {
-        if (settlement.getCheckoutExpiresAt() != null && !settlement.getCheckoutExpiresAt().isAfter(LocalDateTime.now())) {
+        if (settlement.getCheckoutExpiresAt() != null
+                && !settlement.getCheckoutExpiresAt().isAfter(LocalDateTime.now(ZoneOffset.UTC))) {
             throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "AUCTION_WINNER_CHECKOUT_EXPIRED");
         }
     }

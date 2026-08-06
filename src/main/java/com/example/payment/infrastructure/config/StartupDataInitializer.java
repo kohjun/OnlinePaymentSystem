@@ -26,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 
@@ -102,8 +103,8 @@ public class StartupDataInitializer implements ApplicationRunner {
                 .description(description)
                 .price(price)
                 .category(category)
-                .createdAt(LocalDateTime.now())
-                .updatedAt(LocalDateTime.now())
+                .createdAt(LocalDateTime.now(ZoneOffset.UTC))
+                .updatedAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build()));
 
         inventoryRepository.findById(id).orElseGet(() -> inventoryRepository.save(Inventory.builder()
@@ -112,7 +113,7 @@ public class StartupDataInitializer implements ApplicationRunner {
                 .availableQuantity(quantity)
                 .reservedQuantity(0)
                 .version(0L)
-                .lastUpdatedAt(LocalDateTime.now())
+                .lastUpdatedAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build()));
 
         log.info("Seed data ready: productId={}, quantity={}", id, quantity);
@@ -150,7 +151,7 @@ public class StartupDataInitializer implements ApplicationRunner {
                 "DIGITAL_TICKET"
         );
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         seedSaleEvent(
                 "EVT-DRAW-NIKE",
                 "LIST-DRAW-NIKE",
@@ -206,8 +207,8 @@ public class StartupDataInitializer implements ApplicationRunner {
                 .displayName(displayName)
                 .status(SellerStatus.ACTIVE)
                 .verificationStatus(verificationStatus)
-                .createdAt(LocalDateTime.now())
-                .updatedAt(LocalDateTime.now())
+                .createdAt(LocalDateTime.now(ZoneOffset.UTC))
+                .updatedAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build()));
     }
 
@@ -222,8 +223,8 @@ public class StartupDataInitializer implements ApplicationRunner {
                 .imageUrl(imageUrl)
                 .itemCondition(itemCondition)
                 .status(ListingStatus.ACTIVE)
-                .createdAt(LocalDateTime.now())
-                .updatedAt(LocalDateTime.now())
+                .createdAt(LocalDateTime.now(ZoneOffset.UTC))
+                .updatedAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build()));
     }
 
@@ -244,8 +245,8 @@ public class StartupDataInitializer implements ApplicationRunner {
                 .stockQuantity(stockQuantity)
                 .minBidIncrement(minBidIncrement)
                 .reservePrice(reservePrice)
-                .createdAt(LocalDateTime.now())
-                .updatedAt(LocalDateTime.now())
+                .createdAt(LocalDateTime.now(ZoneOffset.UTC))
+                .updatedAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build()));
     }
 
@@ -253,12 +254,13 @@ public class StartupDataInitializer implements ApplicationRunner {
                                                LocalDateTime startsAt,
                                                LocalDateTime endsAt) {
         saleEventRepository.findById(saleEventId).ifPresent(event -> {
-            boolean expired = event.getEndsAt() != null && !event.getEndsAt().isAfter(LocalDateTime.now());
+            boolean expired = event.getEndsAt() != null
+                    && !event.getEndsAt().isAfter(LocalDateTime.now(ZoneOffset.UTC));
             if (expired || event.getStatus() == SaleEventStatus.ENDED) {
                 event.setStatus(SaleEventStatus.LIVE);
                 event.setStartsAt(startsAt);
                 event.setEndsAt(endsAt);
-                event.setUpdatedAt(LocalDateTime.now());
+                event.setUpdatedAt(LocalDateTime.now(ZoneOffset.UTC));
                 saleEventRepository.save(event);
                 log.info("Refreshed expired demo ticket event: saleEventId={}, endsAt={}", saleEventId, endsAt);
             }

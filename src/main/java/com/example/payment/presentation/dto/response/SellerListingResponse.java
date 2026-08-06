@@ -2,6 +2,7 @@ package com.example.payment.presentation.dto.response;
 
 import com.example.payment.domain.model.marketplace.ListingStatus;
 import com.example.payment.domain.model.marketplace.SaleEventStatus;
+import com.example.payment.domain.model.marketplace.SaleEventActivationMode;
 import com.example.payment.domain.model.marketplace.SaleType;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.Builder;
@@ -33,6 +34,8 @@ public class SellerListingResponse {
     private String saleEventId;
     private SaleType saleType;
     private SaleEventStatus saleEventStatus;
+    private SaleEventActivationMode activationMode;
+    private String activationFailureReason;
 
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime startsAt;

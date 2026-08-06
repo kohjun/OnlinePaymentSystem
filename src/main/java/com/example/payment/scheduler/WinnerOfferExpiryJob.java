@@ -13,6 +13,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
 @Component
 @RequiredArgsConstructor
@@ -31,7 +32,7 @@ public class WinnerOfferExpiryJob {
 
     @Scheduled(fixedDelayString = "${app.marketplace.winner-offer-expiry-fixed-delay-ms:5000}")
     public void transferExpiredOffers() {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         auctionSettlementRepository.findByStatusAndCheckoutExpiresAtBefore(
                         AuctionSettlementStatus.AWAITING_PAYMENT, now)
                 .forEach(settlement -> transferAuctionOffer(settlement.getSettlementId(), now));

@@ -5,6 +5,7 @@ import com.example.payment.domain.model.inventory.Product;
 import com.example.payment.domain.model.marketplace.ListingStatus;
 import com.example.payment.domain.model.marketplace.MarketplaceListing;
 import com.example.payment.domain.model.marketplace.SaleEvent;
+import com.example.payment.domain.model.marketplace.SaleEventActivationMode;
 import com.example.payment.domain.model.marketplace.SaleEventStatus;
 import com.example.payment.domain.model.marketplace.SaleType;
 import com.example.payment.domain.model.marketplace.SellerProfile;
@@ -16,6 +17,7 @@ import com.example.payment.domain.repository.ProductRepository;
 import com.example.payment.domain.repository.SaleEventRepository;
 import com.example.payment.domain.repository.SellerProfileRepository;
 import com.example.payment.infrastructure.util.ResourceReservationService;
+import com.example.payment.infrastructure.messaging.outbox.OutboxEventService;
 import com.example.payment.presentation.dto.request.CreateSaleEventRequest;
 import com.example.payment.presentation.dto.request.CreateSellerListingRequest;
 import com.example.payment.presentation.dto.request.CreateSellerRequest;
@@ -30,9 +32,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -46,6 +52,8 @@ public class SellerMarketplaceService {
     private final MarketplaceListingRepository marketplaceListingRepository;
     private final SaleEventRepository saleEventRepository;
     private final ResourceReservationService resourceReservationService;
+    private final OutboxEventService outboxEventService;
+    private final MarketplaceRealtimeService realtimeService;
 
     @Transactional
     public SellerResponse createSeller(CreateSellerRequest request) {
@@ -351,15 +359,23 @@ public class SellerMarketplaceService {
                 : mapCategoryToSaleType(product.getCategory());
         validateSaleEvent(saleType, request.getPrice(), request.getQuantity(),
                 request.getMinBidIncrement(), request.getReservePrice());
+        SaleSchedule schedule = saleSchedule(
+                request.getActivationMode(),
+                request.getPublishImmediately(),
+                request.getStartsAt(),
+                request.getEndsAt(),
+                saleType
+        );
         SaleEvent event = saleEventRepository.save(SaleEvent.builder()
                 .saleEventId("EVT-" + shortId())
                 .listingId(listing.getListingId())
                 .sellerId(seller.getSellerId())
                 .productId(productId)
                 .saleType(saleType)
-                .status(initialSaleEventStatus(listing, Boolean.TRUE.equals(request.getPublishImmediately())))
-                .startsAt(defaultStart(request.getStartsAt(), Boolean.TRUE.equals(request.getPublishImmediately())))
-                .endsAt(defaultEnd(request.getEndsAt(), saleType))
+                .status(initialSaleEventStatus(listing, schedule))
+                .activationMode(schedule.activationMode())
+                .startsAt(schedule.startsAt())
+                .endsAt(schedule.endsAt())
                 .price(product.getPrice())
                 .stockQuantity(inventory.getTotalQuantity())
                 .minBidIncrement(request.getMinBidIncrement())
@@ -367,6 +383,9 @@ public class SellerMarketplaceService {
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build());
+        if (event.getStatus() == SaleEventStatus.LIVE) {
+            notifySaleStarted(event);
+        }
 
         return toListingResponse(listing, product, inventory, event);
     }
@@ -401,6 +420,18 @@ public class SellerMarketplaceService {
         if (request.getStockQuantity() > availableQuantity) {
             throw new IllegalArgumentException("Sale event stock cannot exceed available inventory: " + listingId);
         }
+        if (saleEventRepository.existsByListingIdAndStatusIn(
+                listingId, List.of(SaleEventStatus.SCHEDULED, SaleEventStatus.LIVE))) {
+            throw new IllegalArgumentException("Listing already has an active or scheduled sale event: " + listingId);
+        }
+
+        SaleSchedule schedule = saleSchedule(
+                request.getActivationMode(),
+                request.getPublishImmediately(),
+                request.getStartsAt(),
+                request.getEndsAt(),
+                request.getSaleType()
+        );
 
         SaleEvent event = saleEventRepository.save(SaleEvent.builder()
                 .saleEventId("EVT-" + shortId())
@@ -408,11 +439,12 @@ public class SellerMarketplaceService {
                 .sellerId(sellerId)
                 .productId(listing.getProductId())
                 .saleType(request.getSaleType())
-                .status(Boolean.TRUE.equals(request.getPublishImmediately())
-                        ? SaleEventStatus.LIVE
-                        : SaleEventStatus.SCHEDULED)
-                .startsAt(defaultStart(request.getStartsAt(), Boolean.TRUE.equals(request.getPublishImmediately())))
-                .endsAt(defaultEnd(request.getEndsAt(), request.getSaleType()))
+                .status(schedule.startsAt().isAfter(utcNow())
+                        ? SaleEventStatus.SCHEDULED
+                        : SaleEventStatus.LIVE)
+                .activationMode(schedule.activationMode())
+                .startsAt(schedule.startsAt())
+                .endsAt(schedule.endsAt())
                 .price(request.getPrice())
                 .stockQuantity(request.getStockQuantity())
                 .maxQuantityPerCustomer(maxQuantityPerCustomer)
@@ -421,6 +453,9 @@ public class SellerMarketplaceService {
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build());
+        if (event.getStatus() == SaleEventStatus.LIVE) {
+            notifySaleStarted(event);
+        }
 
         Product product = productRepository.findById(listing.getProductId())
                 .orElseThrow(() -> new IllegalArgumentException("Product not found: " + listing.getProductId()));
@@ -441,11 +476,20 @@ public class SellerMarketplaceService {
             throw new IllegalArgumentException("Listing must be approved before publishing: " + listing.getListingId());
         }
 
-        event.setStatus(SaleEventStatus.LIVE);
-        if (event.getStartsAt() == null || event.getStartsAt().isAfter(LocalDateTime.now())) {
-            event.setStartsAt(LocalDateTime.now());
+        if (event.getStatus() == SaleEventStatus.ENDED || event.getStatus() == SaleEventStatus.CANCELLED) {
+            throw new IllegalArgumentException("Ended or cancelled sale events cannot be published: " + eventId);
         }
+        event.setActivationMode(event.getStartsAt().isAfter(utcNow())
+                ? SaleEventActivationMode.SCHEDULED
+                : SaleEventActivationMode.IMMEDIATE);
+        event.setStatus(event.getStartsAt().isAfter(utcNow())
+                ? SaleEventStatus.SCHEDULED
+                : SaleEventStatus.LIVE);
+        event.setActivationFailureReason(null);
         SaleEvent savedEvent = saleEventRepository.save(event);
+        if (savedEvent.getStatus() == SaleEventStatus.LIVE) {
+            notifySaleStarted(savedEvent);
+        }
 
         Product product = productRepository.findById(savedEvent.getProductId())
                 .orElseThrow(() -> new IllegalArgumentException("Product not found: " + savedEvent.getProductId()));
@@ -481,6 +525,7 @@ public class SellerMarketplaceService {
         if (event != null && event.getStatus() == SaleEventStatus.SCHEDULED && isReadyToGoLive(event)) {
             event.setStatus(SaleEventStatus.LIVE);
             event = saleEventRepository.save(event);
+            notifySaleStarted(event);
         }
 
         Product product = productRepository.findById(savedListing.getProductId())
@@ -624,6 +669,8 @@ public class SellerMarketplaceService {
                 .saleEventId(event != null ? event.getSaleEventId() : null)
                 .saleType(event != null ? event.getSaleType() : null)
                 .saleEventStatus(event != null ? event.getStatus() : null)
+                .activationMode(event != null ? event.getActivationMode() : null)
+                .activationFailureReason(event != null ? event.getActivationFailureReason() : null)
                 .startsAt(event != null ? event.getStartsAt() : null)
                 .endsAt(event != null ? event.getEndsAt() : null)
                 .reviewedBy(listing.getReviewedBy())
@@ -658,8 +705,8 @@ public class SellerMarketplaceService {
         };
     }
 
-    private SaleEventStatus initialSaleEventStatus(MarketplaceListing listing, boolean publishImmediately) {
-        return listing.getStatus() == ListingStatus.ACTIVE && publishImmediately
+    private SaleEventStatus initialSaleEventStatus(MarketplaceListing listing, SaleSchedule schedule) {
+        return listing.getStatus() == ListingStatus.ACTIVE && !schedule.startsAt().isAfter(utcNow())
                 ? SaleEventStatus.LIVE
                 : SaleEventStatus.SCHEDULED;
     }
@@ -672,30 +719,77 @@ public class SellerMarketplaceService {
     }
 
     private boolean isReadyToGoLive(SaleEvent event) {
-        return event.getStartsAt() == null || !event.getStartsAt().isAfter(LocalDateTime.now());
+        return event.getStartsAt() == null || !event.getStartsAt().isAfter(utcNow());
     }
 
     private String normalizeCategory(String category) {
         return category.trim().toUpperCase(Locale.ROOT);
     }
 
-    private LocalDateTime defaultStart(LocalDateTime requested, boolean publishImmediately) {
-        if (requested != null) {
-            return requested;
+    private SaleSchedule saleSchedule(SaleEventActivationMode requestedMode,
+                                      Boolean publishImmediately,
+                                      OffsetDateTime requestedStart,
+                                      OffsetDateTime requestedEnd,
+                                      SaleType saleType) {
+        LocalDateTime now = utcNow();
+        LocalDateTime startsAt = requestedStart != null
+                ? requestedStart.withOffsetSameInstant(ZoneOffset.UTC).toLocalDateTime()
+                : Boolean.TRUE.equals(publishImmediately) || requestedMode == SaleEventActivationMode.IMMEDIATE
+                        ? now
+                        : now.plusHours(1);
+        SaleEventActivationMode activationMode = requestedMode != null
+                ? requestedMode
+                : Boolean.TRUE.equals(publishImmediately)
+                        ? SaleEventActivationMode.IMMEDIATE
+                        : SaleEventActivationMode.SCHEDULED;
+        if (startsAt.isAfter(now)) {
+            activationMode = SaleEventActivationMode.SCHEDULED;
         }
-        return publishImmediately ? LocalDateTime.now() : LocalDateTime.now().plusHours(1);
+        if (saleType != SaleType.FIXED_PRICE && requestedEnd == null) {
+            throw new IllegalArgumentException("Auction, raffle, and drop sales require an end time.");
+        }
+        LocalDateTime endsAt = requestedEnd != null
+                ? requestedEnd.withOffsetSameInstant(ZoneOffset.UTC).toLocalDateTime()
+                : null;
+        validateSchedule(saleType, startsAt, endsAt);
+        return new SaleSchedule(activationMode, startsAt, endsAt);
     }
 
-    private LocalDateTime defaultEnd(LocalDateTime requested, SaleType saleType) {
-        if (requested != null) {
-            return requested;
+    private void validateSchedule(SaleType saleType, LocalDateTime startsAt, LocalDateTime endsAt) {
+        if (saleType != SaleType.FIXED_PRICE && endsAt == null) {
+            throw new IllegalArgumentException("Auction, raffle, and drop sales require an end time.");
         }
-        return switch (saleType) {
-            case AUCTION -> LocalDateTime.now().plusHours(6);
-            case RAFFLE -> LocalDateTime.now().plusDays(7);
-            case DROP -> LocalDateTime.now().plusDays(1);
-            case FIXED_PRICE -> null;
-        };
+        if (endsAt != null && !endsAt.isAfter(startsAt)) {
+            throw new IllegalArgumentException("Sale event end time must be after its start time.");
+        }
+    }
+
+    private LocalDateTime utcNow() {
+        return LocalDateTime.now(ZoneOffset.UTC);
+    }
+
+    private void notifySaleStarted(SaleEvent event) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("saleEventId", event.getSaleEventId());
+        payload.put("status", event.getStatus());
+        payload.put("activationMode", event.getActivationMode());
+        payload.put("startsAt", event.getStartsAt());
+        if (event.getEndsAt() != null) {
+            payload.put("endsAt", event.getEndsAt());
+        }
+        outboxEventService.record(
+                "SALE_EVENT", event.getSaleEventId(), "SALE_STARTED",
+                "marketplace-sale-events", event.getSaleEventId(), payload);
+        if (event.getSaleType() == SaleType.AUCTION) {
+            realtimeService.publishAuction(event.getSaleEventId(), "sale-started", payload);
+        } else if (event.getSaleType() == SaleType.RAFFLE) {
+            realtimeService.publishRaffle(event.getSaleEventId(), "sale-started", payload);
+        }
+    }
+
+    private record SaleSchedule(SaleEventActivationMode activationMode,
+                                LocalDateTime startsAt,
+                                LocalDateTime endsAt) {
     }
 
     private void validateSaleEvent(SaleType saleType, BigDecimal price, Integer stockQuantity,

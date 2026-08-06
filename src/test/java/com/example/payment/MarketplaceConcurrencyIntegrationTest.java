@@ -30,6 +30,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -91,16 +92,16 @@ class MarketplaceConcurrencyIntegrationTest extends TestcontainersIntegrationSup
 
         var auction = saleEventRepository.findById(AUCTION_EVENT_ID).orElseThrow();
         auction.setStatus(SaleEventStatus.LIVE);
-        auction.setStartsAt(LocalDateTime.now().minusMinutes(5));
-        auction.setEndsAt(LocalDateTime.now().plusMinutes(30));
+        auction.setStartsAt(LocalDateTime.now(ZoneOffset.UTC).minusMinutes(5));
+        auction.setEndsAt(LocalDateTime.now(ZoneOffset.UTC).plusMinutes(30));
         auction.setPrice(new BigDecimal("8500000.00"));
         auction.setMinBidIncrement(new BigDecimal("100000.00"));
         saleEventRepository.save(auction);
 
         var raffle = saleEventRepository.findById(RAFFLE_EVENT_ID).orElseThrow();
         raffle.setStatus(SaleEventStatus.LIVE);
-        raffle.setStartsAt(LocalDateTime.now().minusMinutes(5));
-        raffle.setEndsAt(LocalDateTime.now().plusMinutes(30));
+        raffle.setStartsAt(LocalDateTime.now(ZoneOffset.UTC).minusMinutes(5));
+        raffle.setEndsAt(LocalDateTime.now(ZoneOffset.UTC).plusMinutes(30));
         saleEventRepository.save(raffle);
 
         listingRepository.findById(auction.getListingId()).ifPresent(listing -> {

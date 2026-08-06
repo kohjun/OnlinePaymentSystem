@@ -32,6 +32,7 @@ import com.example.payment.infrastructure.security.CommerceActor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
@@ -139,7 +140,7 @@ class RaffleServiceTest {
                         .entryId("ENTRY-1")
                         .customerId("CUST-1")
                         .checkoutStatus(RaffleCheckoutStatus.PENDING)
-                        .createdAt(LocalDateTime.now())
+                        .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                         .build(),
                 RaffleWinner.builder()
                         .winnerId("WIN-2")
@@ -147,7 +148,7 @@ class RaffleServiceTest {
                         .entryId("ENTRY-2")
                         .customerId("CUST-2")
                         .checkoutStatus(RaffleCheckoutStatus.PENDING)
-                        .createdAt(LocalDateTime.now())
+                        .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                         .build()
         ));
 
@@ -180,8 +181,8 @@ class RaffleServiceTest {
                 .productId("PROD-RAFFLE")
                 .saleType(SaleType.RAFFLE)
                 .status(SaleEventStatus.LIVE)
-                .startsAt(LocalDateTime.now().minusHours(2))
-                .endsAt(LocalDateTime.now().minusMinutes(1))
+                .startsAt(LocalDateTime.now(ZoneOffset.UTC).minusHours(2))
+                .endsAt(LocalDateTime.now(ZoneOffset.UTC).minusMinutes(1))
                 .price(new BigDecimal("239000"))
                 .stockQuantity(10)
                 .build();
@@ -209,8 +210,8 @@ class RaffleServiceTest {
                 .productId("PROD-RAFFLE")
                 .saleType(SaleType.RAFFLE)
                 .status(SaleEventStatus.LIVE)
-                .startsAt(LocalDateTime.now().minusMinutes(5))
-                .endsAt(LocalDateTime.now().plusDays(1))
+                .startsAt(LocalDateTime.now(ZoneOffset.UTC).minusMinutes(5))
+                .endsAt(LocalDateTime.now(ZoneOffset.UTC).plusDays(1))
                 .price(new BigDecimal("239000"))
                 .stockQuantity(10)
                 .build();
@@ -231,7 +232,7 @@ class RaffleServiceTest {
                 .saleEventId("EVT-RAFFLE")
                 .customerId(customerId)
                 .status(RaffleEntryStatus.ENTERED)
-                .createdAt(LocalDateTime.now())
+                .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build();
     }
 }

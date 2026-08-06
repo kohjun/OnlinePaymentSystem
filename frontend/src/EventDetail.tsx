@@ -49,8 +49,9 @@ export function EventDetail({ event, identity, onClose, notify }: Props) {
         .catch(error => notify(messageOf(error), 'error'));
       return connectStream(
         `/api/marketplace/events/${encodeURIComponent(event.saleEventId)}/auction/stream`,
-        ['auction-status', 'bid-placed', 'auction-closed', 'winner-offered', 'winner-offer-expired'],
-        payload => setAuction(previous => ({ ...payload, currentUserWinning: previous?.currentUserWinning })),
+        ['auction-status', 'bid-placed', 'auction-closed', 'winner-offered', 'winner-offer-expired', 'sale-started', 'sale-activation-failed'],
+        () => void api.auctionStatus(event.saleEventId).then(publicStatus =>
+          setAuction(previous => ({ ...publicStatus, currentUserWinning: previous?.currentUserWinning }))),
         setStreamState
       );
     }
@@ -60,7 +61,7 @@ export function EventDetail({ event, identity, onClose, notify }: Props) {
         .catch(error => notify(messageOf(error), 'error'));
       return connectStream(
         `/api/marketplace/events/${encodeURIComponent(event.saleEventId)}/raffle/stream`,
-        ['raffle-status', 'entry-count-changed', 'raffle-drawn', 'winner-checkout-updated', 'winner-offered', 'winner-offer-expired'],
+        ['raffle-status', 'entry-count-changed', 'raffle-drawn', 'winner-checkout-updated', 'winner-offered', 'winner-offer-expired', 'sale-started', 'sale-activation-failed'],
         () => void api.raffleStatus(event.saleEventId, identity.customerId).then(setRaffle),
         setStreamState
       );

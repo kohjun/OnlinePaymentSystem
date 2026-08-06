@@ -1,6 +1,7 @@
 package com.example.payment.presentation.dto.response;
 
 import com.example.payment.domain.model.marketplace.SaleEventStatus;
+import com.example.payment.domain.model.marketplace.SaleEventActivationMode;
 import com.example.payment.domain.model.marketplace.SaleType;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.Builder;
@@ -25,6 +26,8 @@ public class MarketplaceEventResponse {
     private boolean digitalTicket;
     private SaleType saleType;
     private SaleEventStatus status;
+    private SaleEventActivationMode activationMode;
+    private String activationFailureReason;
     private BigDecimal price;
     private String currency;
     private Integer totalQuantity;

@@ -89,6 +89,7 @@ function eventDefaults(listing: SellerListing): SaleEventInput {
     endsAt: localDateTime(25),
     minBidIncrement: 1000,
     reservePrice: Number(listing.price),
+    activationMode: 'SCHEDULED',
     publishImmediately: false
   };
 }
@@ -96,6 +97,7 @@ function eventDefaults(listing: SellerListing): SaleEventInput {
 function eventStatusLabel(status?: string) {
   if (status === 'LIVE') return '판매 중';
   if (status === 'SCHEDULED') return '판매 예정';
+  if (status === 'ACTIVATION_FAILED') return '시작 실패';
   if (status === 'ENDED') return '판매 종료';
   if (status === 'CANCELLED') return '취소됨';
   return '판매 미설정';
@@ -242,11 +244,15 @@ export function SellerCenter({
     try {
       await api.createSaleEvent(eventListing.listingId, {
         ...eventForm,
-        endsAt: eventForm.saleType === 'FIXED_PRICE' && !eventForm.endsAt ? undefined : eventForm.endsAt,
+        startsAt: eventForm.startsAt ? new Date(eventForm.startsAt).toISOString() : undefined,
+        endsAt: eventForm.saleType === 'FIXED_PRICE' && !eventForm.endsAt
+          ? undefined
+          : eventForm.endsAt ? new Date(eventForm.endsAt).toISOString() : undefined,
+        publishImmediately: eventForm.activationMode === 'IMMEDIATE',
         minBidIncrement: eventForm.saleType === 'AUCTION' ? eventForm.minBidIncrement : undefined,
         reservePrice: eventForm.saleType === 'AUCTION' ? eventForm.reservePrice : undefined
       });
-      notify(eventForm.publishImmediately ? '판매를 시작했습니다.' : '판매 일정을 저장했습니다.', 'success');
+      notify(eventForm.activationMode === 'IMMEDIATE' ? '판매를 시작했습니다.' : '판매 일정을 저장했습니다.', 'success');
       setEventListing(undefined);
       setEventForm(undefined);
       await loadListings();
@@ -346,7 +352,7 @@ export function SellerCenter({
             </div>
             <div><span>가격 / 재고</span><strong>{formatMoney(listing.price)}</strong><small>{listing.availableQuantity} / {listing.totalQuantity}개</small></div>
             <div><span>상품 상태</span><strong className={`status-text status-text--${listing.status.toLowerCase()}`}>{listingStatus[listing.status]}</strong>{listing.reviewNote && <small>{listing.reviewNote}</small>}</div>
-            <div><span>판매 상태</span><strong>{eventStatusLabel(listing.saleEventStatus)}</strong>{listing.saleType && <small>{saleTypeLabels[listing.saleType]}</small>}</div>
+            <div><span>판매 상태</span><strong>{eventStatusLabel(listing.saleEventStatus)}</strong>{listing.saleType && <small>{saleTypeLabels[listing.saleType]}</small>}{listing.saleEventStatus === 'SCHEDULED' && listing.startsAt && <small>시작 {new Date(listing.startsAt).toLocaleString('ko-KR')}</small>}{listing.saleEventStatus === 'ACTIVATION_FAILED' && <small>{listing.activationFailureReason ?? '운영팀 확인이 필요합니다.'}</small>}</div>
             <div className="seller-list__actions">
               {(listing.status === 'DRAFT' || listing.status === 'REJECTED') && <>
                 <button className="icon-button" onClick={() => openEditListing(listing)} title="상품 수정"><Pencil /></button>
@@ -433,7 +439,15 @@ function EventForm({ listing, value, busy, onChange, onCancel, onSave }: {
       <label>시작 시각<input type="datetime-local" value={value.startsAt ?? ''} onChange={event => set('startsAt', event.target.value || undefined)} /></label>
       <label>종료 시각<input type="datetime-local" value={value.endsAt ?? ''} onChange={event => set('endsAt', event.target.value || undefined)} /></label>
       {value.saleType === 'AUCTION' && <><label>최소 입찰 단위<input type="number" min="1" step="1" value={value.minBidIncrement ?? ''} onChange={event => set('minBidIncrement', Number(event.target.value))} /></label><label>낙찰 하한가<input type="number" min="1" step="1" value={value.reservePrice ?? ''} onChange={event => set('reservePrice', Number(event.target.value))} /></label></>}
-      <label className="seller-toggle"><input type="checkbox" checked={value.publishImmediately} onChange={event => set('publishImmediately', event.target.checked)} /><span>저장 즉시 판매 시작</span></label>
+      <label>활성화 방식<select value={value.activationMode} onChange={event => {
+        const activationMode = event.target.value as SaleEventInput['activationMode'];
+        onChange({
+          ...value,
+          activationMode,
+          publishImmediately: activationMode === 'IMMEDIATE',
+          startsAt: activationMode === 'IMMEDIATE' ? localDateTime(0) : value.startsAt
+        });
+      }}><option value="SCHEDULED">예약 시작</option><option value="IMMEDIATE">즉시 시작</option></select></label>
     </div>
     <footer><button className="secondary-button" onClick={onCancel}>취소</button><button className="primary-button" disabled={busy || value.price <= 0 || value.stockQuantity <= 0 || value.stockQuantity > listing.availableQuantity || value.maxQuantityPerCustomer <= 0 || value.maxQuantityPerCustomer > value.stockQuantity} onClick={() => void onSave()}><CalendarClock />판매 일정 저장</button></footer>
   </section>;

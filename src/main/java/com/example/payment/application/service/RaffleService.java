@@ -35,6 +35,7 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
@@ -81,7 +82,7 @@ public class RaffleService {
             return toEntryResponse(existing);
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         String entryId = "RFENT-" + shortId();
         int inserted = raffleEntryRepository.insertIfAbsent(
                 entryId,
@@ -158,7 +159,7 @@ public class RaffleService {
             return response;
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         String entryId = "RFENT-" + shortId();
         int inserted = raffleEntryRepository.insertIfAbsent(
                 entryId,
@@ -305,7 +306,7 @@ public class RaffleService {
         entries.sort(Comparator.comparing(entry -> drawRank(seed, entry)));
 
         List<RaffleEntry> winners = entries.subList(0, winnerCount);
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         for (int index = 0; index < entries.size(); index++) {
             RaffleEntry entry = entries.get(index);
             entry.setDrawRank(index + 1);
@@ -327,7 +328,7 @@ public class RaffleService {
         }
 
         event.setStatus(SaleEventStatus.ENDED);
-        event.setEndsAt(LocalDateTime.now());
+        event.setEndsAt(LocalDateTime.now(ZoneOffset.UTC));
         saleEventRepository.save(event);
 
         RaffleStatusResponse response = status(eventId, null);
@@ -342,7 +343,7 @@ public class RaffleService {
         if (event.getStatus() != SaleEventStatus.LIVE) {
             return status(eventId, null);
         }
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         if (event.getEndsAt() == null || event.getEndsAt().isAfter(now)) {
             throw new MarketplaceCheckoutException(HttpStatus.CONFLICT,
                     "Raffle has not reached its scheduled end time: " + eventId);
@@ -490,7 +491,7 @@ public class RaffleService {
         if (listing.getStatus() != ListingStatus.ACTIVE || event.getStatus() != SaleEventStatus.LIVE) {
             throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "응모 가능한 상태가 아닙니다.");
         }
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         if (event.getStartsAt() != null && event.getStartsAt().isAfter(now)) {
             throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "아직 응모가 시작되지 않았습니다.");
         }

@@ -24,6 +24,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -185,8 +186,8 @@ class TicketingServiceTest {
                 .productId("PROD-TICKET")
                 .saleType(SaleType.DROP)
                 .status(SaleEventStatus.LIVE)
-                .startsAt(LocalDateTime.now().minusMinutes(1))
-                .endsAt(LocalDateTime.now().plusHours(1))
+                .startsAt(LocalDateTime.now(ZoneOffset.UTC).minusMinutes(1))
+                .endsAt(LocalDateTime.now(ZoneOffset.UTC).plusHours(1))
                 .stockQuantity(10)
                 .build();
     }

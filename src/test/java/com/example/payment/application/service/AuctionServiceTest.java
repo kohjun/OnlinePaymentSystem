@@ -25,6 +25,7 @@ import com.example.payment.infrastructure.security.CommerceActor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.List;
 
@@ -179,8 +180,8 @@ class AuctionServiceTest {
                 .productId("PROD-AUCTION")
                 .saleType(SaleType.AUCTION)
                 .status(SaleEventStatus.LIVE)
-                .startsAt(LocalDateTime.now().minusMinutes(5))
-                .endsAt(LocalDateTime.now().plusHours(1))
+                .startsAt(LocalDateTime.now(ZoneOffset.UTC).minusMinutes(5))
+                .endsAt(LocalDateTime.now(ZoneOffset.UTC).plusHours(1))
                 .price(new BigDecimal("8500000"))
                 .minBidIncrement(new BigDecimal("100000"))
                 .stockQuantity(1)
@@ -204,7 +205,7 @@ class AuctionServiceTest {
                 .customerId("CUST-1")
                 .bidAmount(amount)
                 .status(AuctionBidStatus.WINNING)
-                .createdAt(LocalDateTime.now())
+                .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build();
     }
 

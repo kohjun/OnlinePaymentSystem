@@ -32,6 +32,7 @@ import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -108,10 +109,10 @@ public class AuctionService {
                 .idempotencyKey(idempotencyKey)
                 .bidAmount(request.getBidAmount())
                 .status(AuctionBidStatus.WINNING)
-                .createdAt(LocalDateTime.now())
+                .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build());
 
-        LocalDateTime extensionBoundary = LocalDateTime.now().plusSeconds(antiSnipingExtensionSeconds);
+        LocalDateTime extensionBoundary = LocalDateTime.now(ZoneOffset.UTC).plusSeconds(antiSnipingExtensionSeconds);
         if (event.getEndsAt() != null && event.getEndsAt().isBefore(extensionBoundary)) {
             event.setEndsAt(extensionBoundary);
             saleEventRepository.save(event);
@@ -189,13 +190,13 @@ public class AuctionService {
                 .customerId(request.getCustomerId())
                 .bidAmount(request.getBidAmount())
                 .status(AuctionBidStatus.WINNING)
-                .createdAt(LocalDateTime.now())
+                .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build());
 
         // Redis 캐시 동기화
         redisTemplate.opsForValue().set("auction:highest_bid:" + eventId, saved.getBidAmount().toString(), Duration.ofHours(24));
 
-        LocalDateTime extensionBoundary = LocalDateTime.now().plusSeconds(antiSnipingExtensionSeconds);
+        LocalDateTime extensionBoundary = LocalDateTime.now(ZoneOffset.UTC).plusSeconds(antiSnipingExtensionSeconds);
         if (event.getEndsAt() != null && event.getEndsAt().isBefore(extensionBoundary)) {
             event.setEndsAt(extensionBoundary);
             saleEventRepository.save(event);
@@ -253,7 +254,7 @@ public class AuctionService {
         boolean checkoutAvailable = settlement != null
                 && settlement.getStatus() == AuctionSettlementStatus.AWAITING_PAYMENT
                 && (settlement.getCheckoutExpiresAt() == null
-                || settlement.getCheckoutExpiresAt().isAfter(LocalDateTime.now()));
+                || settlement.getCheckoutExpiresAt().isAfter(LocalDateTime.now(ZoneOffset.UTC)));
 
         return AuctionStatusResponse.builder()
                 .saleEventId(eventId)
@@ -397,7 +398,7 @@ public class AuctionService {
                 throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "입찰 이력이 없어 경매를 마감할 수 없습니다.");
             }
             event.setStatus(SaleEventStatus.ENDED);
-            event.setEndsAt(LocalDateTime.now());
+            event.setEndsAt(LocalDateTime.now(ZoneOffset.UTC));
             event.setCloseReason(AuctionCloseReason.NO_BIDS);
             saleEventRepository.save(event);
             return status(eventId);
@@ -408,7 +409,7 @@ public class AuctionService {
             highest.setStatus(AuctionBidStatus.RESERVE_NOT_MET);
             auctionBidRepository.save(highest);
             event.setStatus(SaleEventStatus.ENDED);
-            event.setEndsAt(LocalDateTime.now());
+            event.setEndsAt(LocalDateTime.now(ZoneOffset.UTC));
             event.setCloseReason(AuctionCloseReason.RESERVE_NOT_MET);
             saleEventRepository.save(event);
             return status(eventId);
@@ -416,12 +417,12 @@ public class AuctionService {
 
         if (existingSettlement == null) {
             try {
-                createWinnerOffer(event, highest, 1, LocalDateTime.now());
+                createWinnerOffer(event, highest, 1, LocalDateTime.now(ZoneOffset.UTC));
             } catch (InventoryHoldService.InsufficientInventoryException unavailable) {
                 highest.setStatus(AuctionBidStatus.CANCELLED);
                 auctionBidRepository.save(highest);
                 event.setStatus(SaleEventStatus.ENDED);
-                event.setEndsAt(LocalDateTime.now());
+                event.setEndsAt(LocalDateTime.now(ZoneOffset.UTC));
                 event.setCloseReason(AuctionCloseReason.INVENTORY_UNAVAILABLE);
                 saleEventRepository.save(event);
                 return status(eventId);
@@ -429,7 +430,7 @@ public class AuctionService {
         }
 
         event.setStatus(SaleEventStatus.ENDED);
-        event.setEndsAt(LocalDateTime.now());
+        event.setEndsAt(LocalDateTime.now(ZoneOffset.UTC));
         event.setCloseReason(AuctionCloseReason.SOLD);
         saleEventRepository.save(event);
         return status(eventId);
@@ -486,7 +487,7 @@ public class AuctionService {
     }
 
     private void requireLiveAuction(SaleEvent event) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         if (event.getStatus() != SaleEventStatus.LIVE) {
             throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "경매가 진행 중이 아닙니다.");
         }
@@ -551,7 +552,7 @@ public class AuctionService {
         if (event.getEndsAt() == null) {
             return null;
         }
-        long seconds = Duration.between(LocalDateTime.now(), event.getEndsAt()).getSeconds();
+        long seconds = Duration.between(LocalDateTime.now(ZoneOffset.UTC), event.getEndsAt()).getSeconds();
         return Math.max(0L, seconds);
     }
 
