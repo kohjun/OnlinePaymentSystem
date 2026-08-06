@@ -1,6 +1,7 @@
 package com.example.payment.presentation.dto.response;
 
 import com.example.payment.domain.model.marketplace.AuctionSettlementStatus;
+import com.example.payment.domain.model.marketplace.AuctionCloseReason;
 import com.example.payment.domain.model.marketplace.SaleEventStatus;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.Builder;
@@ -20,6 +21,9 @@ public class AuctionStatusResponse {
     private BigDecimal minNextBid;
     private AuctionSettlementStatus settlementStatus;
     private Boolean closed;
+    private Boolean reserveMet;
+    private AuctionCloseReason closeReason;
+    private Boolean checkoutAvailable;
     private String winnerCustomerId;
     private Boolean currentUserWinning;
     private Long secondsRemaining;

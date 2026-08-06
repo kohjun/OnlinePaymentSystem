@@ -210,8 +210,11 @@ function AuctionPanel({ status, bidAmount, setBidAmount, busy, secondsRemaining,
                   onChange={event => setBidAmount(event.target.value)} /><button className="primary-button" disabled={busy}><Gavel />입찰</button></div>
       <small>최소 다음 입찰가 {formatMoney(status.minNextBid)}</small>
     </form>}
-    {status.closed && status.currentUserWinning && <button className="primary-button" disabled={busy} onClick={checkout}><LockKeyhole />낙찰 상품 결제</button>}
-    {status.closed && !status.currentUserWinning && <div className="result-notice">경매가 종료되었습니다.</div>}
+    {status.closed && status.currentUserWinning && status.checkoutAvailable && <button className="primary-button" disabled={busy} onClick={checkout}><LockKeyhole />낙찰 상품 결제</button>}
+    {status.closed && status.closeReason === 'RESERVE_NOT_MET' && <div className="result-notice">낙찰 하한가에 도달하지 않아 유찰되었습니다.</div>}
+    {status.closed && status.closeReason === 'NO_BIDS' && <div className="result-notice">입찰 없이 경매가 종료되었습니다.</div>}
+    {status.closed && status.closeReason === 'INVENTORY_UNAVAILABLE' && <div className="result-notice">재고 확인 문제로 낙찰이 보류되었습니다.</div>}
+    {status.closed && !status.currentUserWinning && !status.closeReason && <div className="result-notice">경매가 종료되었습니다.</div>}
     <div className="bid-history"><h3>최근 입찰</h3>{status.history?.slice(0, 6).map(bid => <div key={bid.bidId}><span>{bid.customerId}</span><strong>{formatMoney(bid.bidAmount)}</strong></div>)}</div>
   </div>;
 }

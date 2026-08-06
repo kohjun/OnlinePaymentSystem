@@ -30,6 +30,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -348,6 +349,8 @@ public class SellerMarketplaceService {
         SaleType saleType = request.getSaleType() != null
                 ? request.getSaleType()
                 : mapCategoryToSaleType(product.getCategory());
+        validateSaleEvent(saleType, request.getPrice(), request.getQuantity(),
+                request.getMinBidIncrement(), request.getReservePrice());
         SaleEvent event = saleEventRepository.save(SaleEvent.builder()
                 .saleEventId("EVT-" + shortId())
                 .listingId(listing.getListingId())
@@ -379,6 +382,8 @@ public class SellerMarketplaceService {
 
     @Transactional
     public SellerListingResponse createSaleEvent(String sellerId, String listingId, CreateSaleEventRequest request) {
+        validateSaleEvent(request.getSaleType(), request.getPrice(), request.getStockQuantity(),
+                request.getMinBidIncrement(), request.getReservePrice());
         SellerProfile seller = requireActiveSeller(sellerId);
         MarketplaceListing listing = marketplaceListingRepository.findById(listingId)
                 .orElseThrow(() -> new IllegalArgumentException("Listing not found: " + listingId));
@@ -688,6 +693,25 @@ public class SellerMarketplaceService {
             case DROP -> LocalDateTime.now().plusDays(1);
             case FIXED_PRICE -> null;
         };
+    }
+
+    private void validateSaleEvent(SaleType saleType, BigDecimal price, Integer stockQuantity,
+                                   BigDecimal minBidIncrement, BigDecimal reservePrice) {
+        if (saleType != SaleType.AUCTION) {
+            if (minBidIncrement != null || reservePrice != null) {
+                throw new IllegalArgumentException("Bid increment and reserve price are only valid for auctions.");
+            }
+            return;
+        }
+        if (stockQuantity == null || stockQuantity != 1) {
+            throw new IllegalArgumentException("Auction stock quantity must be exactly 1.");
+        }
+        if (minBidIncrement == null || minBidIncrement.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Auction minimum bid increment must be greater than 0.");
+        }
+        if (reservePrice != null && price != null && reservePrice.compareTo(price) < 0) {
+            throw new IllegalArgumentException("Auction reserve price cannot be lower than the starting price.");
+        }
     }
 
     private String defaultText(String value, String fallback) {

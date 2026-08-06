@@ -2,6 +2,7 @@ package com.example.payment.application.service;
 
 import com.example.payment.domain.model.marketplace.AuctionBid;
 import com.example.payment.domain.model.marketplace.AuctionBidStatus;
+import com.example.payment.domain.model.marketplace.AuctionCloseReason;
 import com.example.payment.domain.model.marketplace.AuctionSettlement;
 import com.example.payment.domain.model.marketplace.AuctionSettlementStatus;
 import com.example.payment.domain.model.marketplace.ListingStatus;
@@ -239,6 +240,12 @@ public class AuctionService {
         BigDecimal highestBid = highest != null ? highest.getBidAmount() : event.getPrice();
         BigDecimal increment = event.getMinBidIncrement() != null ? event.getMinBidIncrement() : new BigDecimal("1000");
         AuctionSettlement settlement = auctionSettlementRepository.findBySaleEventId(eventId).orElse(null);
+        boolean reserveMet = highest != null && (event.getReservePrice() == null
+                || highest.getBidAmount().compareTo(event.getReservePrice()) >= 0);
+        boolean checkoutAvailable = settlement != null
+                && settlement.getStatus() == AuctionSettlementStatus.AWAITING_PAYMENT
+                && (settlement.getCheckoutExpiresAt() == null
+                || settlement.getCheckoutExpiresAt().isAfter(LocalDateTime.now()));
 
         return AuctionStatusResponse.builder()
                 .saleEventId(eventId)
@@ -248,6 +255,9 @@ public class AuctionService {
                 .minNextBid(highestBid.add(increment))
                 .settlementStatus(settlement != null ? settlement.getStatus() : null)
                 .closed(isClosed(event, settlement))
+                .reserveMet(reserveMet)
+                .closeReason(event.getCloseReason())
+                .checkoutAvailable(checkoutAvailable)
                 .winnerCustomerId(settlement != null ? publicAlias(settlement.getCustomerId()) : null)
                 .secondsRemaining(secondsRemaining(event))
                 .streamVersion(streamVersion(event))
@@ -272,7 +282,7 @@ public class AuctionService {
 
     @Transactional
     public AuctionStatusResponse close(String eventId) {
-        AuctionStatusResponse response = closeInternal(eventId, false);
+        AuctionStatusResponse response = closeInternal(eventId, true);
         AfterCommitExecutor.run(() -> {
             marketplaceRealtimeService.publishAuction(eventId, "auction-status", response);
             marketplaceRealtimeService.publishAuction(eventId, "auction-closed", response);
@@ -297,7 +307,7 @@ public class AuctionService {
     private AuctionStatusResponse closeInternal(String eventId, boolean allowNoBidClose) {
         SaleEvent event = requireAuctionEventForUpdate(eventId);
         AuctionSettlement existingSettlement = auctionSettlementRepository.findBySaleEventId(eventId).orElse(null);
-        if (event.getStatus() == SaleEventStatus.ENDED && existingSettlement != null) {
+        if (event.getStatus() == SaleEventStatus.ENDED || event.getStatus() == SaleEventStatus.CANCELLED) {
             return status(eventId);
         }
 
@@ -309,6 +319,18 @@ public class AuctionService {
             }
             event.setStatus(SaleEventStatus.ENDED);
             event.setEndsAt(LocalDateTime.now());
+            event.setCloseReason(AuctionCloseReason.NO_BIDS);
+            saleEventRepository.save(event);
+            return status(eventId);
+        }
+
+        if (event.getReservePrice() != null
+                && highest.getBidAmount().compareTo(event.getReservePrice()) < 0) {
+            highest.setStatus(AuctionBidStatus.RESERVE_NOT_MET);
+            auctionBidRepository.save(highest);
+            event.setStatus(SaleEventStatus.ENDED);
+            event.setEndsAt(LocalDateTime.now());
+            event.setCloseReason(AuctionCloseReason.RESERVE_NOT_MET);
             saleEventRepository.save(event);
             return status(eventId);
         }
@@ -329,6 +351,7 @@ public class AuctionService {
 
         event.setStatus(SaleEventStatus.ENDED);
         event.setEndsAt(LocalDateTime.now());
+        event.setCloseReason(AuctionCloseReason.SOLD);
         saleEventRepository.save(event);
         return status(eventId);
     }

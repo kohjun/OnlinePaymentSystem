@@ -456,6 +456,22 @@ class SellerMarketplaceServiceTest {
     }
 
     @Test
+    void rejectsAuctionReserveBelowStartingPrice() {
+        CreateSaleEventRequest request = new CreateSaleEventRequest();
+        request.setSaleType(SaleType.AUCTION);
+        request.setPrice(new BigDecimal("210000"));
+        request.setStockQuantity(1);
+        request.setMinBidIncrement(new BigDecimal("10000"));
+        request.setReservePrice(new BigDecimal("200000"));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> service.createSaleEvent("SELLER-C2C", "LIST-C2C", request));
+
+        assertEquals("Auction reserve price cannot be lower than the starting price.", exception.getMessage());
+        verify(saleEventRepository, never()).save(any(SaleEvent.class));
+    }
+
+    @Test
     void createsRaffleListingAsPendingReviewBeforePublicPublish() {
         when(sellerRepository.findById("SELLER-1")).thenReturn(Optional.of(SellerProfile.builder()
                 .sellerId("SELLER-1")

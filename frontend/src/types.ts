@@ -127,6 +127,9 @@ export interface AuctionStatus {
   highestBidder?: string;
   minNextBid: number;
   closed: boolean;
+  reserveMet: boolean;
+  closeReason?: 'SOLD' | 'NO_BIDS' | 'RESERVE_NOT_MET' | 'INVENTORY_UNAVAILABLE';
+  checkoutAvailable: boolean;
   winnerCustomerId?: string;
   currentUserWinning?: boolean;
   secondsRemaining?: number;

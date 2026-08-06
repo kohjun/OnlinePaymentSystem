@@ -4,5 +4,6 @@ public enum AuctionBidStatus {
     ACCEPTED,
     OUTBID,
     WINNING,
+    RESERVE_NOT_MET,
     CANCELLED
 }

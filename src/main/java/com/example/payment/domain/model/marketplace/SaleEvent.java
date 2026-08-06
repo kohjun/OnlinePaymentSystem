@@ -63,6 +63,10 @@ public class SaleEvent {
     @Column(name = "reserve_price", precision = 19, scale = 2)
     private BigDecimal reservePrice;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "close_reason")
+    private AuctionCloseReason closeReason;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
