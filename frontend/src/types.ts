@@ -130,6 +130,8 @@ export interface AuctionStatus {
   reserveMet: boolean;
   closeReason?: 'SOLD' | 'NO_BIDS' | 'RESERVE_NOT_MET' | 'INVENTORY_UNAVAILABLE';
   checkoutAvailable: boolean;
+  offerSequence?: number;
+  allocationStatus?: string;
   winnerCustomerId?: string;
   currentUserWinning?: boolean;
   secondsRemaining?: number;
@@ -149,6 +151,8 @@ export interface RaffleStatus {
   drawn: boolean;
   entryStatus?: string;
   checkoutStatus?: string;
+  offerSequence?: number;
+  allocationStatus?: string;
   winnerAliases: string[];
   drawSeedCommitment?: string;
   entrySnapshotHash?: string;

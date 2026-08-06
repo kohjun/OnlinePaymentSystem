@@ -54,6 +54,7 @@ class TossPaymentIntentServiceTest {
     private final SaleEventRepository saleEventRepository = mock(SaleEventRepository.class);
     private final MarketplaceListingRepository listingRepository = mock(MarketplaceListingRepository.class);
     private final InventoryRepository inventoryRepository = mock(InventoryRepository.class);
+    private final InventoryHoldService inventoryHoldService = mock(InventoryHoldService.class);
     private final RaffleWinnerRepository raffleWinnerRepository = mock(RaffleWinnerRepository.class);
     private final AuctionSettlementRepository auctionSettlementRepository = mock(AuctionSettlementRepository.class);
     private final MarketplaceOrderService marketplaceOrderService = mock(MarketplaceOrderService.class);
@@ -79,6 +80,7 @@ class TossPaymentIntentServiceTest {
                 saleEventRepository,
                 listingRepository,
                 inventoryRepository,
+                inventoryHoldService,
                 raffleWinnerRepository,
                 auctionSettlementRepository,
                 marketplaceOrderService,
@@ -171,7 +173,7 @@ class TossPaymentIntentServiceTest {
     void createsAuctionWinnerIntentWithSettlementAmountAndSourceId() {
         when(saleEventRepository.findByIdForUpdate("EVT-AUCTION")).thenReturn(Optional.of(auctionEvent()));
         when(listingRepository.findById("LIST-AUCTION")).thenReturn(Optional.of(auctionListing()));
-        when(auctionSettlementRepository.findBySaleEventIdAndCustomerIdAndStatus(
+        when(auctionSettlementRepository.findFirstBySaleEventIdAndCustomerIdAndStatusOrderByOfferSequenceDesc(
                 "EVT-AUCTION",
                 "CUST-1",
                 AuctionSettlementStatus.AWAITING_PAYMENT
@@ -183,6 +185,7 @@ class TossPaymentIntentServiceTest {
                 .sellerId("SELLER-1")
                 .amount(new BigDecimal("9000000"))
                 .status(AuctionSettlementStatus.AWAITING_PAYMENT)
+                .inventoryReservationId("WINRES-AUCTION-1")
                 .createdAt(LocalDateTime.now())
                 .checkoutExpiresAt(LocalDateTime.now().plusMinutes(30))
                 .build()));
@@ -209,8 +212,16 @@ class TossPaymentIntentServiceTest {
         TossPaymentIntent saved = captor.getValue();
         assertEquals("AUCTION_WINNER", saved.getMarketplaceCheckoutType());
         assertEquals("SET-1", saved.getMarketplaceSourceId());
+        assertEquals("WINRES-AUCTION-1", saved.getInventoryReservationId());
         assertEquals(new BigDecimal("9000000.00"), saved.getAmount());
         assertEquals("Auction winner checkout", saved.getOrderName());
+        verify(inventoryHoldService).claim(
+                "WINRES-AUCTION-1",
+                saved.getIntentId(),
+                "PROD-AUCTION",
+                "CUST-1",
+                1
+        );
     }
 
     @Test

@@ -23,6 +23,8 @@ public class RaffleStatusResponse {
     private Boolean drawn;
     private RaffleEntryStatus entryStatus;
     private RaffleCheckoutStatus checkoutStatus;
+    private Integer offerSequence;
+    private String allocationStatus;
     private List<String> winnerCustomerIds;
     private List<String> winnerAliases;
     private String drawSeedCommitment;

@@ -49,7 +49,7 @@ export function EventDetail({ event, identity, onClose, notify }: Props) {
         .catch(error => notify(messageOf(error), 'error'));
       return connectStream(
         `/api/marketplace/events/${encodeURIComponent(event.saleEventId)}/auction/stream`,
-        ['auction-status', 'bid-placed', 'auction-closed'],
+        ['auction-status', 'bid-placed', 'auction-closed', 'winner-offered', 'winner-offer-expired'],
         payload => setAuction(previous => ({ ...payload, currentUserWinning: previous?.currentUserWinning })),
         setStreamState
       );
@@ -60,7 +60,7 @@ export function EventDetail({ event, identity, onClose, notify }: Props) {
         .catch(error => notify(messageOf(error), 'error'));
       return connectStream(
         `/api/marketplace/events/${encodeURIComponent(event.saleEventId)}/raffle/stream`,
-        ['raffle-status', 'entry-count-changed', 'raffle-drawn', 'winner-checkout-updated'],
+        ['raffle-status', 'entry-count-changed', 'raffle-drawn', 'winner-checkout-updated', 'winner-offered', 'winner-offer-expired'],
         () => void api.raffleStatus(event.saleEventId, identity.customerId).then(setRaffle),
         setStreamState
       );
@@ -211,6 +211,8 @@ function AuctionPanel({ status, bidAmount, setBidAmount, busy, secondsRemaining,
       <small>최소 다음 입찰가 {formatMoney(status.minNextBid)}</small>
     </form>}
     {status.closed && status.currentUserWinning && status.checkoutAvailable && <button className="primary-button" disabled={busy} onClick={checkout}><LockKeyhole />낙찰 상품 결제</button>}
+    {status.currentUserWinning && status.offerSequence && <div className="result-notice result-notice--success">결제 제안 {status.offerSequence}순위가 배정되었습니다.</div>}
+    {status.closed && status.allocationStatus === 'EXPIRED' && <div className="result-notice">결제 기한이 만료되어 차순위 입찰자에게 기회가 이전되었습니다.</div>}
     {status.closed && status.closeReason === 'RESERVE_NOT_MET' && <div className="result-notice">낙찰 하한가에 도달하지 않아 유찰되었습니다.</div>}
     {status.closed && status.closeReason === 'NO_BIDS' && <div className="result-notice">입찰 없이 경매가 종료되었습니다.</div>}
     {status.closed && status.closeReason === 'INVENTORY_UNAVAILABLE' && <div className="result-notice">재고 확인 문제로 낙찰이 보류되었습니다.</div>}
@@ -229,8 +231,10 @@ function RafflePanel({ status, busy, enter, checkout }: { status?: RaffleStatus;
     {!status.drawn && !status.entered && <button className="primary-button" disabled={busy} onClick={enter}><Ticket />래플 응모</button>}
     {!status.drawn && status.entered && <div className="result-notice result-notice--success"><CheckCircle2 />응모가 완료되었습니다.</div>}
     {status.drawn && status.winner && status.checkoutStatus === 'PENDING' && <button className="primary-button" disabled={busy} onClick={checkout}><LockKeyhole />당첨 상품 결제</button>}
+    {status.drawn && status.winner && status.offerSequence && <div className="result-notice result-notice--success">당첨 결제 제안 {status.offerSequence}순위가 배정되었습니다.</div>}
     {status.drawn && status.winner && status.checkoutStatus === 'COMPLETED' && <div className="result-notice result-notice--success"><CheckCircle2 />당첨 결제가 완료되었습니다.</div>}
-    {status.drawn && !status.winner && <div className="result-notice">이번 추첨에는 선정되지 않았습니다.</div>}
+    {status.drawn && status.checkoutStatus === 'EXPIRED' && <div className="result-notice">결제 기한이 만료되어 다음 순위 참여자에게 기회가 이전되었습니다.</div>}
+    {status.drawn && !status.winner && status.checkoutStatus !== 'EXPIRED' && <div className="result-notice">이번 추첨에는 선정되지 않았습니다.</div>}
     {status.drawSeedCommitment && <details className="audit-detail"><summary>추첨 검증 정보</summary><code>{status.drawSeedCommitment}</code><code>{status.entrySnapshotHash}</code></details>}
   </div>;
 }

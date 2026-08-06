@@ -53,6 +53,7 @@ public class RaffleService {
     private final InventoryRepository inventoryRepository;
     private final RaffleEntryRepository raffleEntryRepository;
     private final RaffleWinnerRepository raffleWinnerRepository;
+    private final InventoryHoldService inventoryHoldService;
     private final MarketplaceRealtimeService marketplaceRealtimeService;
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
@@ -233,6 +234,9 @@ public class RaffleService {
     public RaffleStatusResponse status(String eventId, String customerId) {
         SaleEvent event = requireRaffleEvent(eventId);
         List<RaffleWinner> winners = raffleWinnerRepository.findBySaleEventIdOrderByCreatedAtAsc(eventId);
+        List<RaffleWinner> activeWinners = winners.stream()
+                .filter(winner -> winner.getCheckoutStatus() != RaffleCheckoutStatus.EXPIRED)
+                .toList();
         RaffleWinner customerWinner = customerId == null ? null :
                 raffleWinnerRepository.findBySaleEventIdAndCustomerId(eventId, customerId).orElse(null);
         RaffleEntry customerEntry = customerId == null ? null :
@@ -243,15 +247,18 @@ public class RaffleService {
                 .saleEventId(eventId)
                 .eventStatus(event.getStatus())
                 .entryCount(raffleEntryRepository.countBySaleEventId(eventId))
-                .winnerCount(winners.size())
+                .winnerCount(activeWinners.size())
                 .completedCheckoutCount(raffleWinnerRepository.countBySaleEventIdAndCheckoutStatus(eventId, RaffleCheckoutStatus.COMPLETED))
                 .entered(customerId == null ? null : entered)
-                .winner(customerId == null ? null : customerWinner != null)
+                .winner(customerId == null ? null : customerWinner != null
+                        && customerWinner.getCheckoutStatus() != RaffleCheckoutStatus.EXPIRED)
                 .drawn(!winners.isEmpty() || event.getStatus() == SaleEventStatus.ENDED)
                 .entryStatus(customerEntry != null ? customerEntry.getStatus() : null)
                 .checkoutStatus(customerWinner != null ? customerWinner.getCheckoutStatus() : null)
+                .offerSequence(customerWinner != null ? customerWinner.getOfferSequence() : null)
+                .allocationStatus(customerWinner != null ? customerWinner.getCheckoutStatus().name() : null)
                 .winnerCustomerIds(List.of())
-                .winnerAliases(winners.stream().map(winner -> publicAlias(winner.getCustomerId())).toList())
+                .winnerAliases(activeWinners.stream().map(winner -> publicAlias(winner.getCustomerId())).toList())
                 .drawSeedCommitment(winners.isEmpty() ? null : winners.get(0).getDrawSeedCommitment())
                 .entrySnapshotHash(winners.isEmpty() ? null : winners.get(0).getEntrySnapshotHash())
                 .endsAt(event.getEndsAt())
@@ -294,26 +301,25 @@ public class RaffleService {
         entries.sort(Comparator.comparing(entry -> drawRank(seed, entry)));
 
         List<RaffleEntry> winners = entries.subList(0, winnerCount);
-        LocalDateTime checkoutExpiresAt = LocalDateTime.now().plusMinutes(winnerCheckoutTtlMinutes);
-        for (RaffleEntry entry : entries) {
-            entry.setStatus(winners.contains(entry) ? RaffleEntryStatus.WINNER : RaffleEntryStatus.NOT_SELECTED);
+        LocalDateTime now = LocalDateTime.now();
+        for (int index = 0; index < entries.size(); index++) {
+            RaffleEntry entry = entries.get(index);
+            entry.setDrawRank(index + 1);
+            entry.setStatus(index < winnerCount ? RaffleEntryStatus.WINNER : RaffleEntryStatus.WAITLISTED);
             raffleEntryRepository.save(entry);
         }
 
         for (RaffleEntry winner : winners) {
-            raffleWinnerRepository.save(RaffleWinner.builder()
-                    .winnerId("RFWIN-" + shortId())
-                    .saleEventId(eventId)
-                    .entryId(winner.getEntryId())
-                    .customerId(winner.getCustomerId())
-                    .checkoutStatus(RaffleCheckoutStatus.PENDING)
-                    .drawSeed(seed)
-                    .drawSeedCommitment(seedCommitment)
-                    .entrySnapshotHash(entrySnapshotHash)
-                    .drawnBy(defaultText(request.getOperatorId(), "system"))
-                    .createdAt(LocalDateTime.now())
-                    .checkoutExpiresAt(checkoutExpiresAt)
-                    .build());
+            createWinnerOffer(
+                    event,
+                    winner,
+                    1,
+                    seed,
+                    seedCommitment,
+                    entrySnapshotHash,
+                    defaultText(request.getOperatorId(), "system"),
+                    now
+            );
         }
 
         event.setStatus(SaleEventStatus.ENDED);
@@ -357,6 +363,96 @@ public class RaffleService {
 
     public SseEmitter streamStatus(String eventId) {
         return marketplaceRealtimeService.streamRaffle(eventId, () -> status(eventId, null));
+    }
+
+    @Transactional
+    public boolean expireWinnerOffer(String winnerId, LocalDateTime now) {
+        RaffleWinner expired = raffleWinnerRepository.findById(winnerId).orElse(null);
+        if (expired == null || expired.getCheckoutStatus() != RaffleCheckoutStatus.PENDING
+                || expired.getCheckoutExpiresAt() == null || expired.getCheckoutExpiresAt().isAfter(now)) {
+            return false;
+        }
+
+        SaleEvent event = requireRaffleEventForUpdate(expired.getSaleEventId());
+        expired = raffleWinnerRepository.findById(winnerId).orElse(null);
+        if (expired == null || expired.getCheckoutStatus() != RaffleCheckoutStatus.PENDING
+                || expired.getCheckoutExpiresAt() == null || expired.getCheckoutExpiresAt().isAfter(now)) {
+            return false;
+        }
+        if (!inventoryHoldService.releaseForOfferExpiry(expired.getInventoryReservationId())) {
+            return false;
+        }
+
+        expired.setCheckoutStatus(RaffleCheckoutStatus.EXPIRED);
+        raffleWinnerRepository.save(expired);
+        raffleEntryRepository.findById(expired.getEntryId()).ifPresent(entry -> {
+            entry.setStatus(RaffleEntryStatus.NOT_SELECTED);
+            raffleEntryRepository.save(entry);
+        });
+
+        RaffleEntry successor = raffleEntryRepository
+                .findFirstBySaleEventIdAndStatusOrderByDrawRankAsc(event.getSaleEventId(), RaffleEntryStatus.WAITLISTED)
+                .orElse(null);
+        if (successor != null) {
+            successor.setStatus(RaffleEntryStatus.WINNER);
+            raffleEntryRepository.save(successor);
+            int nextSequence = raffleWinnerRepository.findFirstBySaleEventIdOrderByOfferSequenceDesc(event.getSaleEventId())
+                    .map(RaffleWinner::getOfferSequence)
+                    .orElse(0) + 1;
+            createWinnerOffer(
+                    event,
+                    successor,
+                    nextSequence,
+                    expired.getDrawSeed(),
+                    expired.getDrawSeedCommitment(),
+                    expired.getEntrySnapshotHash(),
+                    "winner-offer-expiry-worker",
+                    now
+            );
+        }
+
+        RaffleStatusResponse snapshot = status(event.getSaleEventId(), null);
+        boolean hasSuccessor = successor != null;
+        AfterCommitExecutor.run(() -> {
+            marketplaceRealtimeService.publishRaffle(event.getSaleEventId(), "winner-offer-expired", snapshot);
+            if (hasSuccessor) {
+                marketplaceRealtimeService.publishRaffle(event.getSaleEventId(), "winner-offered", snapshot);
+            }
+        });
+        return true;
+    }
+
+    private RaffleWinner createWinnerOffer(SaleEvent event, RaffleEntry entry, int offerSequence,
+                                           String seed, String seedCommitment, String entrySnapshotHash,
+                                           String operator, LocalDateTime now) {
+        String winnerId = "RFWIN-" + shortId();
+        String reservationId = "WINRES-RAFFLE-" + winnerId;
+        LocalDateTime expiresAt = now.plusMinutes(winnerCheckoutTtlMinutes);
+        inventoryHoldService.hold(
+                reservationId,
+                event.getProductId(),
+                entry.getCustomerId(),
+                1,
+                expiresAt,
+                "RAFFLE_WINNER",
+                "RAFFLE_WINNER",
+                winnerId
+        );
+        return raffleWinnerRepository.save(RaffleWinner.builder()
+                .winnerId(winnerId)
+                .saleEventId(event.getSaleEventId())
+                .entryId(entry.getEntryId())
+                .customerId(entry.getCustomerId())
+                .checkoutStatus(RaffleCheckoutStatus.PENDING)
+                .offerSequence(offerSequence)
+                .inventoryReservationId(reservationId)
+                .drawSeed(seed)
+                .drawSeedCommitment(seedCommitment)
+                .entrySnapshotHash(entrySnapshotHash)
+                .drawnBy(operator)
+                .createdAt(now)
+                .checkoutExpiresAt(expiresAt)
+                .build());
     }
 
     private SaleEvent requireRaffleEvent(String eventId) {

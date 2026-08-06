@@ -27,6 +27,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.RedisTemplate;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -47,6 +48,7 @@ class RaffleServiceTest {
     private final InventoryRepository inventoryRepository = mock(InventoryRepository.class);
     private final RaffleEntryRepository entryRepository = mock(RaffleEntryRepository.class);
     private final RaffleWinnerRepository winnerRepository = mock(RaffleWinnerRepository.class);
+    private final InventoryHoldService inventoryHoldService = mock(InventoryHoldService.class);
     private final MarketplaceRealtimeService marketplaceRealtimeService = mock(MarketplaceRealtimeService.class);
     private final RedisTemplate<String, Object> redisTemplate = mock(RedisTemplate.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -57,6 +59,7 @@ class RaffleServiceTest {
             inventoryRepository,
             entryRepository,
             winnerRepository,
+            inventoryHoldService,
             marketplaceRealtimeService,
             redisTemplate,
             objectMapper
@@ -64,6 +67,7 @@ class RaffleServiceTest {
 
     @BeforeEach
     void setUp() {
+        ReflectionTestUtils.setField(service, "winnerCheckoutTtlMinutes", 30L);
         org.springframework.data.redis.core.ValueOperations valueOps = mock(org.springframework.data.redis.core.ValueOperations.class);
         org.springframework.data.redis.core.SetOperations setOps = mock(org.springframework.data.redis.core.SetOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
@@ -150,6 +154,16 @@ class RaffleServiceTest {
         service.draw("EVT-RAFFLE", request);
 
         verify(winnerRepository, times(2)).save(any(RaffleWinner.class));
+        verify(inventoryHoldService, times(2)).hold(
+                any(),
+                org.mockito.ArgumentMatchers.eq("PROD-RAFFLE"),
+                any(),
+                org.mockito.ArgumentMatchers.eq(1),
+                any(),
+                org.mockito.ArgumentMatchers.eq("RAFFLE_WINNER"),
+                org.mockito.ArgumentMatchers.eq("RAFFLE_WINNER"),
+                any()
+        );
     }
 
     @Test

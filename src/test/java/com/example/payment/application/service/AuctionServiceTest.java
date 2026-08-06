@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.RedisTemplate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -40,6 +41,7 @@ class AuctionServiceTest {
     private final MarketplaceListingRepository listingRepository = mock(MarketplaceListingRepository.class);
     private final AuctionBidRepository bidRepository = mock(AuctionBidRepository.class);
     private final AuctionSettlementRepository settlementRepository = mock(AuctionSettlementRepository.class);
+    private final InventoryHoldService inventoryHoldService = mock(InventoryHoldService.class);
     private final MarketplaceRealtimeService marketplaceRealtimeService = mock(MarketplaceRealtimeService.class);
     private final RedisTemplate<String, Object> redisTemplate = mock(RedisTemplate.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -49,6 +51,7 @@ class AuctionServiceTest {
             listingRepository,
             bidRepository,
             settlementRepository,
+            inventoryHoldService,
             marketplaceRealtimeService,
             redisTemplate,
             objectMapper
@@ -56,6 +59,7 @@ class AuctionServiceTest {
 
     @BeforeEach
     void setUp() {
+        ReflectionTestUtils.setField(service, "winnerCheckoutTtlMinutes", 30L);
         org.springframework.data.redis.core.ValueOperations valueOps = mock(org.springframework.data.redis.core.ValueOperations.class);
         org.springframework.data.redis.core.SetOperations setOps = mock(org.springframework.data.redis.core.SetOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
@@ -97,6 +101,36 @@ class AuctionServiceTest {
     }
 
     @Test
+    void closeAboveReserveAllocatesInventoryBeforeCreatingSettlement() {
+        SaleEvent event = stubLiveAuction();
+        event.setReservePrice(new BigDecimal("9000000"));
+        AuctionBid highest = existingBid(new BigDecimal("9500000"));
+        when(bidRepository.findFirstBySaleEventIdOrderByBidAmountDescCreatedAtAsc("EVT-AUCTION"))
+                .thenReturn(Optional.of(highest));
+        when(bidRepository.findTop10BySaleEventIdOrderByBidAmountDescCreatedAtAsc("EVT-AUCTION"))
+                .thenReturn(List.of(highest));
+        when(settlementRepository.findFirstBySaleEventIdOrderByOfferSequenceDesc("EVT-AUCTION"))
+                .thenReturn(Optional.empty());
+        when(settlementRepository.save(any(AuctionSettlement.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.close("EVT-AUCTION");
+
+        verify(inventoryHoldService).hold(
+                any(),
+                org.mockito.ArgumentMatchers.eq("PROD-AUCTION"),
+                org.mockito.ArgumentMatchers.eq("CUST-1"),
+                org.mockito.ArgumentMatchers.eq(1),
+                any(),
+                org.mockito.ArgumentMatchers.eq("AUCTION_WINNER"),
+                org.mockito.ArgumentMatchers.eq("AUCTION_SETTLEMENT"),
+                any()
+        );
+        verify(settlementRepository).save(any(AuctionSettlement.class));
+        assertEquals(com.example.payment.domain.model.marketplace.AuctionCloseReason.SOLD, event.getCloseReason());
+    }
+
+    @Test
     void closeBelowReserveEndsWithoutSettlement() {
         SaleEvent event = stubLiveAuction();
         event.setReservePrice(new BigDecimal("9000000"));
@@ -105,7 +139,7 @@ class AuctionServiceTest {
                 .thenReturn(Optional.of(highest));
         when(bidRepository.findTop10BySaleEventIdOrderByBidAmountDescCreatedAtAsc("EVT-AUCTION"))
                 .thenReturn(List.of(highest));
-        when(settlementRepository.findBySaleEventId("EVT-AUCTION")).thenReturn(Optional.empty());
+        when(settlementRepository.findFirstBySaleEventIdOrderByOfferSequenceDesc("EVT-AUCTION")).thenReturn(Optional.empty());
 
         var response = service.close("EVT-AUCTION");
 
@@ -125,7 +159,7 @@ class AuctionServiceTest {
                 .thenReturn(Optional.of(existingBid(new BigDecimal("9500000"))));
         when(bidRepository.findTop10BySaleEventIdOrderByBidAmountDescCreatedAtAsc("EVT-AUCTION"))
                 .thenReturn(List.of());
-        when(settlementRepository.findBySaleEventId("EVT-AUCTION")).thenReturn(Optional.empty());
+        when(settlementRepository.findFirstBySaleEventIdOrderByOfferSequenceDesc("EVT-AUCTION")).thenReturn(Optional.empty());
 
         var response = service.close("EVT-AUCTION");
 

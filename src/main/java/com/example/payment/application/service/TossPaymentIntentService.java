@@ -65,6 +65,7 @@ public class TossPaymentIntentService {
     private final SaleEventRepository saleEventRepository;
     private final MarketplaceListingRepository marketplaceListingRepository;
     private final InventoryRepository inventoryRepository;
+    private final InventoryHoldService inventoryHoldService;
     private final RaffleWinnerRepository raffleWinnerRepository;
     private final AuctionSettlementRepository auctionSettlementRepository;
     private final MarketplaceOrderService marketplaceOrderService;
@@ -200,6 +201,7 @@ public class TossPaymentIntentService {
                 .listingId(listing.getListingId())
                 .marketplaceCheckoutType(checkoutType.name())
                 .marketplaceSourceId(price.sourceId())
+                .inventoryReservationId(price.inventoryReservationId())
                 .status("READY")
                 .successUrl(successUrl(completeRequest, intentId))
                 .failUrl(failUrl(completeRequest, intentId))
@@ -207,6 +209,15 @@ public class TossPaymentIntentService {
                 .createdAt(LocalDateTime.now())
                 .build();
         applyShippingSnapshot(intent, completeRequest.getShippingInfo());
+        if (price.inventoryReservationId() != null) {
+            inventoryHoldService.claim(
+                    price.inventoryReservationId(),
+                    intentId,
+                    event.getProductId(),
+                    request.getCustomerId(),
+                    request.getQuantity()
+            );
+        }
         try {
             return toResponse(repository.save(intent));
         } catch (DataIntegrityViolationException race) {
@@ -314,6 +325,9 @@ public class TossPaymentIntentService {
         intent.setStatus("CANCELLED");
         intent.setResponseBody(null);
         TossPaymentIntent saved = repository.save(intent);
+        if (intent.getInventoryReservationId() != null) {
+            inventoryHoldService.release(intent.getInventoryReservationId(), "CANCELLED");
+        }
         ticketingService.completeCheckout(intent.getSaleEventId(), intent.getSeatId(), intent.getCustomerId());
         return toResponse(saved);
     }
@@ -436,6 +450,7 @@ public class TossPaymentIntentService {
                 .seatId(intent.getSeatId())
                 .idempotencyKey(intent.getIdempotencyKey())
                 .correlationId("TOSS-" + intent.getIntentId())
+                .inventoryReservationId(intent.getInventoryReservationId())
                 .shippingInfo(shippingInfo(intent))
                 .paymentInfo(CompleteReservationRequest.PaymentInfo.builder()
                         .amount(intent.getAmount())
@@ -462,6 +477,7 @@ public class TossPaymentIntentService {
                 .seatId(request.getSeatId())
                 .idempotencyKey(request.getIdempotencyKey())
                 .correlationId(request.getCorrelationId())
+                .inventoryReservationId(price.inventoryReservationId())
                 .shippingInfo(request.getShippingInfo())
                 .paymentInfo(CompleteReservationRequest.PaymentInfo.builder()
                         .amount(price.amount())
@@ -509,17 +525,26 @@ public class TossPaymentIntentService {
             validateDirectCheckout(event, request.getQuantity(), enforceNewIntentCapacity);
             BigDecimal amount = money(event.getPrice()).multiply(BigDecimal.valueOf(request.getQuantity()));
             requireClientAmountMatches(request, amount);
-            return new MarketplaceIntentPrice(amount, event.getSaleEventId(), "marketplace", listing.getTitle());
+            return new MarketplaceIntentPrice(amount, event.getSaleEventId(), "marketplace", listing.getTitle(), null);
         }
         if (checkoutType == MarketplaceCheckoutType.RAFFLE_WINNER) {
+            if (request.getQuantity() != 1) {
+                throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "Raffle winner checkout quantity must be 1.");
+            }
             RaffleWinner winner = validateRaffleWinnerCheckout(event, request.getCustomerId(), enforceNewIntentCapacity);
             BigDecimal amount = money(event.getPrice()).multiply(BigDecimal.valueOf(request.getQuantity()));
             requireClientAmountMatches(request, amount);
-            return new MarketplaceIntentPrice(amount, winner.getWinnerId(), "marketplace-raffle", "Raffle winner checkout");
+            return new MarketplaceIntentPrice(
+                    amount,
+                    winner.getWinnerId(),
+                    "marketplace-raffle",
+                    "Raffle winner checkout",
+                    winner.getInventoryReservationId()
+            );
         }
         if (checkoutType == MarketplaceCheckoutType.AUCTION_WINNER) {
             AuctionSettlement settlement = auctionSettlementRepository
-                    .findBySaleEventIdAndCustomerIdAndStatus(
+                    .findFirstBySaleEventIdAndCustomerIdAndStatusOrderByOfferSequenceDesc(
                             event.getSaleEventId(),
                             request.getCustomerId(),
                             AuctionSettlementStatus.AWAITING_PAYMENT
@@ -529,12 +554,20 @@ public class TossPaymentIntentService {
                 throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "Auction winner checkout quantity must be 1.");
             }
             validateAuctionSettlementPaymentWindow(settlement);
+            if (settlement.getInventoryReservationId() == null) {
+                throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "AUCTION_INVENTORY_ALLOCATION_MISSING");
+            }
             if (enforceNewIntentCapacity) {
                 ensureNoActiveCheckoutIntent(settlement.getSettlementId());
             }
-            requireAvailableInventory(event, 1, false);
             requireClientAmountMatches(request, settlement.getAmount());
-            return new MarketplaceIntentPrice(money(settlement.getAmount()), settlement.getSettlementId(), "marketplace-auction", "Auction winner checkout");
+            return new MarketplaceIntentPrice(
+                    money(settlement.getAmount()),
+                    settlement.getSettlementId(),
+                    "marketplace-auction",
+                    "Auction winner checkout",
+                    settlement.getInventoryReservationId()
+            );
         }
         throw new MarketplaceCheckoutException(HttpStatus.BAD_REQUEST, "Unsupported marketplace checkout type: " + checkoutType);
     }
@@ -562,11 +595,13 @@ public class TossPaymentIntentService {
         if (winner.getCheckoutStatus() != RaffleCheckoutStatus.PENDING) {
             throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "Raffle winner checkout is already processed.");
         }
+        if (winner.getInventoryReservationId() == null) {
+            throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "RAFFLE_INVENTORY_ALLOCATION_MISSING");
+        }
         validateRaffleWinnerPaymentWindow(winner);
         if (enforceNewIntentCapacity) {
             ensureNoActiveCheckoutIntent(winner.getWinnerId());
         }
-        requireAvailableInventory(event, 1, false);
         return winner;
     }
 
@@ -622,20 +657,12 @@ public class TossPaymentIntentService {
 
     private void validateRaffleWinnerPaymentWindow(RaffleWinner winner) {
         if (winner.getCheckoutExpiresAt() != null && !winner.getCheckoutExpiresAt().isAfter(LocalDateTime.now())) {
-            if (winner.getCheckoutStatus() == RaffleCheckoutStatus.PENDING) {
-                winner.setCheckoutStatus(RaffleCheckoutStatus.EXPIRED);
-                raffleWinnerRepository.save(winner);
-            }
             throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "RAFFLE_WINNER_CHECKOUT_EXPIRED");
         }
     }
 
     private void validateAuctionSettlementPaymentWindow(AuctionSettlement settlement) {
         if (settlement.getCheckoutExpiresAt() != null && !settlement.getCheckoutExpiresAt().isAfter(LocalDateTime.now())) {
-            if (settlement.getStatus() == AuctionSettlementStatus.AWAITING_PAYMENT) {
-                settlement.setStatus(AuctionSettlementStatus.CANCELLED);
-                auctionSettlementRepository.save(settlement);
-            }
             throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "AUCTION_WINNER_CHECKOUT_EXPIRED");
         }
     }
@@ -790,6 +817,7 @@ public class TossPaymentIntentService {
             canonical.put("quantity", request.getQuantity());
             canonical.put("clientId", request.getClientId());
             canonical.put("seatId", request.getSeatId());
+            canonical.put("inventoryReservationId", request.getInventoryReservationId());
             canonical.put("amount", request.getPaymentInfo().getAmount());
             canonical.put("currency", request.getPaymentInfo().getCurrency());
             canonical.put("paymentMethod", request.getPaymentInfo().getPaymentMethod());
@@ -852,7 +880,8 @@ public class TossPaymentIntentService {
         return value != null && !value.trim().isEmpty();
     }
 
-    private record MarketplaceIntentPrice(BigDecimal amount, String sourceId, String clientId, String orderName) {
+    private record MarketplaceIntentPrice(BigDecimal amount, String sourceId, String clientId,
+                                          String orderName, String inventoryReservationId) {
         String orderName(MarketplaceListing listing) {
             String value = orderName == null || orderName.isBlank() ? listing.getTitle() : orderName;
             return value.length() > 100 ? value.substring(0, 100) : value;

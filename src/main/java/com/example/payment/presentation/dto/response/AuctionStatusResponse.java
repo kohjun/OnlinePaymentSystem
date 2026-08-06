@@ -24,6 +24,8 @@ public class AuctionStatusResponse {
     private Boolean reserveMet;
     private AuctionCloseReason closeReason;
     private Boolean checkoutAvailable;
+    private Integer offerSequence;
+    private String allocationStatus;
     private String winnerCustomerId;
     private Boolean currentUserWinning;
     private Long secondsRemaining;

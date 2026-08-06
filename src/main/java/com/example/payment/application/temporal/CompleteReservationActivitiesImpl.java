@@ -49,6 +49,15 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
     public ReservationWorkflowStepResult reserveInventory(ReservationWorkflowCommand command) {
         InventoryReservationRecord existing = reservationRepository.findById(command.getReservationId()).orElse(null);
         if (existing != null && ("RESERVED".equals(existing.getStatus()) || "CONFIRMED".equals(existing.getStatus()))) {
+            if (!command.getProductId().equals(existing.getProductId())
+                    || !command.getCustomerId().equals(existing.getCustomerId())
+                    || !command.getQuantity().equals(existing.getQuantity())) {
+                return ReservationWorkflowStepResult.failure("INVENTORY_HOLD_CONFLICT");
+            }
+            if ("RESERVED".equals(existing.getStatus())
+                    && !existing.getExpiresAt().isAfter(LocalDateTime.now())) {
+                return ReservationWorkflowStepResult.failure("INVENTORY_HOLD_EXPIRED");
+            }
             return ReservationWorkflowStepResult.builder()
                     .success(true)
                     .reservationId(existing.getReservationId())

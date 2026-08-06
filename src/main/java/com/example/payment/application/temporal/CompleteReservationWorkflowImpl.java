@@ -37,7 +37,7 @@ public class CompleteReservationWorkflowImpl implements CompleteReservationWorkf
         String workflowId = Workflow.getInfo().getWorkflowId();
         ReservationWorkflowCommand command = ReservationWorkflowCommand.from(
                 workflowId,
-                deterministicId("RES", request.getIdempotencyKey()),
+                reservationId(request),
                 orderId(request),
                 deterministicId("PAY", request.getIdempotencyKey()),
                 request
@@ -203,6 +203,14 @@ public class CompleteReservationWorkflowImpl implements CompleteReservationWorkf
             return request.getPaymentInfo().getTossOrderId();
         }
         return deterministicId("ORD", request.getIdempotencyKey());
+    }
+
+    private String reservationId(CompleteReservationRequest request) {
+        if (request.getInventoryReservationId() != null
+                && !request.getInventoryReservationId().isBlank()) {
+            return request.getInventoryReservationId();
+        }
+        return deterministicId("RES", request.getIdempotencyKey());
     }
 
     @FunctionalInterface

@@ -44,6 +44,13 @@ public class AuctionSettlement {
     @Column(nullable = false)
     private AuctionSettlementStatus status;
 
+    @Column(name = "offer_sequence", nullable = false)
+    @Builder.Default
+    private Integer offerSequence = 1;
+
+    @Column(name = "inventory_reservation_id")
+    private String inventoryReservationId;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 

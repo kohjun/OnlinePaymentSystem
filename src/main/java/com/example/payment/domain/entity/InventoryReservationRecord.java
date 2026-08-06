@@ -33,6 +33,19 @@ public class InventoryReservationRecord {
     private String orderId;
     private String paymentId;
 
+    @Column(nullable = false)
+    @Builder.Default
+    private String origin = "CHECKOUT";
+
+    @Column(name = "source_type")
+    private String sourceType;
+
+    @Column(name = "source_id")
+    private String sourceId;
+
+    @Column(name = "claimed_intent_id")
+    private String claimedIntentId;
+
     @Column(name = "seat_id")
     private String seatId;
 
