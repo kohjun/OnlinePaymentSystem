@@ -2,6 +2,7 @@ package com.example.payment.infrastructure.gateway;
 
 import com.example.payment.application.dto.PaymentGatewayRequest;
 import com.example.payment.application.dto.PaymentGatewayResult;
+import com.example.payment.application.dto.PaymentRefundRequest;
 import com.example.payment.domain.exception.PaymentGatewayResultUnknownException;
 import com.example.payment.domain.service.PaymentGatewayService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -70,15 +71,26 @@ public class TossPaymentsGateway implements PaymentGatewayService {
 
     @Override
     public boolean refundPayment(String transactionId) {
+        return refundPayment(PaymentRefundRequest.builder()
+                .transactionId(transactionId)
+                .idempotencyKey("refund-" + transactionId)
+                .reason("EverySale refund request")
+                .build());
+    }
+
+    @Override
+    public boolean refundPayment(PaymentRefundRequest request) {
+        String transactionId = request.getTransactionId();
         requireSecretKey();
         requireText(transactionId, "Toss paymentKey is required for refund");
 
-        Map<String, Object> body = Map.of("cancelReason", "EverySale refund request");
+        Map<String, Object> body = Map.of("cancelReason",
+                hasText(request.getReason()) ? request.getReason() : "EverySale refund request");
         try {
             restTemplate.exchange(
                     url("/v1/payments/" + transactionId + "/cancel"),
                     HttpMethod.POST,
-                    new HttpEntity<>(body, headers("refund-" + transactionId)),
+                    new HttpEntity<>(body, headers(request.getIdempotencyKey())),
                     String.class
             );
             return true;

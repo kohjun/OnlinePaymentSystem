@@ -3,16 +3,15 @@ package com.example.payment.application.temporal;
 import com.example.payment.application.dto.PaymentGatewayRequest;
 import com.example.payment.application.dto.PaymentGatewayResult;
 import com.example.payment.application.service.InventorySyncIssueService;
+import com.example.payment.application.service.RefundCoordinator;
 import com.example.payment.domain.entity.InventoryReservationRecord;
 import com.example.payment.domain.entity.OrderRecord;
 import com.example.payment.domain.entity.PaymentRecord;
-import com.example.payment.domain.entity.RefundRecord;
 import com.example.payment.domain.model.inventory.Inventory;
 import com.example.payment.domain.repository.InventoryRepository;
 import com.example.payment.domain.repository.InventoryReservationRecordRepository;
 import com.example.payment.domain.repository.OrderRecordRepository;
 import com.example.payment.domain.repository.PaymentRecordRepository;
-import com.example.payment.domain.repository.RefundRecordRepository;
 import com.example.payment.domain.service.PaymentGatewayService;
 import com.example.payment.infrastructure.gateway.PaymentGatewayFactory;
 import com.example.payment.infrastructure.messaging.outbox.OutboxEventService;
@@ -40,10 +39,10 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
     private final InventoryReservationRecordRepository reservationRepository;
     private final OrderRecordRepository orderRepository;
     private final PaymentRecordRepository paymentRepository;
-    private final RefundRecordRepository refundRepository;
     private final PaymentGatewayFactory paymentGatewayFactory;
     private final OutboxEventService outboxEventService;
     private final InventorySyncIssueService inventorySyncIssueService;
+    private final RefundCoordinator refundCoordinator;
 
     @Override
     @Transactional
@@ -358,67 +357,18 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
     }
 
     @Override
-    @Transactional
-    public void refundPayment(ReservationWorkflowCommand command, String reason) {
-        PaymentRecord payment = paymentRepository.findById(command.getPaymentId()).orElse(null);
-        if (payment == null || "REFUNDED".equals(payment.getStatus()) || !isApprovedPayment(payment.getStatus())) {
-            return;
-        }
-
-        String refundId = "RF-" + command.getPaymentId();
-        RefundRecord refund = refundRepository.findByPaymentIdAndIdempotencyKey(payment.getPaymentId(), refundId)
-                .orElseGet(() -> refundRepository.save(RefundRecord.builder()
-                        .refundId(refundId)
-                        .paymentId(payment.getPaymentId())
-                        .idempotencyKey(refundId)
-                        .amount(payment.getAmount())
-                        .currency(payment.getCurrency())
-                        .status("PROCESSING")
-                        .attemptCount(0)
-                        .createdAt(LocalDateTime.now())
-                        .build()));
-
-        if ("SUCCEEDED".equals(refund.getStatus())) {
-            payment.setStatus(refundCompletionStatus(payment));
-            payment.setProcessedAt(LocalDateTime.now());
-            paymentRepository.save(payment);
-            return;
-        }
-
-        refund.setAttemptCount(refund.getAttemptCount() + 1);
-        refund.setStatus("PROCESSING");
-        refundRepository.save(refund);
-
-        boolean refunded;
-        try {
-            PaymentGatewayService gateway = paymentGatewayFactory.getGateway(payment.getMethod());
-            refunded = gateway.refundPayment(payment.getTransactionId());
-        } catch (Exception e) {
-            markRefundFailed(command, payment, refund, e.getMessage(), reason);
-            return;
-        }
-
-        if (refunded) {
-            refund.setStatus("SUCCEEDED");
-            refund.setProviderRefundId(refundId);
-            refund.setCompletedAt(LocalDateTime.now());
-            refund.setFailureReason(null);
-            refundRepository.save(refund);
-
-            payment.setStatus(refundCompletionStatus(payment));
-            payment.setProcessedAt(LocalDateTime.now());
-            payment.setFailureReason(null);
-            paymentRepository.save(payment);
-            outboxEventService.record("PAYMENT", command.getPaymentId(), "PAYMENT_REFUNDED",
-                    "payment-events", command.getProductId(), payload(command, "PAYMENT_REFUNDED", reason));
-            return;
-        }
-
-        markRefundFailed(command, payment, refund, "PG refund returned false", reason);
+    public RefundCompensationResult refundPayment(ReservationWorkflowCommand command, String reason) {
+        RefundCoordinator.RefundOutcome outcome = refundCoordinator.refund(
+                command.getPaymentId(), "saga-" + command.getPaymentId(), reason);
+        return RefundCompensationResult.builder()
+                .successful(outcome.success())
+                .status(outcome.code())
+                .message(outcome.message())
+                .build();
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
     public void recordCompensationFailure(ReservationWorkflowCommand command, String activityName, String reason) {
         Map<String, Object> payload = payload(command, "COMPENSATION_FAILED", reason);
         payload.put("failedActivity", activityName);
@@ -495,33 +445,6 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
 
     private boolean isApprovedPayment(String status) {
         return "APPROVED".equals(status) || "COMPLETED".equals(status);
-    }
-
-    private String refundCompletionStatus(PaymentRecord payment) {
-        java.math.BigDecimal refundedAmount = refundRepository.sumSucceededAmountByPaymentId(payment.getPaymentId());
-        if (refundedAmount.compareTo(payment.getAmount()) >= 0) {
-            return "REFUNDED";
-        }
-        return "PARTIALLY_REFUNDED";
-    }
-
-    private void markRefundFailed(ReservationWorkflowCommand command, PaymentRecord payment,
-                                  RefundRecord refund, String failureReason, String reason) {
-        refund.setStatus("FAILED");
-        refund.setFailureReason(failureReason);
-        refundRepository.save(refund);
-
-        payment.setStatus("REFUND_FAILED");
-        payment.setFailureReason(failureReason);
-        payment.setProcessedAt(LocalDateTime.now());
-        paymentRepository.save(payment);
-
-        Map<String, Object> failedPayload = payload(command, "PAYMENT_REFUND_FAILED", reason);
-        failedPayload.put("failureReason", failureReason);
-        failedPayload.put("refundId", refund.getRefundId());
-        outboxEventService.record("PAYMENT", command.getPaymentId(), "PAYMENT_REFUND_FAILED",
-                "payment-events", command.getProductId(), failedPayload);
-        throw new IllegalStateException("Payment refund failed: " + failureReason);
     }
 
     @Transactional

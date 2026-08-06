@@ -1,5 +1,7 @@
 package com.example.payment.application.service;
 
+import com.example.payment.application.dto.PaymentRefundRequest;
+
 import com.example.payment.domain.model.common.Money;
 import com.example.payment.domain.entity.PaymentRecord;
 import com.example.payment.domain.model.payment.Payment;
@@ -99,14 +101,14 @@ class PaymentProcessingServiceTest {
         when(refundRecordRepository.save(any(RefundRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(refundRecordRepository.sumSucceededAmountByPaymentId("PAY-1")).thenReturn(new BigDecimal("100.00"));
         when(gatewayFactory.getGateway("CREDIT_CARD")).thenReturn(gateway);
-        when(gateway.refundPayment("pay_test_key")).thenReturn(true);
+        when(gateway.refundPayment(any(PaymentRefundRequest.class))).thenReturn(true);
 
         PaymentProcessingService.RefundResult result = service.refundPaymentWithResult("PAY-1", "REF-1", "customer request");
 
         assertEquals(true, result.success());
         assertEquals("REFUND_SUCCEEDED", result.code());
         assertEquals("REFUNDED", record.getStatus());
-        verify(gateway).refundPayment("pay_test_key");
+        verify(gateway).refundPayment(any(PaymentRefundRequest.class));
         verify(outboxEventService).record(
                 eq("PAYMENT"),
                 eq("PAY-1"),
@@ -164,14 +166,14 @@ class PaymentProcessingServiceTest {
         when(refundRecordRepository.save(any(RefundRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(refundRecordRepository.sumSucceededAmountByPaymentId("PAY-1")).thenReturn(new BigDecimal("100.00"));
         when(gatewayFactory.getGateway("CREDIT_CARD")).thenReturn(gateway);
-        when(gateway.refundPayment("pay_test_key")).thenReturn(true);
+        when(gateway.refundPayment(any(PaymentRefundRequest.class))).thenReturn(true);
 
         PaymentProcessingService.RefundResult result = service.refundPaymentWithResult("PAY-1", "REF-1", "retry refund");
 
         assertEquals(true, result.success());
         assertEquals("REFUND_SUCCEEDED", result.code());
         assertEquals("REFUNDED", record.getStatus());
-        verify(gateway).refundPayment("pay_test_key");
+        verify(gateway).refundPayment(any(PaymentRefundRequest.class));
     }
 
     @Test
@@ -209,7 +211,7 @@ class PaymentProcessingServiceTest {
                 .thenReturn(Optional.empty());
         when(refundRecordRepository.save(any(RefundRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(gatewayFactory.getGateway("CREDIT_CARD")).thenReturn(gateway);
-        when(gateway.refundPayment("pay_test_unknown"))
+        when(gateway.refundPayment(any(PaymentRefundRequest.class)))
                 .thenThrow(new PaymentGatewayResultUnknownException("timeout", new RuntimeException("timeout")));
 
         PaymentProcessingService.RefundResult result = service.refundPaymentWithResult(

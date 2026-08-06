@@ -79,7 +79,7 @@ class SagaScenarioTest extends TestcontainersIntegrationSupport {
                         .build());
 
         // 3. MockGateway의 환불도 성공하도록 설정
-        when(mockPaymentGateway.refundPayment(any()))
+        when(mockPaymentGateway.refundPayment(any(String.class)))
                 .thenReturn(true);
         when(mockPaymentGateway.getGatewayName()).thenReturn("MOCK_PAYMENT_GATEWAY");
     }
@@ -146,7 +146,7 @@ class SagaScenarioTest extends TestcontainersIntegrationSupport {
         System.out.println("✅ [취소 테스트] 취소 API 호출 성공");
 
         // 4. [검증] PG 환불이 호출되었는지 Mockito로 검증
-        Mockito.verify(mockPaymentGateway, Mockito.times(1)).refundPayment(any());
+        Mockito.verify(mockPaymentGateway, Mockito.times(1)).refundPayment(any(String.class));
         System.out.println("✅ [취소 테스트] PG 환불(refundPayment)이 호출되었습니다.");
 
         // 5. [검증] 재고가 롤백되었는지 확인 (가장 중요)

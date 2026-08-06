@@ -2,6 +2,7 @@ package com.example.payment.domain.service;
 
 import com.example.payment.application.dto.PaymentGatewayRequest;
 import com.example.payment.application.dto.PaymentGatewayResult;
+import com.example.payment.application.dto.PaymentRefundRequest;
 
 /**
  * 결제 게이트웨이 도메인 서비스 인터페이스
@@ -24,6 +25,10 @@ public interface PaymentGatewayService {
      * 결제 환불
      */
     boolean refundPayment(String transactionId);
+
+    default boolean refundPayment(PaymentRefundRequest request) {
+        return refundPayment(request.getTransactionId());
+    }
 
     /**
      * 결제 상태 조회

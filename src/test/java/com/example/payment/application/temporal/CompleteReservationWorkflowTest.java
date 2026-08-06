@@ -51,6 +51,28 @@ class CompleteReservationWorkflowTest {
         assertEquals(1, activities.cancelReservationCalls.get());
     }
 
+    @Test
+    void process_refundFailurePreservesOrderAndInventoryForManualRecovery() {
+        ConfigurableActivities activities = new ConfigurableActivities(FailStep.CONFIRM_INVENTORY) {
+            @Override
+            public RefundCompensationResult refundPayment(ReservationWorkflowCommand command, String reason) {
+                refundPaymentCalls.incrementAndGet();
+                return RefundCompensationResult.builder()
+                        .successful(false)
+                        .status("REFUND_UNKNOWN")
+                        .message("provider timeout")
+                        .build();
+            }
+        };
+
+        CompleteReservationResponse response = runWorkflow(activities);
+
+        assertEquals("COMPENSATION_PENDING", response.getStatus());
+        assertEquals(1, activities.refundPaymentCalls.get());
+        assertEquals(0, activities.cancelOrderCalls.get());
+        assertEquals(0, activities.cancelReservationCalls.get());
+    }
+
     private CompleteReservationResponse runWorkflow(CompleteReservationActivities activities) {
         try (TestWorkflowEnvironment environment = TestWorkflowEnvironment.newInstance()) {
             Worker worker = environment.newWorker(TASK_QUEUE);
@@ -122,7 +144,8 @@ class CompleteReservationWorkflowTest {
         }
 
         @Override
-        public void refundPayment(ReservationWorkflowCommand command, String reason) {
+        public RefundCompensationResult refundPayment(ReservationWorkflowCommand command, String reason) {
+            return RefundCompensationResult.builder().successful(true).status("REFUND_SUCCEEDED").build();
         }
 
         @Override
@@ -159,9 +182,9 @@ class CompleteReservationWorkflowTest {
 
     static class ConfigurableActivities extends SuccessfulActivities {
         private final FailStep failStep;
-        private final AtomicInteger cancelReservationCalls = new AtomicInteger();
-        private final AtomicInteger cancelOrderCalls = new AtomicInteger();
-        private final AtomicInteger refundPaymentCalls = new AtomicInteger();
+        protected final AtomicInteger cancelReservationCalls = new AtomicInteger();
+        protected final AtomicInteger cancelOrderCalls = new AtomicInteger();
+        protected final AtomicInteger refundPaymentCalls = new AtomicInteger();
 
         ConfigurableActivities(FailStep failStep) {
             this.failStep = failStep;
@@ -194,8 +217,9 @@ class CompleteReservationWorkflowTest {
         }
 
         @Override
-        public void refundPayment(ReservationWorkflowCommand command, String reason) {
+        public RefundCompensationResult refundPayment(ReservationWorkflowCommand command, String reason) {
             refundPaymentCalls.incrementAndGet();
+            return RefundCompensationResult.builder().successful(true).status("REFUND_SUCCEEDED").build();
         }
 
         @Override

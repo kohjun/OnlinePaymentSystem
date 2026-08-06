@@ -90,18 +90,14 @@ public class CompleteReservationWorkflowImpl implements CompleteReservationWorkf
             currentStep = "CONFIRM_INVENTORY";
             ReservationWorkflowStepResult inventoryConfirm = activities.confirmInventory(command);
             if (!inventoryConfirm.isSuccess()) {
-                safeCompensate("refundPayment", () -> activities.refundPayment(command, "inventory confirmation failed"));
-                safeCompensate("cancelOrder", () -> activities.cancelOrder(command, "inventory confirmation failed"));
-                safeCompensate("cancelReservation", () -> activities.cancelReservation(command, "inventory confirmation failed"));
+                compensateApprovedPayment(command, "inventory confirmation failed");
                 return fail(command, inventoryConfirm.getMessage());
             }
 
             currentStep = "MARK_ORDER_PAID";
             ReservationWorkflowStepResult paid = activities.markOrderPaid(command);
             if (!paid.isSuccess()) {
-                safeCompensate("refundPayment", () -> activities.refundPayment(command, "order payment update failed"));
-                safeCompensate("cancelOrder", () -> activities.cancelOrder(command, "order payment update failed"));
-                safeCompensate("cancelReservation", () -> activities.cancelReservation(command, "order payment update failed"));
+                compensateApprovedPayment(command, "order payment update failed");
                 return fail(command, paid.getMessage());
             }
 
@@ -122,13 +118,14 @@ public class CompleteReservationWorkflowImpl implements CompleteReservationWorkf
             }
 
             if (paymentCompleted) {
-                safeCompensate("refundPayment", () -> activities.refundPayment(command, "workflow exception"));
-            }
-            if (orderCreated) {
-                safeCompensate("cancelOrder", () -> activities.cancelOrder(command, "workflow exception"));
-            }
-            if (reserved) {
-                safeCompensate("cancelReservation", () -> activities.cancelReservation(command, "workflow exception"));
+                compensateApprovedPayment(command, "workflow exception");
+            } else {
+                if (orderCreated) {
+                    safeCompensate("cancelOrder", () -> activities.cancelOrder(command, "workflow exception"));
+                }
+                if (reserved) {
+                    safeCompensate("cancelReservation", () -> activities.cancelReservation(command, "workflow exception"));
+                }
             }
             return fail(command, e.getMessage());
         }
@@ -151,20 +148,46 @@ public class CompleteReservationWorkflowImpl implements CompleteReservationWorkf
                 ? message
                 : message + " (compensation issue: " + compensationFailureReason + ")";
         result = activities.buildFailureResponse(command, finalMessage);
-        status = "FAILED";
+        status = compensationFailureReason == null ? "FAILED" : "COMPENSATION_PENDING";
+        if (result != null) {
+            result.setStatus(status);
+        }
         return result;
+    }
+
+    private boolean compensateApprovedPayment(ReservationWorkflowCommand command, String reason) {
+        try {
+            RefundCompensationResult refund = activities.refundPayment(command, reason);
+            if (refund == null || !refund.isSuccessful()) {
+                String detail = refund == null
+                        ? "refund activity returned no result"
+                        : refund.getStatus() + ": " + refund.getMessage();
+                recordCompensationFailure("refundPayment", detail);
+                return false;
+            }
+        } catch (Exception exception) {
+            recordCompensationFailure("refundPayment", exception.getMessage());
+            return false;
+        }
+        safeCompensate("cancelOrder", () -> activities.cancelOrder(command, reason));
+        safeCompensate("cancelReservation", () -> activities.cancelReservation(command, reason));
+        return true;
+    }
+
+    private void recordCompensationFailure(String activityName, String reason) {
+        compensationFailureReason = activityName + " failed: " + reason;
+        try {
+            activities.recordCompensationFailure(currentCommand, activityName, reason);
+        } catch (Exception ignored) {
+            compensationFailureReason = compensationFailureReason + " (failure event record failed)";
+        }
     }
 
     private void safeCompensate(String activityName, CompensationAction action) {
         try {
             action.run();
         } catch (Exception e) {
-            compensationFailureReason = activityName + " failed: " + e.getMessage();
-            try {
-                activities.recordCompensationFailure(currentCommand, activityName, e.getMessage());
-            } catch (Exception ignored) {
-                compensationFailureReason = compensationFailureReason + " (failure event record failed)";
-            }
+            recordCompensationFailure(activityName, e.getMessage());
         }
     }
 

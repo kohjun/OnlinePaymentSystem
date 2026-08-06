@@ -29,7 +29,7 @@ public interface CompleteReservationActivities {
     void cancelOrder(ReservationWorkflowCommand command, String reason);
 
     @ActivityMethod
-    void refundPayment(ReservationWorkflowCommand command, String reason);
+    RefundCompensationResult refundPayment(ReservationWorkflowCommand command, String reason);
 
     @ActivityMethod
     void recordCompensationFailure(ReservationWorkflowCommand command, String activityName, String reason);
