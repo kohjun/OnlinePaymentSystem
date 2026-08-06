@@ -37,6 +37,9 @@ public class RateLimiter {
     @Value("${app.rate-limit.client-max-requests:120}")
     private long clientMaxRequests;
 
+    @Value("${app.rate-limit.fail-closed:false}")
+    private boolean failClosed;
+
     // 기본 설정값
     private static final int DEFAULT_CAPACITY = 10; // 초당 최대 요청 수
     private static final int DEFAULT_REFILL_RATE = 2; // 초당 충전되는 토큰 수
@@ -75,9 +78,9 @@ public class RateLimiter {
             }
             return true;
         } catch (Exception e) {
-            log.warn("Redis rate limiter unavailable; using local bucket only: client={}, reason={}",
-                    normalizedClientId, e.getMessage());
-            return true;
+            log.warn("Redis rate limiter unavailable: client={}, failClosed={}, reason={}",
+                    normalizedClientId, failClosed, e.getMessage());
+            return !failClosed;
         }
 
         /*

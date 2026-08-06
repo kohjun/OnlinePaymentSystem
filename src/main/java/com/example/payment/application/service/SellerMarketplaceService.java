@@ -384,6 +384,7 @@ public class SellerMarketplaceService {
     public SellerListingResponse createSaleEvent(String sellerId, String listingId, CreateSaleEventRequest request) {
         validateSaleEvent(request.getSaleType(), request.getPrice(), request.getStockQuantity(),
                 request.getMinBidIncrement(), request.getReservePrice());
+        int maxQuantityPerCustomer = customerLimit(request);
         SellerProfile seller = requireActiveSeller(sellerId);
         MarketplaceListing listing = marketplaceListingRepository.findById(listingId)
                 .orElseThrow(() -> new IllegalArgumentException("Listing not found: " + listingId));
@@ -414,6 +415,7 @@ public class SellerMarketplaceService {
                 .endsAt(defaultEnd(request.getEndsAt(), request.getSaleType()))
                 .price(request.getPrice())
                 .stockQuantity(request.getStockQuantity())
+                .maxQuantityPerCustomer(maxQuantityPerCustomer)
                 .minBidIncrement(request.getMinBidIncrement())
                 .reservePrice(request.getReservePrice())
                 .createdAt(LocalDateTime.now())
@@ -618,6 +620,7 @@ public class SellerMarketplaceService {
                 .price(event != null ? event.getPrice() : product.getPrice())
                 .totalQuantity(inventory.getTotalQuantity())
                 .availableQuantity(inventory.getAvailableQuantity())
+                .maxQuantityPerCustomer(event != null ? event.getMaxQuantityPerCustomer() : null)
                 .saleEventId(event != null ? event.getSaleEventId() : null)
                 .saleType(event != null ? event.getSaleType() : null)
                 .saleEventStatus(event != null ? event.getStatus() : null)
@@ -712,6 +715,24 @@ public class SellerMarketplaceService {
         if (reservePrice != null && price != null && reservePrice.compareTo(price) < 0) {
             throw new IllegalArgumentException("Auction reserve price cannot be lower than the starting price.");
         }
+    }
+
+    private int customerLimit(CreateSaleEventRequest request) {
+        int defaultLimit = request.getSaleType() == SaleType.FIXED_PRICE
+                ? request.getStockQuantity()
+                : 1;
+        int requested = request.getMaxQuantityPerCustomer() != null
+                ? request.getMaxQuantityPerCustomer()
+                : defaultLimit;
+        if (requested < 1 || requested > request.getStockQuantity()) {
+            throw new IllegalArgumentException(
+                    "Customer purchase limit must be between 1 and the sale event stock quantity.");
+        }
+        if ((request.getSaleType() == SaleType.RAFFLE || request.getSaleType() == SaleType.AUCTION)
+                && requested != 1) {
+            throw new IllegalArgumentException("Raffle and auction customer limit must be exactly 1.");
+        }
+        return requested;
     }
 
     private String defaultText(String value, String fallback) {

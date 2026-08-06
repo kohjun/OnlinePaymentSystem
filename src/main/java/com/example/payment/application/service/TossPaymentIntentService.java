@@ -19,6 +19,7 @@ import com.example.payment.domain.repository.RaffleWinnerRepository;
 import com.example.payment.domain.repository.SaleEventRepository;
 import com.example.payment.domain.repository.TossPaymentIntentRepository;
 import com.example.payment.infrastructure.gateway.TossPaymentsProperties;
+import com.example.payment.infrastructure.security.CommerceActor;
 import com.example.payment.infrastructure.util.IdGenerator;
 import com.example.payment.presentation.dto.request.CompleteReservationRequest;
 import com.example.payment.presentation.dto.request.MarketplaceCheckoutRequest;
@@ -66,6 +67,7 @@ public class TossPaymentIntentService {
     private final MarketplaceListingRepository marketplaceListingRepository;
     private final InventoryRepository inventoryRepository;
     private final InventoryHoldService inventoryHoldService;
+    private final CommercePolicyService commercePolicyService;
     private final RaffleWinnerRepository raffleWinnerRepository;
     private final AuctionSettlementRepository auctionSettlementRepository;
     private final MarketplaceOrderService marketplaceOrderService;
@@ -143,17 +145,23 @@ public class TossPaymentIntentService {
     @Transactional
     public TossPaymentIntentResponse createMarketplaceIntent(String eventId,
                                                              MarketplaceCheckoutType checkoutType,
+                                                             CommerceActor actor,
                                                              MarketplaceCheckoutRequest request) {
         requirePaymentWindowClientKey();
+        request.setCustomerId(actor.customerId());
         SaleEvent event = saleEventRepository.findByIdForUpdate(eventId)
                 .orElseThrow(() -> new MarketplaceCheckoutException(HttpStatus.NOT_FOUND, "Sale event not found: " + eventId));
         MarketplaceListing listing = marketplaceListingRepository.findById(event.getListingId())
                 .orElseThrow(() -> new MarketplaceCheckoutException(HttpStatus.NOT_FOUND, "Listing not found: " + event.getListingId()));
+        commercePolicyService.requireTradeAllowed(event, actor, "CHECKOUT");
         request.setShippingInfo(ticketingService.isDigitalTicket(listing)
                 ? null
                 : shippingAddressService.resolveShippingInfo(request.getCustomerId(), request.getShippingInfo()));
 
         TossPaymentIntent existing = repository.findByIdempotencyKey(request.getIdempotencyKey()).orElse(null);
+        if (existing == null && checkoutType == MarketplaceCheckoutType.DIRECT) {
+            commercePolicyService.requireDirectPurchaseCapacity(event, actor, request.getQuantity());
+        }
         MarketplaceIntentPrice price = marketplaceIntentPrice(event, listing, checkoutType, request, existing == null);
         CompleteReservationRequest completeRequest = toCompleteReservationRequest(event, listing, request, price);
         String requestHash = requestHash(completeRequest, Map.of(
@@ -181,6 +189,26 @@ public class TossPaymentIntentService {
         }
 
         String intentId = "TOSS-INTENT-" + IdGenerator.generateEventId();
+        LocalDateTime intentExpiresAt = LocalDateTime.now().plusMinutes(INTENT_TTL_MINUTES);
+        String inventoryReservationId = price.inventoryReservationId();
+        if (checkoutType == MarketplaceCheckoutType.DIRECT) {
+            inventoryReservationId = "INTENT-HOLD-" + intentId;
+            try {
+                inventoryHoldService.hold(
+                        inventoryReservationId,
+                        event.getProductId(),
+                        actor.customerId(),
+                        request.getQuantity(),
+                        intentExpiresAt,
+                        "DIRECT_INTENT",
+                        "TOSS_INTENT",
+                        intentId
+                );
+            } catch (InventoryHoldService.InsufficientInventoryException unavailable) {
+                throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "SOLD_OUT", "판매 가능한 재고가 없습니다.");
+            }
+            completeRequest.setInventoryReservationId(inventoryReservationId);
+        }
         TossPaymentIntent intent = TossPaymentIntent.builder()
                 .intentId(intentId)
                 .orderId(IdGenerator.generateOrderId())
@@ -201,17 +229,17 @@ public class TossPaymentIntentService {
                 .listingId(listing.getListingId())
                 .marketplaceCheckoutType(checkoutType.name())
                 .marketplaceSourceId(price.sourceId())
-                .inventoryReservationId(price.inventoryReservationId())
+                .inventoryReservationId(inventoryReservationId)
                 .status("READY")
                 .successUrl(successUrl(completeRequest, intentId))
                 .failUrl(failUrl(completeRequest, intentId))
-                .expiresAt(LocalDateTime.now().plusMinutes(INTENT_TTL_MINUTES))
+                .expiresAt(intentExpiresAt)
                 .createdAt(LocalDateTime.now())
                 .build();
         applyShippingSnapshot(intent, completeRequest.getShippingInfo());
-        if (price.inventoryReservationId() != null) {
+        if (inventoryReservationId != null) {
             inventoryHoldService.claim(
-                    price.inventoryReservationId(),
+                    inventoryReservationId,
                     intentId,
                     event.getProductId(),
                     request.getCustomerId(),
@@ -627,19 +655,10 @@ public class TossPaymentIntentService {
         }
         Inventory inventory = inventoryRepository.findByIdForUpdate(event.getProductId())
                 .orElseThrow(() -> new MarketplaceCheckoutException(HttpStatus.NOT_FOUND, "Inventory not found for product: " + event.getProductId()));
-        long activeIntentQuantity = includeActiveIntents
-                ? repository.sumActiveMarketplaceQuantity(
-                        event.getSaleEventId(),
-                        MarketplaceCheckoutType.DIRECT.name(),
-                        ACTIVE_INTENT_STATUSES,
-                        LocalDateTime.now()
-                )
-                : 0L;
         int eventStockLimit = event.getStockQuantity() != null
                 ? Math.min(event.getStockQuantity(), inventory.getAvailableQuantity())
                 : inventory.getAvailableQuantity();
-        long remainingForNewIntent = eventStockLimit - activeIntentQuantity;
-        if (remainingForNewIntent < quantity) {
+        if (eventStockLimit < quantity) {
             throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "SOLD_OUT");
         }
     }

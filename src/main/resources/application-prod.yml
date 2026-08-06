@@ -43,6 +43,8 @@ app:
   inventory:
     reconciliation:
       enabled: true
+  rate-limit:
+    fail-closed: true
   marketplace:
     lifecycle:
       enabled: true

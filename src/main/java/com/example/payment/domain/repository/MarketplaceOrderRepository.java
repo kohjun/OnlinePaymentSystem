@@ -8,6 +8,9 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Collection;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 @Repository
 public interface MarketplaceOrderRepository extends JpaRepository<MarketplaceOrder, String> {
@@ -35,4 +38,17 @@ public interface MarketplaceOrderRepository extends JpaRepository<MarketplaceOrd
     long countByStatus(MarketplaceOrderStatus status);
 
     List<MarketplaceOrder> findByStatusOrderByUpdatedAtAsc(MarketplaceOrderStatus status, Pageable pageable);
+
+    @Query("""
+            SELECT COALESCE(SUM(order.quantity), 0)
+            FROM MarketplaceOrder order
+            WHERE order.saleEventId = :saleEventId
+              AND order.customerId = :customerId
+              AND order.status IN :statuses
+            """)
+    long sumCompletedQuantityForCustomer(
+            @Param("saleEventId") String saleEventId,
+            @Param("customerId") String customerId,
+            @Param("statuses") Collection<MarketplaceOrderStatus> statuses
+    );
 }

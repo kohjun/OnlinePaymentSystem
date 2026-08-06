@@ -57,6 +57,10 @@ public class SaleEvent {
     @Column(name = "stock_quantity", nullable = false)
     private Integer stockQuantity;
 
+    @Column(name = "max_quantity_per_customer", nullable = false)
+    @Builder.Default
+    private Integer maxQuantityPerCustomer = 1;
+
     @Column(name = "min_bid_increment", precision = 19, scale = 2)
     private BigDecimal minBidIncrement;
 
@@ -82,6 +86,9 @@ public class SaleEvent {
         updatedAt = now;
         if (status == null) {
             status = SaleEventStatus.SCHEDULED;
+        }
+        if (maxQuantityPerCustomer == null) {
+            maxQuantityPerCustomer = saleType == SaleType.FIXED_PRICE ? stockQuantity : 1;
         }
     }
 

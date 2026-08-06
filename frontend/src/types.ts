@@ -34,6 +34,7 @@ export interface MarketplaceEvent {
   currency: string;
   totalQuantity: number;
   availableQuantity: number;
+  maxQuantityPerCustomer?: number;
   minBidIncrement?: number;
   reservePrice?: number;
   startsAt?: string;
@@ -77,6 +78,7 @@ export interface SellerListing {
   price: number;
   totalQuantity: number;
   availableQuantity: number;
+  maxQuantityPerCustomer?: number;
   saleEventId?: string;
   saleType?: SaleType;
   saleEventStatus?: EventStatus;
@@ -105,6 +107,7 @@ export interface SaleEventInput {
   saleType: SaleType;
   price: number;
   stockQuantity: number;
+  maxQuantityPerCustomer: number;
   startsAt?: string;
   endsAt?: string;
   minBidIncrement?: number;

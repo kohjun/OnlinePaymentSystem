@@ -69,4 +69,28 @@ public interface TossPaymentIntentRepository extends JpaRepository<TossPaymentIn
             @Param("statuses") Collection<String> statuses,
             @Param("now") LocalDateTime now
     );
+
+    @Query("""
+            SELECT COALESCE(SUM(t.quantity), 0)
+            FROM TossPaymentIntent t
+            WHERE t.saleEventId = :saleEventId
+              AND t.customerId = :customerId
+              AND t.status IN :statuses
+              AND t.expiresAt > :now
+            """)
+    long sumActiveMarketplaceQuantityForCustomer(
+            @Param("saleEventId") String saleEventId,
+            @Param("customerId") String customerId,
+            @Param("statuses") Collection<String> statuses,
+            @Param("now") LocalDateTime now
+    );
+
+    long countBySaleEventIdAndCustomerIdAndStatusInAndExpiresAtAfter(
+            String saleEventId,
+            String customerId,
+            Collection<String> statuses,
+            LocalDateTime now
+    );
+
+    List<TossPaymentIntent> findByStatusAndExpiresAtBefore(String status, LocalDateTime expiresAt);
 }

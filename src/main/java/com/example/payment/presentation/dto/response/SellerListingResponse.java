@@ -29,6 +29,7 @@ public class SellerListingResponse {
     private BigDecimal price;
     private Integer totalQuantity;
     private Integer availableQuantity;
+    private Integer maxQuantityPerCustomer;
     private String saleEventId;
     private SaleType saleType;
     private SaleEventStatus saleEventStatus;

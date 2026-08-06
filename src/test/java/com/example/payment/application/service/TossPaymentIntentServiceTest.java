@@ -30,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpStatus;
+import com.example.payment.infrastructure.security.CommerceActor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -45,6 +46,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 class TossPaymentIntentServiceTest {
 
@@ -55,6 +57,7 @@ class TossPaymentIntentServiceTest {
     private final MarketplaceListingRepository listingRepository = mock(MarketplaceListingRepository.class);
     private final InventoryRepository inventoryRepository = mock(InventoryRepository.class);
     private final InventoryHoldService inventoryHoldService = mock(InventoryHoldService.class);
+    private final CommercePolicyService commercePolicyService = mock(CommercePolicyService.class);
     private final RaffleWinnerRepository raffleWinnerRepository = mock(RaffleWinnerRepository.class);
     private final AuctionSettlementRepository auctionSettlementRepository = mock(AuctionSettlementRepository.class);
     private final MarketplaceOrderService marketplaceOrderService = mock(MarketplaceOrderService.class);
@@ -81,6 +84,7 @@ class TossPaymentIntentServiceTest {
                 listingRepository,
                 inventoryRepository,
                 inventoryHoldService,
+                commercePolicyService,
                 raffleWinnerRepository,
                 auctionSettlementRepository,
                 marketplaceOrderService,
@@ -101,6 +105,7 @@ class TossPaymentIntentServiceTest {
         TossPaymentIntentResponse response = service.createMarketplaceIntent(
                 "EVT-DROP",
                 MarketplaceCheckoutType.DIRECT,
+                actor(),
                 marketplaceRequest(new BigDecimal("150000"))
         );
 
@@ -114,8 +119,21 @@ class TossPaymentIntentServiceTest {
         assertEquals("LIST-DROP", saved.getListingId());
         assertEquals("DIRECT", saved.getMarketplaceCheckoutType());
         assertEquals("EVT-DROP", saved.getMarketplaceSourceId());
+        assertNotNull(saved.getInventoryReservationId());
         assertEquals("SELLER-1", saved.getMerchantId());
         assertEquals("Limited Drop", saved.getOrderName());
+        verify(inventoryHoldService).hold(
+                eq(saved.getInventoryReservationId()),
+                eq("PROD-DROP"),
+                eq("CUST-1"),
+                eq(1),
+                any(),
+                eq("DIRECT_INTENT"),
+                eq("TOSS_INTENT"),
+                eq(saved.getIntentId())
+        );
+        verify(inventoryHoldService).claim(
+                saved.getInventoryReservationId(), saved.getIntentId(), "PROD-DROP", "CUST-1", 1);
     }
 
     @Test
@@ -141,12 +159,30 @@ class TossPaymentIntentServiceTest {
     }
 
     @Test
+    void cancellingReadyDirectIntentReturnsInventoryHold() {
+        TossPaymentIntent intent = TossPaymentIntent.builder()
+                .intentId("INTENT-DIRECT")
+                .customerId("CUST-1")
+                .status("READY")
+                .inventoryReservationId("INTENT-HOLD-1")
+                .build();
+        when(repository.findById("INTENT-DIRECT")).thenReturn(Optional.of(intent));
+        when(repository.save(any(TossPaymentIntent.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.cancelReadyIntent("INTENT-DIRECT");
+
+        verify(inventoryHoldService).release("INTENT-HOLD-1", "CANCELLED");
+        assertEquals("CANCELLED", intent.getStatus());
+    }
+
+    @Test
     void rejectsMarketplaceIntentWhenClientAmountDoesNotMatchEventPrice() {
         stubDirectDrop();
 
         assertThrows(AmountMismatchException.class, () -> service.createMarketplaceIntent(
                 "EVT-DROP",
                 MarketplaceCheckoutType.DIRECT,
+                actor(),
                 marketplaceRequest(new BigDecimal("1"))
         ));
 
@@ -154,18 +190,22 @@ class TossPaymentIntentServiceTest {
     }
 
     @Test
-    void rejectsDirectIntentWhenActivePaymentWindowsExhaustInventory() {
+    void rejectsDirectIntentWhenCustomerPurchaseLimitIsExhausted() {
         stubDirectDrop();
-        when(repository.sumActiveMarketplaceQuantity(eq("EVT-DROP"), eq("DIRECT"), any(), any())).thenReturn(5L);
+        doThrow(new MarketplaceCheckoutException(
+                HttpStatus.CONFLICT, "PURCHASE_LIMIT_EXCEEDED", "limit exceeded"))
+                .when(commercePolicyService)
+                .requireDirectPurchaseCapacity(any(), any(), eq(1));
 
         MarketplaceCheckoutException ex = assertThrows(MarketplaceCheckoutException.class, () -> service.createMarketplaceIntent(
                 "EVT-DROP",
                 MarketplaceCheckoutType.DIRECT,
+                actor(),
                 marketplaceRequest(new BigDecimal("150000"))
         ));
 
         assertEquals(HttpStatus.CONFLICT, ex.getStatus());
-        assertEquals("SOLD_OUT", ex.getMessage());
+        assertEquals("PURCHASE_LIMIT_EXCEEDED", ex.getCode());
         verify(repository, never()).save(any());
     }
 
@@ -202,6 +242,7 @@ class TossPaymentIntentServiceTest {
         TossPaymentIntentResponse response = service.createMarketplaceIntent(
                 "EVT-AUCTION",
                 MarketplaceCheckoutType.AUCTION_WINNER,
+                actor(),
                 marketplaceRequest(new BigDecimal("9000000"))
         );
 
@@ -388,6 +429,10 @@ class TossPaymentIntentServiceTest {
                 .paymentMethod("CREDIT_CARD")
                 .build());
         return request;
+    }
+
+    private CommerceActor actor() {
+        return new CommerceActor("USER-1", "CUST-1");
     }
 
     private TossPaymentIntent baseIntent() {

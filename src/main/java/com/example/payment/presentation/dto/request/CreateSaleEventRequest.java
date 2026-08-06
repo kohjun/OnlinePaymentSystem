@@ -22,6 +22,9 @@ public class CreateSaleEventRequest {
     @Min(value = 1, message = "stockQuantity must be greater than 0")
     private Integer stockQuantity;
 
+    @Min(value = 1, message = "maxQuantityPerCustomer must be greater than 0")
+    private Integer maxQuantityPerCustomer;
+
     private Boolean publishImmediately;
     private LocalDateTime startsAt;
     private LocalDateTime endsAt;

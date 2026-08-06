@@ -147,7 +147,11 @@ class MarketplaceConcurrencyIntegrationTest extends TestcontainersIntegrationSup
                         .add(new BigDecimal("100000.00").multiply(BigDecimal.valueOf(sequence))));
                 request.setIdempotencyKey("auction-load-" + sequence);
                 try {
-                    auctionService.placeBid(AUCTION_EVENT_ID, request);
+                    auctionService.placeBid(
+                            AUCTION_EVENT_ID,
+                            new com.example.payment.infrastructure.security.CommerceActor(
+                                    "USER-" + request.getCustomerId(), request.getCustomerId()),
+                            request);
                     return true;
                 } catch (MarketplaceCheckoutException expectedRaceRejection) {
                     return false;
@@ -192,7 +196,11 @@ class MarketplaceConcurrencyIntegrationTest extends TestcontainersIntegrationSup
                 RaffleEntryRequest request = new RaffleEntryRequest();
                 request.setCustomerId("RAFFLE-SAME-CUSTOMER");
                 request.setIdempotencyKey("raffle-duplicate-" + sequence);
-                return raffleService.enter(RAFFLE_EVENT_ID, request);
+                return raffleService.enter(
+                        RAFFLE_EVENT_ID,
+                        new com.example.payment.infrastructure.security.CommerceActor(
+                                "USER-" + request.getCustomerId(), request.getCustomerId()),
+                        request);
             }));
         }
 
@@ -225,7 +233,11 @@ class MarketplaceConcurrencyIntegrationTest extends TestcontainersIntegrationSup
                 RaffleEntryRequest request = new RaffleEntryRequest();
                 request.setCustomerId("RAFFLE-CUSTOMER-" + sequence);
                 request.setIdempotencyKey("raffle-load-" + sequence);
-                return raffleService.enter(RAFFLE_EVENT_ID, request);
+                return raffleService.enter(
+                        RAFFLE_EVENT_ID,
+                        new com.example.payment.infrastructure.security.CommerceActor(
+                                "USER-" + request.getCustomerId(), request.getCustomerId()),
+                        request);
             }));
         }
 

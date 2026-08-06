@@ -15,6 +15,7 @@ import com.example.payment.domain.repository.AuctionSettlementRepository;
 import com.example.payment.domain.repository.MarketplaceListingRepository;
 import com.example.payment.domain.repository.SaleEventRepository;
 import com.example.payment.infrastructure.util.AfterCommitExecutor;
+import com.example.payment.infrastructure.security.CommerceActor;
 import com.example.payment.presentation.dto.request.AuctionBidRequest;
 import com.example.payment.presentation.dto.response.AuctionBidResponse;
 import com.example.payment.presentation.dto.response.AuctionStatusResponse;
@@ -46,6 +47,7 @@ public class AuctionService {
     private final AuctionBidRepository auctionBidRepository;
     private final AuctionSettlementRepository auctionSettlementRepository;
     private final InventoryHoldService inventoryHoldService;
+    private final CommercePolicyService commercePolicyService;
     private final MarketplaceRealtimeService marketplaceRealtimeService;
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
@@ -57,10 +59,12 @@ public class AuctionService {
     private long winnerCheckoutTtlMinutes;
 
     @Transactional
-    public AuctionBidResponse placeBid(String eventId, AuctionBidRequest request) {
+    public AuctionBidResponse placeBid(String eventId, CommerceActor actor, AuctionBidRequest request) {
+        request.setCustomerId(actor.customerId());
         SaleEvent event = requireAuctionEventForUpdate(eventId);
         requireLiveAuction(event);
         requireActiveListing(event);
+        commercePolicyService.requireTradeAllowed(event, actor, "AUCTION_BID");
         if (auctionSettlementRepository.findFirstBySaleEventIdOrderByOfferSequenceDesc(eventId).isPresent()) {
             throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "The auction has already closed.");
         }

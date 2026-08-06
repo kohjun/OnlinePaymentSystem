@@ -29,6 +29,7 @@ public class MarketplaceEventResponse {
     private String currency;
     private Integer totalQuantity;
     private Integer availableQuantity;
+    private Integer maxQuantityPerCustomer;
     private BigDecimal minBidIncrement;
     private BigDecimal reservePrice;
 

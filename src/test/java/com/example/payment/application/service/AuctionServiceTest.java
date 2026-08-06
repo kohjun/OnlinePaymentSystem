@@ -21,6 +21,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
+import com.example.payment.infrastructure.security.CommerceActor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -42,6 +43,7 @@ class AuctionServiceTest {
     private final AuctionBidRepository bidRepository = mock(AuctionBidRepository.class);
     private final AuctionSettlementRepository settlementRepository = mock(AuctionSettlementRepository.class);
     private final InventoryHoldService inventoryHoldService = mock(InventoryHoldService.class);
+    private final CommercePolicyService commercePolicyService = mock(CommercePolicyService.class);
     private final MarketplaceRealtimeService marketplaceRealtimeService = mock(MarketplaceRealtimeService.class);
     private final RedisTemplate<String, Object> redisTemplate = mock(RedisTemplate.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -52,6 +54,7 @@ class AuctionServiceTest {
             bidRepository,
             settlementRepository,
             inventoryHoldService,
+            commercePolicyService,
             marketplaceRealtimeService,
             redisTemplate,
             objectMapper
@@ -77,7 +80,7 @@ class AuctionServiceTest {
         request.setBidAmount(new BigDecimal("8550000"));
 
         MarketplaceCheckoutException ex = assertThrows(MarketplaceCheckoutException.class,
-                () -> service.placeBid("EVT-AUCTION", request));
+                () -> service.placeBid("EVT-AUCTION", actor("CUST-2"), request));
 
         assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, ex.getStatus());
     }
@@ -93,7 +96,7 @@ class AuctionServiceTest {
         request.setCustomerId("CUST-2");
         request.setBidAmount(new BigDecimal("8600000"));
 
-        AuctionBidResponse response = service.placeBid("EVT-AUCTION", request);
+        AuctionBidResponse response = service.placeBid("EVT-AUCTION", actor("CUST-2"), request);
 
         assertEquals("CUST-2", response.getCustomerId());
         assertEquals(AuctionBidStatus.WINNING, response.getStatus());
@@ -203,5 +206,9 @@ class AuctionServiceTest {
                 .status(AuctionBidStatus.WINNING)
                 .createdAt(LocalDateTime.now())
                 .build();
+    }
+
+    private CommerceActor actor(String customerId) {
+        return new CommerceActor("USER-" + customerId, customerId);
     }
 }

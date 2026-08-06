@@ -16,6 +16,7 @@ import com.example.payment.domain.repository.RaffleEntryRepository;
 import com.example.payment.domain.repository.RaffleWinnerRepository;
 import com.example.payment.domain.repository.SaleEventRepository;
 import com.example.payment.infrastructure.util.AfterCommitExecutor;
+import com.example.payment.infrastructure.security.CommerceActor;
 import com.example.payment.presentation.dto.request.RaffleDrawRequest;
 import com.example.payment.presentation.dto.request.RaffleEntryRequest;
 import com.example.payment.presentation.dto.response.RaffleEntryResponse;
@@ -54,6 +55,7 @@ public class RaffleService {
     private final RaffleEntryRepository raffleEntryRepository;
     private final RaffleWinnerRepository raffleWinnerRepository;
     private final InventoryHoldService inventoryHoldService;
+    private final CommercePolicyService commercePolicyService;
     private final MarketplaceRealtimeService marketplaceRealtimeService;
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
@@ -65,10 +67,12 @@ public class RaffleService {
     private boolean allowOperatorSeed;
 
     @Transactional
-    public RaffleEntryResponse enter(String eventId, RaffleEntryRequest request) {
+    public RaffleEntryResponse enter(String eventId, CommerceActor actor, RaffleEntryRequest request) {
+        request.setCustomerId(actor.customerId());
         SaleEvent event = requireRaffleEventForUpdate(eventId);
         MarketplaceListing listing = requireActiveListing(event);
         validateRaffleOpen(event, listing);
+        commercePolicyService.requireTradeAllowed(event, actor, "RAFFLE_ENTRY");
 
         RaffleEntry existing = raffleEntryRepository
                 .findBySaleEventIdAndCustomerId(eventId, request.getCustomerId())

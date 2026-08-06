@@ -84,6 +84,7 @@ function eventDefaults(listing: SellerListing): SaleEventInput {
     saleType: 'FIXED_PRICE',
     price: Number(listing.price),
     stockQuantity: listing.availableQuantity,
+    maxQuantityPerCustomer: listing.availableQuantity,
     startsAt: localDateTime(1),
     endsAt: localDateTime(25),
     minBidIncrement: 1000,
@@ -230,7 +231,9 @@ export function SellerCenter({
   }
 
   async function saveEvent() {
-    if (!eventListing || !eventForm || eventForm.price <= 0 || eventForm.stockQuantity <= 0) return;
+    if (!eventListing || !eventForm || eventForm.price <= 0 || eventForm.stockQuantity <= 0
+        || eventForm.maxQuantityPerCustomer <= 0
+        || eventForm.maxQuantityPerCustomer > eventForm.stockQuantity) return;
     if (eventForm.endsAt && eventForm.startsAt && eventForm.endsAt <= eventForm.startsAt) {
       notify('판매 종료 시각은 시작 시각보다 늦어야 합니다.', 'error');
       return;
@@ -410,16 +413,28 @@ function EventForm({ listing, value, busy, onChange, onCancel, onSave }: {
   return <section className="seller-editor seller-event-editor">
     <header><div><h2>판매 설정</h2><span>{listing.name}</span></div><button className="icon-button" onClick={onCancel} title="판매 설정 닫기"><X /></button></header>
     <div className="seller-editor__grid seller-event-grid">
-      <label>판매 방식<select value={value.saleType} onChange={event => set('saleType', event.target.value as SaleType)}>
+      <label>판매 방식<select value={value.saleType} onChange={event => {
+        const saleType = event.target.value as SaleType;
+        onChange({
+          ...value,
+          saleType,
+          stockQuantity: saleType === 'AUCTION' ? 1 : value.stockQuantity,
+          maxQuantityPerCustomer: saleType === 'FIXED_PRICE' ? value.stockQuantity : 1
+        });
+      }}>
         <option value="FIXED_PRICE">일반 판매</option><option value="DROP">한정 수량</option><option value="RAFFLE">래플</option><option value="AUCTION">실시간 경매</option>
       </select></label>
       <label>판매가<input type="number" min="1" step="1" value={value.price} onChange={event => set('price', Number(event.target.value))} /></label>
-      <label>판매 수량<input type="number" min="1" max={listing.availableQuantity} step="1" value={value.stockQuantity} onChange={event => set('stockQuantity', Number(event.target.value))} /></label>
+      <label>판매 수량<input type="number" min="1" max={listing.availableQuantity} step="1" value={value.stockQuantity} onChange={event => {
+        const stockQuantity = Number(event.target.value);
+        onChange({ ...value, stockQuantity, maxQuantityPerCustomer: Math.min(value.maxQuantityPerCustomer, stockQuantity) });
+      }} /></label>
+      <label>고객별 구매 한도<input type="number" min="1" max={value.stockQuantity} step="1" value={value.maxQuantityPerCustomer} disabled={value.saleType === 'RAFFLE' || value.saleType === 'AUCTION'} onChange={event => set('maxQuantityPerCustomer', Number(event.target.value))} /></label>
       <label>시작 시각<input type="datetime-local" value={value.startsAt ?? ''} onChange={event => set('startsAt', event.target.value || undefined)} /></label>
       <label>종료 시각<input type="datetime-local" value={value.endsAt ?? ''} onChange={event => set('endsAt', event.target.value || undefined)} /></label>
       {value.saleType === 'AUCTION' && <><label>최소 입찰 단위<input type="number" min="1" step="1" value={value.minBidIncrement ?? ''} onChange={event => set('minBidIncrement', Number(event.target.value))} /></label><label>낙찰 하한가<input type="number" min="1" step="1" value={value.reservePrice ?? ''} onChange={event => set('reservePrice', Number(event.target.value))} /></label></>}
       <label className="seller-toggle"><input type="checkbox" checked={value.publishImmediately} onChange={event => set('publishImmediately', event.target.checked)} /><span>저장 즉시 판매 시작</span></label>
     </div>
-    <footer><button className="secondary-button" onClick={onCancel}>취소</button><button className="primary-button" disabled={busy || value.price <= 0 || value.stockQuantity <= 0 || value.stockQuantity > listing.availableQuantity} onClick={() => void onSave()}><CalendarClock />판매 일정 저장</button></footer>
+    <footer><button className="secondary-button" onClick={onCancel}>취소</button><button className="primary-button" disabled={busy || value.price <= 0 || value.stockQuantity <= 0 || value.stockQuantity > listing.availableQuantity || value.maxQuantityPerCustomer <= 0 || value.maxQuantityPerCustomer > value.stockQuantity} onClick={() => void onSave()}><CalendarClock />판매 일정 저장</button></footer>
   </section>;
 }

@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.RedisTemplate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.test.util.ReflectionTestUtils;
+import com.example.payment.infrastructure.security.CommerceActor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -49,6 +50,7 @@ class RaffleServiceTest {
     private final RaffleEntryRepository entryRepository = mock(RaffleEntryRepository.class);
     private final RaffleWinnerRepository winnerRepository = mock(RaffleWinnerRepository.class);
     private final InventoryHoldService inventoryHoldService = mock(InventoryHoldService.class);
+    private final CommercePolicyService commercePolicyService = mock(CommercePolicyService.class);
     private final MarketplaceRealtimeService marketplaceRealtimeService = mock(MarketplaceRealtimeService.class);
     private final RedisTemplate<String, Object> redisTemplate = mock(RedisTemplate.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -60,6 +62,7 @@ class RaffleServiceTest {
             entryRepository,
             winnerRepository,
             inventoryHoldService,
+            commercePolicyService,
             marketplaceRealtimeService,
             redisTemplate,
             objectMapper
@@ -91,7 +94,8 @@ class RaffleServiceTest {
         RaffleEntryRequest request = new RaffleEntryRequest();
         request.setCustomerId("CUST-1");
 
-        RaffleEntryResponse response = service.enter("EVT-RAFFLE", request);
+        RaffleEntryResponse response = service.enter(
+                "EVT-RAFFLE", new CommerceActor("USER-CUST-1", "CUST-1"), request);
 
         assertEquals("EVT-RAFFLE", response.getSaleEventId());
         assertEquals("CUST-1", response.getCustomerId());
@@ -107,7 +111,8 @@ class RaffleServiceTest {
         RaffleEntryRequest request = new RaffleEntryRequest();
         request.setCustomerId("CUST-1");
 
-        RaffleEntryResponse response = service.enter("EVT-RAFFLE", request);
+        RaffleEntryResponse response = service.enter(
+                "EVT-RAFFLE", new CommerceActor("USER-CUST-1", "CUST-1"), request);
 
         assertEquals("ENTRY-1", response.getEntryId());
         assertEquals(RaffleEntryStatus.ENTERED, response.getStatus());
