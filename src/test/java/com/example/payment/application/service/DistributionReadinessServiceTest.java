@@ -304,6 +304,7 @@ class DistributionReadinessServiceTest {
 
         SellerPayoutTransferGateway realAdapter = mock(SellerPayoutTransferGateway.class);
         when(realAdapter.providerName()).thenReturn("TOSS_PAYOUTS");
+        when(realAdapter.providerContractVerified()).thenReturn(true);
         ObjectProvider<SellerPayoutTransferGateway> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(realAdapter);
 
@@ -320,6 +321,33 @@ class DistributionReadinessServiceTest {
 
         assertEquals("PASS", check.status());
         assertFalse(check.blocking());
+    }
+
+    @Test
+    void payoutReadinessBlocksAdapterNotVerifiedAgainstProviderContract() {
+        CacheService cacheService = mock(CacheService.class);
+        when(cacheService.isRedisConnected()).thenReturn(true);
+
+        // 현재 토스 지급대행 어댑터는 v2 공개 스펙과 맞지 않는다고 스스로 선언한다.
+        SellerPayoutTransferGateway tossAdapter = new com.example.payment.infrastructure.gateway
+                .TossPayoutsSellerPayoutTransferGateway(null, null, null);
+        ObjectProvider<SellerPayoutTransferGateway> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(tossAdapter);
+
+        MockEnvironment environment = baseEnvironment()
+                .withProperty("app.distribution.mode", "PRODUCTION")
+                .withProperty("app.payout.transfer.provider", "TOSS_PAYOUTS")
+                .withProperty("app.payout.transfer.external-adapter-enabled", "true");
+
+        DistributionReadinessService.ReadinessCheck check =
+                new DistributionReadinessService(cacheService, environment, provider).evaluate().checks().stream()
+                        .filter(candidate -> "seller-payout-transfer-provider".equals(candidate.id()))
+                        .findFirst()
+                        .orElseThrow();
+
+        assertEquals("FAIL", check.status());
+        assertTrue(check.blocking());
+        assertTrue(check.message().contains("not verified"));
     }
 
     @Test

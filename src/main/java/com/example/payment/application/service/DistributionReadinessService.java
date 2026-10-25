@@ -341,7 +341,11 @@ public class DistributionReadinessService {
         boolean matchingGatewayBean = registeredProvider != null
                 && !registeredProvider.isBlank()
                 && provider.equalsIgnoreCase(registeredProvider);
-        boolean pass = !ledgerOnly && externalAdapterEnabled && matchingGatewayBean;
+        boolean contractVerified = matchingGatewayBean && gateway.providerContractVerified();
+        boolean pass = !ledgerOnly && externalAdapterEnabled && contractVerified;
+        String failure = matchingGatewayBean && !ledgerOnly
+                ? "Payout adapter " + provider + " is not verified against the provider's contract and sandbox evidence."
+                : "Configure an external payout gateway bean whose providerName matches app.payout.transfer.provider before production.";
         return new ReadinessCheck(
                 "seller-payout-transfer-provider",
                 "Seller payout transfer provider",
@@ -349,7 +353,7 @@ public class DistributionReadinessService {
                 productionMode && !pass,
                 pass
                         ? "External seller payout transfer adapter is configured: " + provider
-                        : "Configure an external payout gateway bean whose providerName matches app.payout.transfer.provider before production."
+                        : failure
         );
     }
 

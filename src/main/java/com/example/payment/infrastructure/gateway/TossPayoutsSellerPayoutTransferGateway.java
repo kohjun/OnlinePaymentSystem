@@ -61,6 +61,18 @@ public class TossPayoutsSellerPayoutTransferGateway implements SellerPayoutTrans
         return PROVIDER_NAME;
     }
 
+    /**
+     * 토스페이먼츠 지급대행 공개 스펙(v2)과 맞지 않는다. 실제 API는 /v2 경로,
+     * JWE(dir/A256GCM) 본문 암호화와 TossPayments-api-security-mode 헤더, 사전
+     * 등록한 셀러 id(destination), scheduleType·transactionDescription을 요구하고
+     * refPayoutId 조회를 제공하지 않는다. 계약과 sandbox 증빙으로 다시 맞추기 전까지
+     * 상용 readiness가 이 어댑터를 막는다. 차이는 docs/payout-provider-contract.md.
+     */
+    @Override
+    public boolean providerContractVerified() {
+        return false;
+    }
+
     @Override
     public TransferResult transfer(TransferRequest request) {
         Map<String, Object> body = new LinkedHashMap<>();
