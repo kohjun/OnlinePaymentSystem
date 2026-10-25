@@ -189,6 +189,10 @@ class AdminOperationsQueueServiceTest {
         assertEquals("PAYOUT-READY-1", queue(response, "payoutRelease").getItems().get(0).getId());
         assertEquals("releasePayout", queue(response, "payoutRelease").getItems().get(0).getActions().get(0).getAction());
         assertEquals(new BigDecimal("45000"), queue(response, "payoutRecovery").getItems().get(0).getAmount());
+        assertEquals(List.of("payoutCancelled", "buyerRefund"), queue(response, "partialRefundReviews")
+                .getItems().get(0).getActions().stream()
+                .map(AdminOperationsQueueResponse.QueueAction::getAction)
+                .toList());
     }
 
     private MarketplaceOrder order(String id, MarketplaceOrderStatus status, LocalDateTime createdAt) {

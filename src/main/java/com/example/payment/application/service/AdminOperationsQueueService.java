@@ -400,8 +400,10 @@ public class AdminOperationsQueueService {
             return actions(action("retryRefund", "환불 재시도", "danger", true));
         }
         if ("MARKETPLACE_PARTIAL_REFUND".equals(type)) {
+            // 부분 환불 주문은 판매자 정산으로 전환할 수 없다. 환불이 성공한 결제는
+            // CommerceSettlementGuard가 막고, 정산액도 환불 전 금액 그대로라 풀면
+            // 과지급이 된다. 실패할 수밖에 없는 버튼을 내보내지 않는다.
             return actions(
-                    action("payoutReady", "판매자 정산", "success", true),
                     action("payoutCancelled", "정산 취소", "danger", true),
                     action("buyerRefund", "추가 환불", "danger", true)
             );
