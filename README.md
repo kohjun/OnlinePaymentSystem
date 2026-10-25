@@ -418,7 +418,7 @@ Coverage report, merging unit and integration execution data:
 .\gradlew.bat test integrationTest jacocoTestReport --no-daemon
 ```
 
-The report is written to `build_sim_new/reports/jacoco/test/html/index.html`. Merging both execution files currently yields 57% instruction and 44% branch coverage; unit tests alone are 47% / 37%, so the Docker-backed suites carry a real share of it.
+The report is written to `build_sim_new/reports/jacoco/test/html/index.html`. Merging both execution files yields 68.8% instruction and 54.3% branch coverage; unit tests alone are 52.1% / 42.7%, so the Docker-backed suites carry a real share of it (measured 2026-10-25: 405 unit and 48 integration cases).
 
 CI enforces a ratchet below the measured figure:
 
