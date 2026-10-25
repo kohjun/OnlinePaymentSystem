@@ -558,6 +558,7 @@ Not yet instrumented: Redis command spans. Inventory Lua scripts appear inside t
 
 ## Operational Notes
 
+- The application clock is UTC. `UtcTimeZoneInitializer` pins the JVM default time zone before the Spring context starts (main, SpringBootTest and test child processes alike), Gradle test JVMs run with `user.timezone=UTC`, and API responses write `LocalDateTime` values with a trailing `Z`. Notification text shows deadlines in KST.
 - `TOSS_PAYMENTS` is the default payment gateway; local mock beans are disabled unless explicitly enabled for tests.
 - Public direct complete and legacy payment APIs are disabled by default.
 - Security is deny-by-default for API routes that are not explicitly public; public routes are limited to static pages, health/readiness, and public marketplace/event reads.

@@ -21,9 +21,9 @@ public class SellerPayoutResponse {
     private BigDecimal netAmount;
     private SellerPayoutStatus status;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime createdAt;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime releasedAt;
 }

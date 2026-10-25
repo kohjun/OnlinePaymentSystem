@@ -1,6 +1,7 @@
 package com.example.payment.infrastructure.util;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Qualifier;
 import com.fasterxml.jackson.core.type.TypeReference;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,6 +19,7 @@ import java.util.*;
 public class ResourceReservationService {
 
     private final RedisTemplate<String, Object> redisTemplate;
+    @Qualifier("redisObjectMapper")
     private final ObjectMapper objectMapper;
 
     private final DefaultRedisScript<String> reserveScript;

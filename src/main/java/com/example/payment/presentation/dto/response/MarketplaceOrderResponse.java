@@ -44,28 +44,28 @@ public class MarketplaceOrderResponse {
     private String shippingMethod;
     private String shippingMemo;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime createdAt;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime paidAt;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime updatedAt;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime fulfilledAt;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime shippedAt;
 
     private String trackingCarrier;
     private String trackingNumber;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime buyerConfirmedAt;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime disputedAt;
 
     private String disputeReason;
@@ -73,6 +73,6 @@ public class MarketplaceOrderResponse {
     private String disputeResolutionNote;
     private String disputeResolvedBy;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime disputeResolvedAt;
 }

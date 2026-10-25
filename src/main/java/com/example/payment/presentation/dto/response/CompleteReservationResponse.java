@@ -40,7 +40,7 @@ public class CompleteReservationResponse extends BaseResponse {
         private String productId;
         private Integer quantity;
 
-        @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+        @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
         private LocalDateTime expiresAt;
     }
 
@@ -53,7 +53,7 @@ public class CompleteReservationResponse extends BaseResponse {
         private String customerId;
         private String status;
 
-        @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+        @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
         private LocalDateTime createdAt;
     }
 
@@ -69,7 +69,7 @@ public class CompleteReservationResponse extends BaseResponse {
         private String currency;
         private String status;
 
-        @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+        @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
         private LocalDateTime processedAt;
     }
 

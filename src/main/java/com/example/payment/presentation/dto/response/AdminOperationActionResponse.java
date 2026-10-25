@@ -20,6 +20,6 @@ public class AdminOperationActionResponse {
     private String message;
     private Object result;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime processedAt;
 }

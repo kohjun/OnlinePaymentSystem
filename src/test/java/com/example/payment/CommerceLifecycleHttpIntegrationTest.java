@@ -102,6 +102,22 @@ class CommerceLifecycleHttpIntegrationTest extends FullCommerceTestcontainersSup
     private java.nio.file.Path processDirectory;
     @Autowired private org.springframework.core.env.Environment environment;
     @Autowired private org.springframework.context.ApplicationContext applicationContext;
+    @Autowired private com.fasterxml.jackson.databind.ObjectMapper applicationMapper;
+    @Autowired @org.springframework.beans.factory.annotation.Qualifier("redisObjectMapper")
+    private com.fasterxml.jackson.databind.ObjectMapper redisMapper;
+    @Autowired private com.example.payment.infrastructure.persistence.redis.repository.CacheService cacheService;
+    @Autowired private com.example.payment.application.service.TossPaymentIntentService tossIntentService;
+
+    @Test
+    void redisComponentsKeepTheirOwnMapperWhileApiUsesThePrimaryOne() {
+        org.junit.jupiter.api.Assertions.assertNotSame(applicationMapper, redisMapper);
+        org.junit.jupiter.api.Assertions.assertSame(redisMapper,
+                org.springframework.test.util.ReflectionTestUtils.getField(cacheService, "objectMapper"));
+        org.junit.jupiter.api.Assertions.assertSame(redisMapper,
+                org.springframework.test.util.ReflectionTestUtils.getField(resourceReservationService, "objectMapper"));
+        org.junit.jupiter.api.Assertions.assertSame(applicationMapper,
+                org.springframework.test.util.ReflectionTestUtils.getField(tossIntentService, "objectMapper"));
+    }
 
     enum CheckoutFault { NONE, RESPONSE_LOSS, APPROVAL_COMMIT_FAILURE, WORKER_REPLACEMENT, DATABASE_CRASH, PROCESS_RESTART, REFUND_PROCESS_RESTART, CANCEL_FIRST, SHIPMENT_FIRST, REFUND_BEFORE_PAYOUT, REFUND_DURING_PAYOUT, REFUND_AFTER_PAYOUT, PAYOUT_RESPONSE_LOSS, PAYOUT_PROCESS_RESTART, PAYOUT_RESTART_REFUND, DISPUTE_FIRST, CONFIRM_FIRST, DISPUTE_REFUND_BLOCKED, ORDER_CREATE_FAILURE, CLOSURE_ROLLBACK, AUTHORIZATION_RACE }
 
@@ -451,6 +467,9 @@ class CommerceLifecycleHttpIntegrationTest extends FullCommerceTestcontainersSup
         ResponseEntity<String> genericBypass = post("/api/payments/toss/intents", buyerHeaders,
                 genericIntentBody(runId, productId), String.class);
         assertEquals(HttpStatus.CONFLICT, genericBypass.getStatusCode());
+        // 프론트는 오류 코드를 최상위 code에서 읽는다(ProblemDetail이 properties로 묻히면 안 된다).
+        assertTrue(genericBypass.getBody() != null
+                && genericBypass.getBody().contains("\"code\":\"MARKETPLACE_REQUEST_REJECTED\""), genericBypass.getBody());
 
         ListingMediaResponse[] productImages = uploadMedia(
                 listingId, sellerHeaders, "PRODUCT_IMAGE", "front.png",
