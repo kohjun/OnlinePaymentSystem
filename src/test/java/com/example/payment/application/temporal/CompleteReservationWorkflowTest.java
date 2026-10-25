@@ -168,6 +168,34 @@ class CompleteReservationWorkflowTest {
         }
     }
 
+    @Test
+    void sixtyDaysOfUncertaintyStaysInsideTemporalHistoryLimitAndStillRecovers() {
+        var activities = new WorkflowHistoryFixtures.UnknownUntil(java.time.Duration.ofDays(60));
+        try (TestWorkflowEnvironment environment = TestWorkflowEnvironment.newInstance()) {
+            Worker worker = environment.newWorker(TASK_QUEUE);
+            worker.registerWorkflowImplementationTypes(CompleteReservationWorkflowImpl.class);
+            worker.registerActivitiesImplementations(activities);
+            environment.start();
+            var workflow = environment.getWorkflowClient().newWorkflowStub(CompleteReservationWorkflow.class,
+                    WorkflowOptions.newBuilder().setTaskQueue(TASK_QUEUE).setWorkflowId("sixty-day-pending").build());
+            WorkflowClient.start(workflow::process, request());
+
+            environment.sleep(java.time.Duration.ofDays(3));
+            var pending = workflow.getResult();
+            assertEquals("MANUAL_REVIEW", pending.getPhase());
+            assertEquals(7200, pending.getRetryAfterSeconds());
+
+            var completed = io.temporal.client.WorkflowStub.fromTyped(workflow)
+                    .getResult(CompleteReservationResponse.class);
+            assertEquals("SUCCESS", completed.getStatus());
+            int events = environment.getWorkflowClient().fetchHistory("sixty-day-pending")
+                    .getHistory().getEventsCount();
+            // 경고 기준(10,240)과 강제 종료 상한(51,200) 모두 아래에 있어야 한다.
+            // 15분 고정 간격이면 같은 기간에 약 7만 개가 쌓인다.
+            org.junit.jupiter.api.Assertions.assertTrue(events < 10_240, "history events: " + events);
+        }
+    }
+
     private CompleteReservationResponse runWorkflow(CompleteReservationActivities activities) {
         try (TestWorkflowEnvironment environment = TestWorkflowEnvironment.newInstance()) {
             Worker worker = environment.newWorker(TASK_QUEUE);

@@ -10,6 +10,11 @@ import java.time.Duration;
 import java.util.UUID;
 
 public class CompleteReservationWorkflowImpl implements CompleteReservationWorkflow {
+    // 수동 검토 단계의 재조회 간격. 15분 고정이면 하루 약 1,100개 이벤트가 쌓여
+    // 50일 안팎에 Temporal 이력 상한(51,200)에 닿고 워크플로가 강제 종료된다.
+    // 타이머 길이만 바꾸는 변경은 재생 결정성에 영향이 없어 실행 중인 워크플로도
+    // 새 간격을 따른다. 명령 순서를 바꿀 때는 CompleteReservationWorkflowReplayTest가 막는다.
+    private static final int[] MANUAL_REVIEW_DELAY_SECONDS = {900, 1800, 3600, 7200};
     private final CompleteReservationActivities activities = Workflow.newActivityStub(
             CompleteReservationActivities.class, ActivityOptions.newBuilder()
                     .setStartToCloseTimeout(Duration.ofSeconds(30))
@@ -20,6 +25,8 @@ public class CompleteReservationWorkflowImpl implements CompleteReservationWorkf
     private ReservationWorkflowCommand command;
     private long waitingSince;
     private int polls;
+    private int manualPolls;
+    private int manualRetryAfterSeconds = MANUAL_REVIEW_DELAY_SECONDS[0];
 
     @Override
     public CompleteReservationResponse process(CompleteReservationRequest request) {
@@ -135,12 +142,18 @@ public class CompleteReservationWorkflowImpl implements CompleteReservationWorkf
         return result;
     }
 
-    private void resetWait() { waitingSince = Workflow.currentTimeMillis(); polls = 0; }
+    private void resetWait() { waitingSince = Workflow.currentTimeMillis(); polls = 0; manualPolls = 0; }
 
     private void waitForRecovery(String recoveryPhase) {
         boolean manual = Workflow.currentTimeMillis() - waitingSince >= Duration.ofMinutes(30).toMillis();
         phase = manual ? "MANUAL_REVIEW" : recoveryPhase;
-        long seconds = manual ? 900 : new long[]{5, 15, 30, 60}[Math.min(polls++, 3)];
+        long seconds;
+        if (manual) {
+            manualRetryAfterSeconds = MANUAL_REVIEW_DELAY_SECONDS[Math.min(manualPolls++, MANUAL_REVIEW_DELAY_SECONDS.length - 1)];
+            seconds = manualRetryAfterSeconds;
+        } else {
+            seconds = new long[]{5, 15, 30, 60}[Math.min(polls++, 3)];
+        }
         Workflow.sleep(Duration.ofSeconds(seconds));
     }
 
@@ -148,7 +161,7 @@ public class CompleteReservationWorkflowImpl implements CompleteReservationWorkf
     public CompleteReservationResponse getResult() {
         if (result != null) return result;
         return CompleteReservationResponse.builder().workflowId(Workflow.getInfo().getWorkflowId())
-                .status("PENDING").phase(phase).retryAfterSeconds("MANUAL_REVIEW".equals(phase) ? 900 : 5)
+                .status("PENDING").phase(phase).retryAfterSeconds("MANUAL_REVIEW".equals(phase) ? manualRetryAfterSeconds : 5)
                 .message("Transaction verification is in progress").build();
     }
 
