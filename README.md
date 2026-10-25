@@ -32,6 +32,8 @@ Reserve inventory in Redis
 -> Publish outbox events to Kafka
 ```
 
+`POST /api/payments/toss/intents` rejects any product that belongs to a marketplace listing with `409`. Marketplace inventory is sold only through the sale-event checkout routes, which enforce listing review state, sale window, sale type, self-trade and purchase limits and record the marketplace order and seller payout.
+
 `/api/reservations/complete` remains an internal Saga test hook and is disabled by default with `app.checkout.public-complete-enabled=false`. Direct inventory reservation/cancellation is also disabled with `app.checkout.legacy-reservation-api-enabled=false`; customer cancellation must use `POST /api/c2c/orders/{orderId}/cancellations` so refund, inventory, payout, and cancellation ledgers stay consistent. The former public payment process/retry/refund, direct order cancel, non-Toss marketplace checkout, simulation, and demo-auth APIs have been removed. The local mock-auth filter is development-only and is disabled by the `prod` profile.
 
 ## Implementation Scope

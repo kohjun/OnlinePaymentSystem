@@ -447,6 +447,11 @@ class CommerceLifecycleHttpIntegrationTest extends FullCommerceTestcontainersSup
         String listingId = String.valueOf(listing.get("listingId"));
         String productId = String.valueOf(listing.get("productId"));
 
+        // 초안 리스팅도 상품과 재고가 먼저 생긴다. 일반 결제 경로로는 사 갈 수 없어야 한다.
+        ResponseEntity<String> genericBypass = post("/api/payments/toss/intents", buyerHeaders,
+                genericIntentBody(runId, productId), String.class);
+        assertEquals(HttpStatus.CONFLICT, genericBypass.getStatusCode());
+
         ListingMediaResponse[] productImages = uploadMedia(
                 listingId, sellerHeaders, "PRODUCT_IMAGE", "front.png",
                 new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3});
@@ -1441,6 +1446,20 @@ class CommerceLifecycleHttpIntegrationTest extends FullCommerceTestcontainersSup
             Thread.sleep(500);
         }
         throw new AssertionError("Restarted app did not recover intent through status lookup: " + intentId);
+    }
+
+    private Map<String, Object> genericIntentBody(String runId, String productId) {
+        return Map.of(
+                "productId", productId,
+                "quantity", 1,
+                "idempotencyKey", "E2E-GENERIC-" + runId,
+                "clientId", "commerce-e2e",
+                "paymentInfo", Map.of(
+                        "amount", 25000,
+                        "currency", "KRW",
+                        "paymentMethod", "CREDIT_CARD"
+                )
+        );
     }
 
     private Map<String, Object> checkoutBody(String runId, String customerId) {

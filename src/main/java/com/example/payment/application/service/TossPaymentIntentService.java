@@ -93,9 +93,28 @@ public class TossPaymentIntentService {
         }
     }
 
+    /**
+     * 마켓플레이스 재고는 판매 이벤트 결제로만 판다.
+     *
+     * 판매자 리스팅은 초안 단계부터 상품과 재고를 만들고, productId는 공개
+     * 이벤트 응답에 노출된다. 일반 결제 경로가 그 상품을 받으면 검수 상태,
+     * 판매 기간, 판매 방식, 자기 거래·구매 한도를 모두 건너뛰고, 결제가
+     * 끝나도 마켓플레이스 주문과 판매자 정산이 생기지 않는다.
+     */
+    private void requireNonMarketplaceProduct(String productId) {
+        if (hasText(productId) && marketplaceListingRepository.existsByProductId(productId)) {
+            throw new MarketplaceCheckoutException(
+                    HttpStatus.CONFLICT,
+                    "MARKETPLACE_CHECKOUT_REQUIRED",
+                    "마켓플레이스 상품은 판매 이벤트 결제로만 구매할 수 있습니다."
+            );
+        }
+    }
+
     @Transactional
     public TossPaymentIntentResponse createIntent(CompleteReservationRequest request) {
         requirePaymentWindowClientKey();
+        requireNonMarketplaceProduct(request.getProductId());
         checkoutPricingService.applyProductPrice(request, true);
         request.setShippingInfo(shippingAddressService.resolveShippingInfo(request.getCustomerId(), request.getShippingInfo()));
         String requestHash = requestHash(request);
@@ -267,6 +286,10 @@ public class TossPaymentIntentService {
         validateConfirm(request, intent);
         if (hasText(intent.getResponseBody())) return readResponse(intent.getResponseBody());
         if (hasText(intent.getWorkflowId())) return getIntentStatus(intent.getIntentId());
+        // 차단 이전에 만들어진 일반 intent도 Toss 승인 전에 막는다.
+        if (!hasText(intent.getMarketplaceCheckoutType())) {
+            requireNonMarketplaceProduct(intent.getProductId());
+        }
 
         boolean isLockRequired = "RAFFLE_WINNER".equals(intent.getMarketplaceCheckoutType())
                 || "AUCTION_WINNER".equals(intent.getMarketplaceCheckoutType());

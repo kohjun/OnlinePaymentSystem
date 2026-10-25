@@ -21,6 +21,8 @@ public interface MarketplaceListingRepository extends JpaRepository<MarketplaceL
 
     List<MarketplaceListing> findBySellerIdOrderByCreatedAtDesc(String sellerId);
 
+    boolean existsByProductId(String productId);
+
     List<MarketplaceListing> findByStatus(ListingStatus status);
 
     List<MarketplaceListing> findByStatusOrderByCreatedAtAsc(ListingStatus status);

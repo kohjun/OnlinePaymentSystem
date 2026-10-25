@@ -42,6 +42,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -398,6 +399,66 @@ class TossPaymentIntentServiceTest {
         assertEquals("SUCCESS", response.getStatus());
         assertNotNull(intent.getResponseBody());
         verify(completeReservationGateway, never()).processCompleteReservation(any());
+    }
+
+    @Test
+    void rejectsGenericIntentForMarketplaceListingProduct() {
+        when(listingRepository.existsByProductId("PROD-DROP")).thenReturn(true);
+
+        MarketplaceCheckoutException rejected = assertThrows(MarketplaceCheckoutException.class,
+                () -> service.createIntent(genericRequest("PROD-DROP")));
+
+        assertEquals(HttpStatus.CONFLICT, rejected.getStatus());
+        assertEquals("MARKETPLACE_CHECKOUT_REQUIRED", rejected.getCode());
+        verify(checkoutPricingService, never()).applyProductPrice(any(), anyBoolean());
+        verify(repository, never()).save(any(TossPaymentIntent.class));
+    }
+
+    @Test
+    void createsGenericIntentForProductOutsideMarketplace() {
+        when(listingRepository.existsByProductId("PROD-1")).thenReturn(false);
+        when(repository.findByIdempotencyKey("IDEMP-GENERIC")).thenReturn(Optional.empty());
+        when(repository.save(any(TossPaymentIntent.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        TossPaymentIntentResponse response = service.createIntent(genericRequest("PROD-1"));
+
+        assertNotNull(response.getIntentId());
+        verify(checkoutPricingService).applyProductPrice(any(), eq(true));
+        verify(repository).save(any(TossPaymentIntent.class));
+    }
+
+    @Test
+    void confirmRejectsGenericIntentCreatedForMarketplaceProductBeforeAuthorization() {
+        TossPaymentIntent intent = baseIntent();
+        when(repository.findById("TOSS-INTENT-1")).thenReturn(Optional.of(intent));
+        when(listingRepository.existsByProductId("PROD-1")).thenReturn(true);
+
+        MarketplaceCheckoutException rejected = assertThrows(MarketplaceCheckoutException.class,
+                () -> service.confirm(TossPaymentConfirmRequest.builder()
+                        .intentId("TOSS-INTENT-1")
+                        .paymentKey("paykey_1")
+                        .orderId("ORD-TOSS-1")
+                        .amount(new BigDecimal("10000.00"))
+                        .build()));
+
+        assertEquals("MARKETPLACE_CHECKOUT_REQUIRED", rejected.getCode());
+        verify(stateWriter, never()).authenticate(any());
+        verify(completeReservationGateway, never()).processCompleteReservation(any());
+    }
+
+    private CompleteReservationRequest genericRequest(String productId) {
+        return CompleteReservationRequest.builder()
+                .productId(productId)
+                .customerId("CUST-1")
+                .quantity(1)
+                .clientId("web")
+                .idempotencyKey("IDEMP-GENERIC")
+                .paymentInfo(CompleteReservationRequest.PaymentInfo.builder()
+                        .amount(new BigDecimal("10000"))
+                        .currency("KRW")
+                        .paymentMethod("CREDIT_CARD")
+                        .build())
+                .build();
     }
 
     private void stubDirectDrop() {
