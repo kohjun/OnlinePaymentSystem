@@ -101,6 +101,9 @@ dependencies {
 }
 
 tasks.withType(Test).configureEach {
+    // 런타임은 UTC로 고정된다(UtcTimeZoneInitializer). 테스트 JVM도 같은 기준에 맞춰
+    // 개발 PC(KST)와 CI(UTC)의 결과가 갈라지지 않게 한다.
+    systemProperty 'user.timezone', 'UTC'
     testLogging {
         events "passed", "skipped", "failed"
         exceptionFormat "full"

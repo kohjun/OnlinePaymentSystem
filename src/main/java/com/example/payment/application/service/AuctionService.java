@@ -480,7 +480,8 @@ public class AuctionService {
                 bid.getCustomerId(),
                 "AUCTION_WINNER_OFFERED",
                 offerSequence == 1 ? "경매에 낙찰되었습니다" : "경매 결제 기회가 승계되었습니다",
-                "경매 " + event.getSaleEventId() + "의 결제 가능 시각은 " + expiresAt + "까지입니다.",
+                "경매 " + event.getSaleEventId() + "의 결제 가능 시각은 "
+                        + MarketplaceNotificationService.displayTime(expiresAt) + "까지입니다.",
                 "AUCTION_SETTLEMENT",
                 settlementId,
                 "auction:" + event.getSaleEventId() + ":offer:" + offerSequence + ":" + bid.getCustomerId()

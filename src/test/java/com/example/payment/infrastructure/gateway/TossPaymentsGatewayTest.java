@@ -76,6 +76,8 @@ class TossPaymentsGatewayTest {
         assertEquals("APPROVED", result.getGatewayStatus());
         assertEquals("pay_test_key", result.getTransactionId());
         assertEquals("12345678", result.getApprovalNumber());
+        // approvedAt +09:00 10시는 UTC 01시로 저장해야 다른 UTC 시각과 비교된다.
+        assertEquals(java.time.LocalDateTime.of(2026, 6, 22, 1, 0), result.getProcessedAt());
         server.verify();
     }
 

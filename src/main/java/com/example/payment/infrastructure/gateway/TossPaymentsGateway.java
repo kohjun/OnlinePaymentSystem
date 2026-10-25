@@ -308,7 +308,8 @@ public class TossPaymentsGateway implements PaymentGatewayService {
             return LocalDateTime.now();
         }
         try {
-            return OffsetDateTime.parse(value).toLocalDateTime();
+            // Toss는 +09:00 오프셋으로 보낸다. 벽시계 값만 떼면 9시간 어긋난 UTC가 된다.
+            return OffsetDateTime.parse(value).withOffsetSameInstant(java.time.ZoneOffset.UTC).toLocalDateTime();
         } catch (Exception e) {
             return LocalDateTime.now();
         }

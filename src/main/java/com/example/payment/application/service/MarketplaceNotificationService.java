@@ -12,14 +12,28 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class MarketplaceNotificationService {
 
+    private static final ZoneId DISPLAY_ZONE = ZoneId.of("Asia/Seoul");
+    private static final DateTimeFormatter DISPLAY_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+
     private final MarketplaceNotificationRepository notificationRepository;
     private final MarketplaceNotificationWriter notificationWriter;
+
+    /**
+     * 알림 문장에 넣는 시각. 저장값은 UTC라 그대로 쓰면 한국 사용자에게
+     * 9시간 이른 마감 시각으로 읽힌다.
+     */
+    public static String displayTime(LocalDateTime utc) {
+        return utc.atOffset(ZoneOffset.UTC).atZoneSameInstant(DISPLAY_ZONE).format(DISPLAY_FORMAT) + " (KST)";
+    }
 
     @Transactional
     public void notifyCustomer(String customerId,

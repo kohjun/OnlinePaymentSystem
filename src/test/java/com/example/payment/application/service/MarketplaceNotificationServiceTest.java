@@ -28,6 +28,12 @@ class MarketplaceNotificationServiceTest {
     private final MarketplaceNotificationService service = new MarketplaceNotificationService(repository, writer);
 
     @Test
+    void displayTimeShowsUtcValueInKoreanTime() {
+        assertEquals("2026-10-25 10:30 (KST)",
+                MarketplaceNotificationService.displayTime(LocalDateTime.of(2026, 10, 25, 1, 30)));
+    }
+
+    @Test
     void duplicateIdempotencyKeyDoesNotCreateAnotherNotification() {
         when(repository.existsByIdempotencyKey("order:1:paid")).thenReturn(true);
 

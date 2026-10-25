@@ -472,7 +472,8 @@ public class RaffleService {
                 entry.getCustomerId(),
                 "RAFFLE_WINNER_OFFERED",
                 offerSequence == 1 ? "래플에 당첨되었습니다" : "래플 결제 기회가 승계되었습니다",
-                "래플 " + event.getSaleEventId() + "의 결제 가능 시각은 " + expiresAt + "까지입니다.",
+                "래플 " + event.getSaleEventId() + "의 결제 가능 시각은 "
+                        + MarketplaceNotificationService.displayTime(expiresAt) + "까지입니다.",
                 "RAFFLE_WINNER",
                 winnerId,
                 "raffle:" + event.getSaleEventId() + ":offer:" + offerSequence + ":" + entry.getCustomerId()
