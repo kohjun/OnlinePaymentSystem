@@ -78,6 +78,7 @@ public class TossPaymentIntentService {
     private final ObjectMapper objectMapper;
     private final TossIntentStateWriter stateWriter;
     private final RedisTemplate<String, Object> redisTemplate;
+    private final CheckoutRedirectPolicy redirectPolicy;
 
     /**
      * 결제창을 열 수 있는 상태인지 먼저 확인한다.
@@ -210,6 +211,9 @@ public class TossPaymentIntentService {
         }
 
         String intentId = "TOSS-INTENT-" + IdGenerator.generateEventId();
+        // 재고를 잡기 전에 돌아갈 주소부터 확인한다.
+        String successUrl = successUrl(completeRequest, intentId);
+        String failUrl = failUrl(completeRequest, intentId);
         LocalDateTime intentExpiresAt = LocalDateTime.now().plusMinutes(INTENT_TTL_MINUTES);
         String inventoryReservationId = price.inventoryReservationId();
         if (checkoutType == MarketplaceCheckoutType.DIRECT) {
@@ -252,8 +256,8 @@ public class TossPaymentIntentService {
                 .marketplaceSourceId(price.sourceId())
                 .inventoryReservationId(inventoryReservationId)
                 .status("READY")
-                .successUrl(successUrl(completeRequest, intentId))
-                .failUrl(failUrl(completeRequest, intentId))
+                .successUrl(successUrl)
+                .failUrl(failUrl)
                 .expiresAt(intentExpiresAt)
                 .createdAt(LocalDateTime.now())
                 .build();
@@ -877,12 +881,12 @@ public class TossPaymentIntentService {
 
     private String successUrl(CompleteReservationRequest request, String intentId) {
         String value = request.getPaymentInfo().getSuccessUrl();
-        return withIntentId(defaultText(value, "/app/?tossResult=success"), intentId);
+        return withIntentId(redirectPolicy.requireAllowed(defaultText(value, "/app/?tossResult=success")), intentId);
     }
 
     private String failUrl(CompleteReservationRequest request, String intentId) {
         String value = request.getPaymentInfo().getFailUrl();
-        return withIntentId(defaultText(value, "/app/?tossResult=fail"), intentId);
+        return withIntentId(redirectPolicy.requireAllowed(defaultText(value, "/app/?tossResult=fail")), intentId);
     }
 
     private String withIntentId(String url, String intentId) {

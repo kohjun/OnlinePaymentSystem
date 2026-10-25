@@ -108,7 +108,8 @@ class TossPaymentIntentServiceTest {
                 tossProperties,
                 new ObjectMapper(),
                 stateWriter,
-                redisTemplate
+                redisTemplate,
+                new CheckoutRedirectPolicy("http://localhost:8080")
         );
     }
 
@@ -425,6 +426,36 @@ class TossPaymentIntentServiceTest {
         assertNotNull(response.getIntentId());
         verify(checkoutPricingService).applyProductPrice(any(), eq(true));
         verify(repository).save(any(TossPaymentIntent.class));
+    }
+
+    @Test
+    void rejectsRedirectToForeignOriginBeforeHoldingInventory() {
+        stubDirectDrop();
+        when(repository.findByIdempotencyKey("IDEMP-1")).thenReturn(Optional.empty());
+        MarketplaceCheckoutRequest request = marketplaceRequest(new BigDecimal("150000"));
+        request.getPaymentInfo().setSuccessUrl("https://attacker.example/collect");
+
+        MarketplaceCheckoutException rejected = assertThrows(MarketplaceCheckoutException.class,
+                () -> service.createMarketplaceIntent("EVT-DROP", MarketplaceCheckoutType.DIRECT, actor(), request));
+
+        assertEquals(HttpStatus.BAD_REQUEST, rejected.getStatus());
+        assertEquals("INVALID_REDIRECT_URL", rejected.getCode());
+        verify(inventoryHoldService, never()).hold(any(), any(), any(), any(Integer.class), any(), any(), any(), any());
+        verify(repository, never()).save(any(TossPaymentIntent.class));
+    }
+
+    @Test
+    void keepsSameSitePathRedirectAndAppendsIntentId() {
+        stubDirectDrop();
+        when(repository.findByIdempotencyKey("IDEMP-1")).thenReturn(Optional.empty());
+        when(repository.save(any(TossPaymentIntent.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        MarketplaceCheckoutRequest request = marketplaceRequest(new BigDecimal("150000"));
+        request.getPaymentInfo().setSuccessUrl("/app/?tossResult=success");
+
+        TossPaymentIntentResponse response = service.createMarketplaceIntent(
+                "EVT-DROP", MarketplaceCheckoutType.DIRECT, actor(), request);
+
+        assertEquals("/app/?tossResult=success&intentId=" + response.getIntentId(), response.getSuccessUrl());
     }
 
     @Test

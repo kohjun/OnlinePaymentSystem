@@ -429,7 +429,8 @@ export const api = {
       : checkoutType === 'RAFFLE_WINNER'
         ? 'raffle/winner-checkout/toss/intents'
         : 'auction/winner-checkout/toss/intents';
-    const baseUrl = `${window.location.origin}/app/`;
+    // 서버는 같은 사이트 경로와 허용된 출처만 받는다. 결제창에 넘길 때 현재 출처를 붙인다.
+    const basePath = '/app/';
     return request<TossIntent>(`/api/marketplace/events/${encodeURIComponent(eventId)}/${suffix}`, {
       method: 'POST',
       body: JSON.stringify({
@@ -442,8 +443,8 @@ export const api = {
           amount,
           currency: 'KRW',
           paymentMethod: 'CREDIT_CARD',
-          successUrl: `${baseUrl}?tossResult=success`,
-          failUrl: `${baseUrl}?tossResult=fail`
+          successUrl: `${basePath}?tossResult=success`,
+          failUrl: `${basePath}?tossResult=fail`
         }
       })
     });
