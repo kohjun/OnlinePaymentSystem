@@ -145,6 +145,42 @@ public class C2CListingController {
         }
     }
 
+    @PostMapping("/listings/{listingId}/pause")
+    public ResponseEntity<?> pauseListing(@PathVariable String listingId) {
+        try {
+            EverySalePrincipal principal = authorizationGuard.currentPrincipal();
+            return ResponseEntity.ok(sellerMarketplaceService.pauseListingForOwner(
+                    principal.userId(), principal.customerId(), listingId));
+        } catch (IllegalArgumentException e) {
+            log.warn("C2C listing pause rejected: {}", e.getMessage());
+            return error(HttpStatus.CONFLICT, e.getMessage());
+        }
+    }
+
+    @PostMapping("/listings/{listingId}/resume")
+    public ResponseEntity<?> resumeListing(@PathVariable String listingId) {
+        try {
+            EverySalePrincipal principal = authorizationGuard.currentPrincipal();
+            return ResponseEntity.ok(sellerMarketplaceService.resumeListingForOwner(
+                    principal.userId(), principal.customerId(), listingId));
+        } catch (IllegalArgumentException e) {
+            log.warn("C2C listing resume rejected: {}", e.getMessage());
+            return error(HttpStatus.CONFLICT, e.getMessage());
+        }
+    }
+
+    @PostMapping("/listings/{listingId}/archive")
+    public ResponseEntity<?> archiveListing(@PathVariable String listingId) {
+        try {
+            EverySalePrincipal principal = authorizationGuard.currentPrincipal();
+            return ResponseEntity.ok(sellerMarketplaceService.archiveListingForOwner(
+                    principal.userId(), principal.customerId(), listingId));
+        } catch (IllegalArgumentException e) {
+            log.warn("C2C listing archive rejected: {}", e.getMessage());
+            return error(HttpStatus.CONFLICT, e.getMessage());
+        }
+    }
+
     private ResponseEntity<Map<String, Object>> error(HttpStatus status, String message) {
         return ResponseEntity.status(status).body(Map.of(
                 "status", "FAILED",

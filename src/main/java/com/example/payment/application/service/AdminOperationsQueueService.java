@@ -59,6 +59,7 @@ public class AdminOperationsQueueService {
                 marketplaceReportReviews(pageable, limit),
                 openDisputes(pageable),
                 paymentRefundFailures(pageable),
+                paymentRecovery(pageable),
                 marketplaceRefundFailures(pageable),
                 partialRefundReviews(pageable),
                 payoutRelease(pageable),
@@ -137,6 +138,21 @@ public class AdminOperationsQueueService {
                 .map(this::paymentRefundFailureItem)
                 .toList();
         return queue("paymentRefundFailures", "PG 환불 실패", count, items);
+    }
+
+    private AdminOperationsQueueResponse.QueueSummary paymentRecovery(Pageable pageable) {
+        var statuses = List.of("PROCESSING", "UNKNOWN", "REFUND_UNKNOWN");
+        long count = statuses.stream().mapToLong(paymentRecordRepository::countByStatus).sum();
+        var items = statuses.stream().flatMap(status -> paymentRecordRepository
+                .findByStatusOrderByCreatedAtAsc(status, pageable).stream())
+                .sorted(Comparator.comparing(payment -> defaultTime(payment.getCreatedAt())))
+                .limit(pageable.getPageSize()).map(payment -> {
+                    var item = paymentRefundFailureItem(payment);
+                    item.setTitle("거래 결과 확인 · " + payment.getPaymentId());
+                    item.setActions(actions(action("recheck", "상태 재확인", "neutral", false)));
+                    return item;
+                }).toList();
+        return queue("paymentRecovery", "결제·환불 확인 중", count, items);
     }
 
     private AdminOperationsQueueResponse.QueueSummary marketplaceRefundFailures(Pageable pageable) {

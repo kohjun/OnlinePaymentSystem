@@ -3,11 +3,15 @@ package com.example.payment.application.service;
 import com.example.payment.domain.model.marketplace.SellerPayout;
 import com.example.payment.domain.model.marketplace.SellerPayoutAccountStatus;
 import com.example.payment.domain.model.marketplace.SellerPayoutStatus;
+import com.example.payment.domain.model.marketplace.MarketplaceOrder;
+import com.example.payment.domain.model.marketplace.MarketplaceOrderStatus;
+import com.example.payment.domain.model.marketplace.DisputeResolution;
 import com.example.payment.domain.repository.SellerPayoutAccountRepository;
 import com.example.payment.domain.repository.SellerPayoutRepository;
 import com.example.payment.presentation.dto.response.SellerPayoutResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -85,20 +89,37 @@ public class SellerPayoutService {
             throw new IllegalArgumentException("Verified seller payout account is required before payout release: " + payout.getSellerId());
         }
         payoutTransferCoordinator.transfer(payout);
-        payout.setStatus(SellerPayoutStatus.RELEASED);
-        payout.setReleasedAt(LocalDateTime.now());
-        return toResponse(sellerPayoutRepository.save(payout));
+        return toResponse(sellerPayoutRepository.findById(payout.getPayoutId()).orElseThrow());
     }
 
     @Transactional
     public SellerPayoutResponse markReadyForRelease(String sourceType, String sourceId) {
-        SellerPayout payout = sellerPayoutRepository.findBySourceTypeAndSourceId(sourceType, sourceId)
+        SellerPayout payout = sellerPayoutRepository.findBySourceForUpdate(sourceType, sourceId)
                 .orElseThrow(() -> new IllegalArgumentException("Seller payout source not found: " + sourceType + "/" + sourceId));
         if (payout.getStatus() == SellerPayoutStatus.RELEASED) {
             return toResponse(payout);
         }
-        if (payout.getStatus() == SellerPayoutStatus.DISPUTED || payout.getStatus() == SellerPayoutStatus.CANCELLED) {
+        if (payout.getStatus() == SellerPayoutStatus.DISPUTED || payout.getStatus() == SellerPayoutStatus.CANCELLED
+                || recoveryState(payout)) {
             throw new IllegalArgumentException("Payout cannot be marked ready from status " + payout.getStatus() + ": " + payout.getPayoutId());
+        }
+        payout.setStatus(SellerPayoutStatus.READY_FOR_RELEASE);
+        return toResponse(sellerPayoutRepository.save(payout));
+    }
+
+    // Called only after resolving the locked order; both ledgers must commit or roll back together.
+    @Transactional(propagation = Propagation.MANDATORY)
+    SellerPayoutResponse markReadyAfterDisputeResolution(MarketplaceOrder order) {
+        if (order == null || order.getStatus() != MarketplaceOrderStatus.PAID
+                || order.getDisputedAt() == null || order.getDisputeResolvedAt() == null
+                || order.getDisputeResolution() != DisputeResolution.PAYOUT_READY
+                || order.getDisputeResolvedBy() == null || order.getDisputeResolvedBy().isBlank()) {
+            throw new IllegalArgumentException("A completed seller-favor dispute resolution is required.");
+        }
+        SellerPayout payout = sellerPayoutRepository.findBySourceForUpdate("MARKETPLACE_ORDER", order.getMarketplaceOrderId())
+                .orElseThrow(() -> new IllegalArgumentException("Marketplace order payout not found."));
+        if (payout.getStatus() != SellerPayoutStatus.DISPUTED) {
+            throw new IllegalArgumentException("Dispute resolution cannot release payout from status " + payout.getStatus());
         }
         payout.setStatus(SellerPayoutStatus.READY_FOR_RELEASE);
         return toResponse(sellerPayoutRepository.save(payout));
@@ -106,8 +127,9 @@ public class SellerPayoutService {
 
     @Transactional
     public SellerPayoutResponse markDisputed(String sourceType, String sourceId) {
-        SellerPayout payout = sellerPayoutRepository.findBySourceTypeAndSourceId(sourceType, sourceId)
+        SellerPayout payout = sellerPayoutRepository.findBySourceForUpdate(sourceType, sourceId)
                 .orElseThrow(() -> new IllegalArgumentException("Seller payout source not found: " + sourceType + "/" + sourceId));
+        if (recoveryState(payout)) return toResponse(payout);
         if (payout.getStatus() == SellerPayoutStatus.RELEASED) {
             throw new IllegalArgumentException("Released payout cannot be disputed: " + payout.getPayoutId());
         }
@@ -117,8 +139,9 @@ public class SellerPayoutService {
 
     @Transactional
     public SellerPayoutResponse markCancelled(String sourceType, String sourceId) {
-        SellerPayout payout = sellerPayoutRepository.findBySourceTypeAndSourceId(sourceType, sourceId)
+        SellerPayout payout = sellerPayoutRepository.findBySourceForUpdate(sourceType, sourceId)
                 .orElseThrow(() -> new IllegalArgumentException("Seller payout source not found: " + sourceType + "/" + sourceId));
+        if (recoveryState(payout)) return toResponse(payout);
         if (payout.getStatus() == SellerPayoutStatus.RELEASED) {
             throw new IllegalArgumentException("Released payout cannot be cancelled: " + payout.getPayoutId());
         }
@@ -128,8 +151,9 @@ public class SellerPayoutService {
 
     @Transactional
     public Optional<SellerPayoutResponse> cancelForOrderCancellation(String sourceType, String sourceId) {
-        return sellerPayoutRepository.findBySourceTypeAndSourceId(sourceType, sourceId)
+        return sellerPayoutRepository.findBySourceForUpdate(sourceType, sourceId)
                 .map(payout -> {
+                    if (recoveryState(payout)) return toResponse(payout);
                     payout.setStatus(payout.getStatus() == SellerPayoutStatus.RELEASED
                             ? SellerPayoutStatus.RECOVERY_REQUIRED
                             : SellerPayoutStatus.CANCELLED);
@@ -139,8 +163,9 @@ public class SellerPayoutService {
 
     @Transactional
     public Optional<SellerPayoutResponse> applyProviderRefundStatus(String sourceType, String sourceId, boolean partialRefund) {
-        return sellerPayoutRepository.findBySourceTypeAndSourceId(sourceType, sourceId)
+        return sellerPayoutRepository.findBySourceForUpdate(sourceType, sourceId)
                 .map(payout -> {
+                    if (recoveryState(payout)) return toResponse(payout);
                     if (payout.getStatus() == SellerPayoutStatus.RELEASED) {
                         payout.setStatus(SellerPayoutStatus.RECOVERY_REQUIRED);
                     } else if (partialRefund) {
@@ -154,7 +179,7 @@ public class SellerPayoutService {
 
     @Transactional
     public SellerPayoutResponse markRecovered(String payoutId) {
-        SellerPayout payout = sellerPayoutRepository.findById(payoutId)
+        SellerPayout payout = sellerPayoutRepository.findByPayoutIdForUpdate(payoutId)
                 .orElseThrow(() -> new IllegalArgumentException("Seller payout not found: " + payoutId));
         if (payout.getStatus() == SellerPayoutStatus.RECOVERED) {
             return toResponse(payout);
@@ -164,6 +189,11 @@ public class SellerPayoutService {
         }
         payout.setStatus(SellerPayoutStatus.RECOVERED);
         return toResponse(sellerPayoutRepository.save(payout));
+    }
+
+    private boolean recoveryState(SellerPayout payout) {
+        return payout.getStatus() == SellerPayoutStatus.RECOVERY_REQUIRED
+                || payout.getStatus() == SellerPayoutStatus.RECOVERED;
     }
 
     private SellerPayoutResponse toResponse(SellerPayout payout) {

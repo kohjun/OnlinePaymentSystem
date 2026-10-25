@@ -57,6 +57,7 @@ class Phase2FailureScenarioTest extends TestcontainersIntegrationSupport {
 
     @MockBean
     private MockPaymentGateway mockPaymentGateway;
+    @Autowired private com.example.payment.domain.repository.PaymentRecordRepository payments;
 
     // SpyBean을 사용하여 실제 메서드는 호출되지만 특정 메서드만 Mock 가능
     @SpyBean
@@ -83,13 +84,19 @@ class Phase2FailureScenarioTest extends TestcontainersIntegrationSupport {
 
         // 2. MockGateway 설정 (결제는 성공)
         when(mockPaymentGateway.processPayment(any()))
-                .thenReturn(PaymentGatewayResult.builder()
+                .thenAnswer(call -> PaymentGatewayResult.builder()
                         .success(true)
-                        .transactionId("MOCK_TX_PHASE2_TEST")
+                        .transactionId("MOCK_TX_" + call.<com.example.payment.application.dto.PaymentGatewayRequest>getArgument(0).getPaymentId())
                         .approvalNumber("MOCK_APPROVAL_PHASE2")
                         .processedAmount(new BigDecimal("100.00"))
                         .build());
-        when(mockPaymentGateway.refundPayment(any(PaymentRefundRequest.class))).thenReturn(true);
+        when(mockPaymentGateway.getPaymentStatus(any())).thenAnswer(call -> providerObservation(call.getArgument(0), false));
+        when(mockPaymentGateway.refund(any())).thenAnswer(call -> {
+            PaymentRefundRequest refund = call.getArgument(0);
+            return new com.example.payment.application.dto.PaymentRefundResult(
+                    com.example.payment.application.dto.PaymentRefundResult.Status.SUCCEEDED,
+                    providerObservation(refund.getTransactionId(), true), null);
+        });
         when(mockPaymentGateway.getGatewayName()).thenReturn("MOCK_PAYMENT_GATEWAY");
 
         System.out.println("✅ Setup 완료: Redis 재고 초기화, MockGateway 설정");
@@ -101,8 +108,8 @@ class Phase2FailureScenarioTest extends TestcontainersIntegrationSupport {
         System.out.println("\n[테스트 1] 결제 실패 시 보상 트랜잭션 (Phase 2 대체)");
 
         // [Given] 결제가 실패하도록 설정 (이것은 Phase 1 실패이지만 보상 트랜잭션 검증에 유효)
-        when(mockPaymentGateway.processPayment(any()))
-                .thenReturn(PaymentGatewayResult.failure("MOCK_FAILURE", "의도된 결제 실패"));
+        doReturn(PaymentGatewayResult.failure("MOCK_FAILURE", "의도된 결제 실패"))
+                .when(mockPaymentGateway).processPayment(any());
 
         // [When] 예약 시도
         String customerId = "PHASE2-CUSTOMER-001";
@@ -178,7 +185,7 @@ class Phase2FailureScenarioTest extends TestcontainersIntegrationSupport {
         System.out.println("✅ Redis 재고 롤백 확인");
 
         // [검증 2] PG 환불이 호출되었는지 확인
-        verify(mockPaymentGateway, atLeastOnce()).refundPayment(any(PaymentRefundRequest.class));
+        verify(mockPaymentGateway, atLeastOnce()).refund(any(PaymentRefundRequest.class));
         System.out.println("✅ PG 환불 호출 확인");
 
         System.out.println("\n✅✅✅ Phase 2 주문 업데이트 실패 시 보상 트랜잭션이 정상 작동했습니다!");
@@ -305,6 +312,16 @@ class Phase2FailureScenarioTest extends TestcontainersIntegrationSupport {
     // ====================================
     // Helper Methods
     // ====================================
+
+    private PaymentGatewayResult providerObservation(String key, boolean refunded) {
+        var payment = payments.findByTransactionId(key).orElseThrow();
+        return PaymentGatewayResult.builder().gatewayStatus(refunded ? "REFUNDED" : "APPROVED")
+                .gatewayName("MOCK_PAYMENT_GATEWAY").success(!refunded).transactionId(key)
+                .orderId(payment.getOrderId()).processedAmount(payment.getAmount()).currency(payment.getCurrency())
+                .balanceAmount(refunded ? BigDecimal.ZERO : payment.getAmount())
+                .cancellations(refunded ? java.util.List.of(new PaymentGatewayResult.ProviderCancellation(
+                        "CANCEL-" + key, payment.getAmount(), "DONE")) : java.util.List.of()).build();
+    }
 
     private CompleteReservationRequest createReservationRequest(String productId, String customerId) {
         return CompleteReservationRequest.builder()

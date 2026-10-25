@@ -24,45 +24,44 @@ public class RefundCoordinator {
         String refundReason = defaultText(reason, "Manual refund request");
 
         RefundLedgerWriter.BeginResult begin = ledgerWriter.begin(paymentId, effectiveKey, refundId);
-        if (!begin.ready()) {
-            boolean succeeded = "REFUND_ALREADY_SUCCEEDED".equals(begin.code());
-            return new RefundOutcome(succeeded, begin.code(), begin.message(), begin.payment(), begin.refund());
+        if (begin.refund() == null || "REFUND_ALREADY_SUCCEEDED".equals(begin.code())) {
+            return new RefundOutcome("REFUND_ALREADY_SUCCEEDED".equals(begin.code()), begin.code(), begin.message(), begin.payment(), begin.refund());
         }
-
         PaymentRecord payment = begin.payment();
         RefundRecord refund = begin.refund();
+        PaymentGatewayService gateway = gatewayFactory.getGateway(payment.getMethod());
         try {
-            PaymentGatewayService gateway = gatewayFactory.getGateway(payment.getMethod());
-            boolean refunded = gateway.refundPayment(PaymentRefundRequest.builder()
-                    .transactionId(payment.getTransactionId())
-                    .idempotencyKey(refund.getIdempotencyKey())
-                    .amount(refund.getAmount())
-                    .currency(refund.getCurrency())
-                    .reason(refundReason)
-                    .build());
-            if (refunded) {
-                RefundLedgerWriter.ResultRecord result = ledgerWriter.succeed(
-                        paymentId, refund, refundId, refundReason);
-                return new RefundOutcome(true, "REFUND_SUCCEEDED", "Payment refunded successfully.",
-                        result.payment(), result.refund());
-            }
-            RefundLedgerWriter.ResultRecord result = ledgerWriter.failed(
-                    paymentId, refund, "PG refund returned false", refundReason);
-            return new RefundOutcome(false, "REFUND_FAILED", "Payment refund failed.",
-                    result.payment(), result.refund());
-        } catch (PaymentGatewayResultUnknownException exception) {
-            RefundLedgerWriter.ResultRecord result = ledgerWriter.unknown(
-                    paymentId, refund, exception.getMessage(), refundReason);
-            return new RefundOutcome(false, "REFUND_UNKNOWN",
-                    "Refund result is not confirmed yet.", result.payment(), result.refund());
-        } catch (Exception exception) {
-            log.warn("Refund failed: paymentId={}, refundId={}, reason={}",
-                    paymentId, refundId, exception.getMessage());
-            RefundLedgerWriter.ResultRecord result = ledgerWriter.failed(
-                    paymentId, refund, exception.getMessage(), refundReason);
-            return new RefundOutcome(false, "REFUND_FAILED", "System error while refunding payment.",
-                    result.payment(), result.refund());
+            var observed = ledgerWriter.observe(paymentId, gateway.getPaymentStatus(payment.getTransactionId()), refund, begin.ready());
+            if ("SUCCEEDED".equals(observed.refund().getStatus())) return outcome(observed);
+            if (!begin.ready()) return outcome(observed);
+            refund = observed.refund();
+        } catch (Exception unavailable) {
+            return outcome(ledgerWriter.unknown(paymentId, refund, "Provider refund lookup unavailable", refundReason));
         }
+
+        com.example.payment.application.dto.PaymentRefundResult result;
+        try {
+            result = gateway.refund(PaymentRefundRequest.builder().transactionId(payment.getTransactionId())
+                    .idempotencyKey(refund.getIdempotencyKey()).amount(refund.getAmount())
+                    .currency(refund.getCurrency()).reason(refundReason).build());
+        } catch (Exception unavailable) {
+            result = com.example.payment.application.dto.PaymentRefundResult.unknown("Provider refund result unavailable");
+        }
+        if (result == null || result.status() == com.example.payment.application.dto.PaymentRefundResult.Status.UNKNOWN) {
+            return outcome(ledgerWriter.unknown(paymentId, refund, "Provider refund result unavailable", refundReason));
+        }
+        if (result.status() == com.example.payment.application.dto.PaymentRefundResult.Status.FAILED) {
+            return outcome(ledgerWriter.failed(paymentId, refund, result.message(), refundReason));
+        }
+        // Let DB failures propagate. Retrying the coordinator will query, never resubmit, this operation.
+        return outcome(ledgerWriter.observe(paymentId, result.payment(), refund, false));
+    }
+
+    private RefundOutcome outcome(RefundLedgerWriter.ResultRecord record) {
+        boolean success = record.refund() != null && "SUCCEEDED".equals(record.refund().getStatus());
+        String status = record.refund() == null ? "UNKNOWN" : record.refund().getStatus();
+        return new RefundOutcome(success, "REFUND_" + status, success ? "Refund completed" : "Refund verification required",
+                record.payment(), record.refund());
     }
 
     private String defaultText(String value, String fallback) {

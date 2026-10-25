@@ -27,9 +27,10 @@ class InventoryRestorationServiceTest {
         InventoryReservationRecordRepository reservationRepository =
                 mock(InventoryReservationRecordRepository.class);
         ResourceReservationService resourceService = mock(ResourceReservationService.class);
-        InventorySyncIssueService issueService = mock(InventorySyncIssueService.class);
+        var issues = mock(com.example.payment.domain.repository.InventorySyncIssueRepository.class);
         InventoryRestorationService service = new InventoryRestorationService(
-                movementRepository, inventoryRepository, reservationRepository, resourceService, issueService);
+                movementRepository, inventoryRepository, reservationRepository, resourceService,
+                issues);
         MarketplaceOrder order = MarketplaceOrder.builder()
                 .marketplaceOrderId("MORD-1")
                 .productId("PROD-1")
@@ -57,6 +58,7 @@ class InventoryRestorationServiceTest {
         assertEquals(5, inventory.getAvailableQuantity());
         assertEquals("RELEASED", reservation.getStatus());
         assertEquals("APPLIED", result.getStatus());
-        verify(resourceService).restoreConfirmedResource("inventory:PROD-1", 1, "OP-1");
+        org.mockito.Mockito.verifyNoInteractions(resourceService);
+        verify(issues).save(org.mockito.ArgumentMatchers.argThat(issue -> "RESTORE_REDIS_REQUIRED".equals(issue.getIssueType())));
     }
 }

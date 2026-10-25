@@ -52,6 +52,7 @@ public class AuctionService {
     private final MarketplaceRealtimeService marketplaceRealtimeService;
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
+    private final MarketplaceNotificationService notificationService;
 
     @Value("${app.auction.anti-sniping-extension-seconds:30}")
     private long antiSnipingExtensionSeconds;
@@ -341,6 +342,15 @@ public class AuctionService {
 
         expired.setStatus(AuctionSettlementStatus.EXPIRED);
         auctionSettlementRepository.save(expired);
+        notificationService.notifyCustomer(
+                expired.getCustomerId(),
+                "AUCTION_WINNER_OFFER_EXPIRED",
+                "경매 결제 기한이 만료되었습니다",
+                "경매 " + event.getSaleEventId() + "의 결제 기회가 다음 순위 입찰자에게 넘어갑니다.",
+                "AUCTION_SETTLEMENT",
+                expired.getSettlementId(),
+                "auction:" + event.getSaleEventId() + ":offer-expired:" + expired.getOfferSequence()
+        );
         auctionBidRepository.findById(expired.getWinningBidId()).ifPresent(bid -> {
             bid.setStatus(AuctionBidStatus.OFFER_EXPIRED);
             auctionBidRepository.save(bid);
@@ -453,7 +463,7 @@ public class AuctionService {
         );
         bid.setStatus(AuctionBidStatus.WINNING);
         auctionBidRepository.save(bid);
-        return auctionSettlementRepository.save(AuctionSettlement.builder()
+        AuctionSettlement settlement = auctionSettlementRepository.save(AuctionSettlement.builder()
                 .settlementId(settlementId)
                 .saleEventId(event.getSaleEventId())
                 .winningBidId(bid.getBidId())
@@ -466,6 +476,16 @@ public class AuctionService {
                 .createdAt(now)
                 .checkoutExpiresAt(expiresAt)
                 .build());
+        notificationService.notifyCustomer(
+                bid.getCustomerId(),
+                "AUCTION_WINNER_OFFERED",
+                offerSequence == 1 ? "경매에 낙찰되었습니다" : "경매 결제 기회가 승계되었습니다",
+                "경매 " + event.getSaleEventId() + "의 결제 가능 시각은 " + expiresAt + "까지입니다.",
+                "AUCTION_SETTLEMENT",
+                settlementId,
+                "auction:" + event.getSaleEventId() + ":offer:" + offerSequence + ":" + bid.getCustomerId()
+        );
+        return settlement;
     }
 
     private SaleEvent requireAuctionEvent(String eventId) {

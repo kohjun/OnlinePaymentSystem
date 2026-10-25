@@ -16,7 +16,10 @@ public abstract class TestcontainersIntegrationSupport {
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(DockerImageName.parse("postgres:16-alpine"))
             .withDatabaseName("everysale_integration")
             .withUsername("everysale")
-            .withPassword("integration-test-only");
+            .withPassword("integration-test-only")
+            // Keep the container/port alive while crash tests stop and restart only PostgreSQL.
+            .withCreateContainerCmdModifier(command -> command.withEntrypoint("sh", "-c")
+                    .withCmd("docker-entrypoint.sh postgres & wait \"$!\"; exec sleep infinity"));
 
     @DynamicPropertySource
     static void registerContainerProperties(DynamicPropertyRegistry registry) {

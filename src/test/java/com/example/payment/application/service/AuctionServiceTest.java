@@ -48,6 +48,7 @@ class AuctionServiceTest {
     private final MarketplaceRealtimeService marketplaceRealtimeService = mock(MarketplaceRealtimeService.class);
     private final RedisTemplate<String, Object> redisTemplate = mock(RedisTemplate.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final MarketplaceNotificationService notificationService = mock(MarketplaceNotificationService.class);
 
     private final AuctionService service = new AuctionService(
             saleEventRepository,
@@ -58,7 +59,8 @@ class AuctionServiceTest {
             commercePolicyService,
             marketplaceRealtimeService,
             redisTemplate,
-            objectMapper
+            objectMapper,
+            notificationService
     );
 
     @BeforeEach

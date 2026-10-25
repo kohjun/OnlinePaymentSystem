@@ -30,6 +30,9 @@ app:
       enabled: false
     external-auth:
       enabled: true
+  media:
+    storage-provider: S3
+    validate-on-startup: true
 payment:
   default-gateway: TOSS_PAYMENTS
   allow-gateway-fallback: false
@@ -58,6 +61,9 @@ TEMPORAL_NAMESPACE=payment
 TEMPORAL_TASK_QUEUE=payment-reservation-task-queue
 OIDC_ISSUER_URI=https://idp.example.com/realms/everysale
 OIDC_AUDIENCE=everysale-api
+OIDC_AUTHORIZATION_URI=https://idp.example.com/realms/everysale/protocol/openid-connect/auth
+OIDC_TOKEN_URI=https://idp.example.com/realms/everysale/protocol/openid-connect/token
+OIDC_CLIENT_ID=everysale-web
 TOSS_CLIENT_KEY=live_...
 TOSS_SECRET_KEY=live_...
 TOSS_WEBHOOK_PATH_TOKEN=at-least-32-random-characters
@@ -67,11 +73,22 @@ DEFAULT_PARTNER_ID=...
 PAYOUT_TRANSFER_PROVIDER=TOSS_PAYOUTS
 PAYOUT_TRANSFER_ADAPTER_ENABLED=true
 PAYOUT_TOSS_SECRET_KEY=live_...
+MEDIA_STORAGE_PROVIDER=S3
+MEDIA_S3_BUCKET=everysale-private-media
+MEDIA_S3_REGION=ap-northeast-2
+MEDIA_S3_ENCRYPTION=AES256
+MEDIA_MALWARE_SCAN_PROVIDER=CLAMAV
+MEDIA_CLAMAV_HOST=clamav.production.internal
+MEDIA_CLAMAV_PORT=3310
 ```
 
 `EVERYSALE_TENANT_ID` replaced the earlier `DEFAULT_TENANT_ID`. It pins anonymous storefront traffic and authenticated JWT tenant claims to one marketplace in `SINGLE_TENANT` mode, and spoofed tenant headers are rejected.
 
+The browser uses OIDC Authorization Code with PKCE. Register the exact `https://your-market-domain/app/` redirect URI for `OIDC_CLIENT_ID`, allow that origin on the IdP token endpoint, and issue access tokens containing the configured audience and EverySale identity claims.
+
 Payout transfer variables activate the real seller payout adapter. While `PAYOUT_TRANSFER_PROVIDER` is unset or `LEDGER_ONLY`, the stub only writes the ledger and never moves money, and production readiness blocks.
+
+Marketplace media variables activate private S3-compatible object storage for product images and authenticity evidence. Production startup validates bucket and ClamAV connectivity, blocks local-disk storage, and rejects uploads when malware scanning cannot return a clean result. Leave static media credentials empty when the deployment platform provides workload identity. `AWS_KMS` encryption additionally requires `MEDIA_S3_KMS_KEY_ID`.
 
 Optional Kafka security variables:
 
@@ -103,14 +120,18 @@ Production blockers include:
 - Legacy WAL path enabled.
 - Java version below the required version.
 - Missing or mismatched Toss live keys.
+- Local or incomplete marketplace media storage configuration.
+- Disabled or incomplete marketplace malware scanning.
 - Toss webhook disabled or missing a strong path token.
 - Public direct `/api/reservations/complete` enabled.
+- Direct inventory reservation or reservation cancellation API enabled.
 - Legacy payment or marketplace checkout APIs enabled.
 - Demo auth API enabled.
 - Mock authentication filter enabled.
 - Security audit trail disabled.
 - Payment gateway fallback enabled.
 - External auth disabled or missing OIDC issuer/JWK configuration.
+- Missing or insecure frontend OIDC Authorization Code with PKCE settings.
 - Tenant header isolation disabled.
 - DB, Redis, Kafka, or Temporal endpoint missing, unresolved, or pointing at localhost.
 - CORS allowlist containing `*`, localhost, unresolved placeholders, or plain `http://` origins.
@@ -167,3 +188,4 @@ These items are outside the current local code gate but required for a real prod
 - Redis persistence/HA policy and reconciliation runbook.
 - Kafka dead-letter topic monitoring and replay runbook.
 - Formal PCI/privacy review for payment metadata and audit logs.
+- Object-storage retention and evidence access-retention policy; malware signature updates and scanner capacity still require an operations runbook.

@@ -30,6 +30,10 @@ public interface PaymentGatewayService {
         return refundPayment(request.getTransactionId());
     }
 
+    default com.example.payment.application.dto.PaymentRefundResult refund(PaymentRefundRequest request) {
+        return com.example.payment.application.dto.PaymentRefundResult.unknown("Typed refund is not supported by this provider");
+    }
+
     /**
      * 결제 상태 조회
      */

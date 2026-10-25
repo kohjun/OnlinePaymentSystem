@@ -30,25 +30,26 @@ public class TemporalCompleteReservationGateway implements CompleteReservationGa
 
     @Override
     public CompleteReservationResponse processCompleteReservation(CompleteReservationRequest request) {
-        String workflowId = workflowId(request.getIdempotencyKey());
+        String workflowId = idempotencyService.workflowId(request);
         CompleteReservationIdempotencyService.IdempotencyDecision idempotency =
                 idempotencyService.prepare(request, workflowId);
         if (idempotency.getReplayResponse() != null) {
             return idempotency.getReplayResponse();
         }
+        workflowId = idempotency.getWorkflowId();
 
         CompleteReservationWorkflow workflow = workflowClient.newWorkflowStub(
                 CompleteReservationWorkflow.class,
                 WorkflowOptions.newBuilder()
                         .setTaskQueue(temporalProperties.getTaskQueue())
                         .setWorkflowId(workflowId)
+                        .setWorkflowIdReusePolicy(io.temporal.api.enums.v1.WorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
                         .build()
         );
 
         try {
-            if (idempotency.isStartWorkflow()) {
-                WorkflowClient.start(workflow::process, request);
-            }
+            // Also retries a start lost between DB commit and Temporal acknowledgement.
+            WorkflowClient.start(workflow::process, request);
         } catch (WorkflowExecutionAlreadyStarted alreadyStarted) {
             log.info("Workflow already started: workflowId={}", workflowId);
         }
@@ -70,8 +71,9 @@ public class TemporalCompleteReservationGateway implements CompleteReservationGa
             CompleteReservationResponse existing = getWorkflowStatus(workflowId);
             CompleteReservationResponse response = existing != null ? existing : CompleteReservationResponse.builder()
                     .workflowId(workflowId)
-                    .status("FAILED")
-                    .message(e.getMessage())
+                    .status("PENDING")
+                    .phase("PAYMENT_RECONCILING")
+                    .message("Workflow result lookup unavailable")
                     .correlationId(request.getCorrelationId())
                     .build();
             idempotencyService.recordResponse(request, response);
@@ -93,7 +95,7 @@ public class TemporalCompleteReservationGateway implements CompleteReservationGa
             return pending(workflowId, null, workflow.getStatus());
         } catch (Exception e) {
             log.warn("Workflow status lookup failed: workflowId={}", workflowId, e);
-            return null;
+            return pending(workflowId, null, "Workflow status lookup unavailable");
         }
     }
 
@@ -101,6 +103,8 @@ public class TemporalCompleteReservationGateway implements CompleteReservationGa
         return CompleteReservationResponse.builder()
                 .workflowId(workflowId)
                 .status("PENDING")
+                .phase("PAYMENT_RECONCILING")
+                .retryAfterSeconds(5)
                 .message(message)
                 .correlationId(correlationId)
                 .build();

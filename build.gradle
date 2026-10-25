@@ -46,6 +46,12 @@ dependencies {
     // HTTP 클라이언트
     implementation 'org.apache.httpcomponents:httpclient:4.5.13'
 
+    // 상품 이미지와 소유 증빙은 운영에서 다중 인스턴스가 공유하는
+    // S3 호환 비공개 버킷에 저장한다. 필요한 모듈만 가져온다.
+    implementation platform('software.amazon.awssdk:bom:2.54.9')
+    implementation 'software.amazon.awssdk:s3'
+    implementation 'software.amazon.awssdk:url-connection-client'
+
     // Redis 관련
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     implementation 'io.lettuce:lettuce-core'
@@ -113,19 +119,57 @@ tasks.named('test') {
 tasks.register('integrationTest', Test) {
     description = 'Runs Docker/Testcontainers-backed integration tests.'
     group = 'verification'
+    def recoveryClasspath = layout.buildDirectory.file('recovery-process-classpath.txt').get().asFile
+    systemProperty 'recovery.test.classpath-file', recoveryClasspath.absolutePath
+    doFirst {
+        recoveryClasspath.text = sourceSets.test.runtimeClasspath.asPath
+    }
     def executedIntegrationTests = 0
+    def skippedIntegrationTests = 0
+    def executedRecoveryScenarios = [] as Set
+    def requiredRecoveryScenarios = [
+            'refundLedgerAndOutboxSurviveOuterRollback',
+            'providerPartialRefundThenRemainingRefundImportsEachReceiptOnce',
+            'dropPurchaseUsesTemporalTossAndCancellationLedgersEndToEnd',
+            'differentConcurrentRefundKeysShareOneActiveOperation',
+            'approvalUncertaintySurvivesWorkerReplacementAndHistoryReplay',
+            'approvalSurvivesPostgresCrashBeforeCommitWithoutReauthorization',
+            'approvalUncertaintySurvivesApplicationProcessRestart',
+            'committedRefundSurvivesApplicationProcessRestartWithoutRecancellation',
+            'twoApplicationInstancesSerializeCancellationAndShipment',
+            'twoApplicationInstancesReconcilePayoutAndAdminRefund',
+            'committedPayoutRecoversByLookupWithoutResubmission',
+            'disputeResolutionPreservesPayoutGuardsAcrossInstances',
+            'noAuthorizationProofReleasesFailedCheckoutAtomically'
+    ] as Set
     useJUnitPlatform {
         includeTags 'integration'
     }
     afterTest { descriptor, result ->
         if (result.resultType != org.gradle.api.tasks.testing.TestResult.ResultType.SKIPPED) {
             executedIntegrationTests++
+            if (descriptor.className == 'com.example.payment.CommerceLifecycleHttpIntegrationTest') {
+                for (def current = descriptor; current != null; current = current.parent) {
+                    requiredRecoveryScenarios.each { scenario ->
+                        if (current.name.startsWith(scenario + '(')) executedRecoveryScenarios.add(scenario)
+                    }
+                }
+            }
+        } else {
+            skippedIntegrationTests++
         }
     }
     doLast {
+        if (skippedIntegrationTests > 0) {
+            throw new GradleException("Docker integration tests were skipped: ${skippedIntegrationTests}")
+        }
         if (executedIntegrationTests == 0) {
             throw new GradleException(
                     'No Docker integration tests executed. Start Docker Desktop and verify its Linux engine before retrying.')
+        }
+        if (filter.includePatterns.empty && filter.commandLineIncludePatterns.empty) {
+            def missing = requiredRecoveryScenarios - executedRecoveryScenarios
+            if (!missing.empty) throw new GradleException("Mandatory recovery scenarios did not execute: ${missing}")
         }
     }
     shouldRunAfter test
@@ -149,6 +193,7 @@ jacoco {
 // scenarios count toward coverage, not just the mocked unit tests.
 tasks.named('jacocoTestReport', JacocoReport) {
     dependsOn tasks.named('test')
+    mustRunAfter tasks.named('integrationTest')
     executionData.setFrom(fileTree(layout.buildDirectory).include('jacoco/*.exec'))
     reports {
         xml.required = true

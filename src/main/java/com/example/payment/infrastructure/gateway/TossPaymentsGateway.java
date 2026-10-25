@@ -80,28 +80,39 @@ public class TossPaymentsGateway implements PaymentGatewayService {
 
     @Override
     public boolean refundPayment(PaymentRefundRequest request) {
-        String transactionId = request.getTransactionId();
-        requireSecretKey();
-        requireText(transactionId, "Toss paymentKey is required for refund");
+        var result = refund(request);
+        if (result.status() == com.example.payment.application.dto.PaymentRefundResult.Status.UNKNOWN) {
+            throw new PaymentGatewayResultUnknownException(result.message(), null);
+        }
+        return result.status() == com.example.payment.application.dto.PaymentRefundResult.Status.SUCCEEDED;
+    }
 
-        Map<String, Object> body = Map.of("cancelReason",
-                hasText(request.getReason()) ? request.getReason() : "EverySale refund request");
+    @Override
+    public com.example.payment.application.dto.PaymentRefundResult refund(PaymentRefundRequest request) {
+        requireSecretKey();
+        requireText(request.getTransactionId(), "Toss paymentKey is required for refund");
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("cancelReason", hasText(request.getReason()) ? request.getReason() : "EverySale refund");
+        if (request.getAmount() != null) body.put("cancelAmount", request.getAmount());
         try {
-            restTemplate.exchange(
-                    url("/v1/payments/" + transactionId + "/cancel"),
-                    HttpMethod.POST,
-                    new HttpEntity<>(body, headers(request.getIdempotencyKey())),
-                    String.class
-            );
-            return true;
-        } catch (HttpStatusCodeException e) {
-            log.warn("Toss refund failed: paymentKey={}, status={}, body={}",
-                    mask(transactionId), e.getStatusCode(), safeBody(e.getResponseBodyAsString()));
-            return false;
-        } catch (RestClientException e) {
-            log.warn("Toss refund result is unknown: paymentKey={}, reason={}",
-                    mask(transactionId), safeMessage(e.getMessage()));
-            throw new PaymentGatewayResultUnknownException("Toss refund result is unknown.", e);
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url("/v1/payments/" + request.getTransactionId() + "/cancel"), HttpMethod.POST,
+                    new HttpEntity<>(body, headers(request.getIdempotencyKey())), String.class);
+            PaymentGatewayResult payment = toResult(parse(response.getBody()));
+            boolean cancelled = "REFUNDED".equals(payment.getGatewayStatus()) || "PARTIALLY_REFUNDED".equals(payment.getGatewayStatus());
+            return new com.example.payment.application.dto.PaymentRefundResult(
+                    cancelled ? com.example.payment.application.dto.PaymentRefundResult.Status.SUCCEEDED
+                            : com.example.payment.application.dto.PaymentRefundResult.Status.UNKNOWN,
+                    payment, cancelled ? null : "Provider cancellation not confirmed");
+        } catch (HttpStatusCodeException failure) {
+            PaymentGatewayResult observation = gatewayErrorResult(failure);
+            return new com.example.payment.application.dto.PaymentRefundResult(
+                    "FAILED".equals(observation.getGatewayStatus())
+                            ? com.example.payment.application.dto.PaymentRefundResult.Status.FAILED
+                            : com.example.payment.application.dto.PaymentRefundResult.Status.UNKNOWN, null,
+                    "Provider cancellation returned HTTP " + failure.getStatusCode().value());
+        } catch (RuntimeException failure) {
+            return com.example.payment.application.dto.PaymentRefundResult.unknown("Provider cancellation response unavailable");
         }
     }
 
@@ -118,7 +129,7 @@ public class TossPaymentsGateway implements PaymentGatewayService {
             );
             return toResult(parse(response.getBody()));
         } catch (HttpStatusCodeException e) {
-            return gatewayErrorResult(e);
+            return unknownResult("TOSS_LOOKUP_UNAVAILABLE", "Provider lookup returned HTTP " + e.getStatusCode().value());
         } catch (RestClientException e) {
             return unknownResult("TOSS_NETWORK_ERROR", e.getMessage());
         }
@@ -137,7 +148,7 @@ public class TossPaymentsGateway implements PaymentGatewayService {
             );
             return toResult(parse(response.getBody()));
         } catch (HttpStatusCodeException e) {
-            return gatewayErrorResult(e);
+            return unknownResult("TOSS_LOOKUP_UNAVAILABLE", "Provider lookup returned HTTP " + e.getStatusCode().value());
         } catch (RestClientException e) {
             return unknownResult("TOSS_NETWORK_ERROR", e.getMessage());
         }
@@ -182,6 +193,9 @@ public class TossPaymentsGateway implements PaymentGatewayService {
                 .success(approved)
                 .gatewayStatus(mapStatus(status))
                 .transactionId(paymentKey)
+                .orderId(text(payment, "orderId"))
+                .balanceAmount(payment.hasNonNull("balanceAmount") ? payment.get("balanceAmount").decimalValue() : null)
+                .cancellations(cancellations(payment))
                 .approvalNumber(approvalNumber)
                 .processedAmount(amount)
                 .currency(text(payment, "currency"))
@@ -190,6 +204,17 @@ public class TossPaymentsGateway implements PaymentGatewayService {
                 .errorCode(approved ? null : status)
                 .errorMessage(approved ? null : "Toss payment status is " + status)
                 .build();
+    }
+
+    private java.util.List<PaymentGatewayResult.ProviderCancellation> cancellations(JsonNode payment) {
+        java.util.List<PaymentGatewayResult.ProviderCancellation> result = new java.util.ArrayList<>();
+        for (JsonNode cancel : payment.path("cancels")) {
+            if (cancel.hasNonNull("transactionKey") && cancel.hasNonNull("cancelAmount")) {
+                result.add(new PaymentGatewayResult.ProviderCancellation(text(cancel, "transactionKey"),
+                        cancel.get("cancelAmount").decimalValue(), text(cancel, "cancelStatus")));
+            }
+        }
+        return result;
     }
 
     private String mapStatus(String tossStatus) {
@@ -211,7 +236,8 @@ public class TossPaymentsGateway implements PaymentGatewayService {
     private PaymentGatewayResult gatewayErrorResult(HttpStatusCodeException e) {
         if (e.getStatusCode().is5xxServerError()
                 || e.getStatusCode().value() == 408
-                || e.getStatusCode().value() == 429) {
+                || e.getStatusCode().value() == 429
+                || e.getStatusCode().value() == 409) {
             return unknownResult("TOSS_HTTP_" + e.getStatusCode().value(), e.getResponseBodyAsString());
         }
         String code = "TOSS_HTTP_" + e.getStatusCode().value();
@@ -221,6 +247,14 @@ public class TossPaymentsGateway implements PaymentGatewayService {
             code = text(error, "code");
             message = text(error, "message");
         } catch (Exception ignored) {
+        }
+        // HTTP 400 also covers already-processed and provider-in-progress responses.
+        // Only an explicit financial rejection can make inventory releasable.
+        if (code == null || !java.util.Set.of("REJECT_CARD_COMPANY", "REJECT_CARD_PAYMENT", "REJECT_ACCOUNT_PAYMENT",
+                "INVALID_REJECT_CARD", "INVALID_STOPPED_CARD", "INVALID_CARD_LOST_OR_STOLEN",
+                "REFUND_REJECTED", "FAILED_CLOSED_ACCOUNT_REFUND", "FORBIDDEN_BANK_REFUND_REQUEST",
+                "NOT_CANCELABLE_PAYMENT", "EXCEED_MAX_REFUND_DUE").contains(code)) {
+            return unknownResult(code, "Provider result requires status verification");
         }
         return PaymentGatewayResult.builder()
                 .success(false)

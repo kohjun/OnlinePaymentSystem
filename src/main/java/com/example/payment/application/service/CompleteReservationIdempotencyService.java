@@ -31,8 +31,8 @@ public class CompleteReservationIdempotencyService {
 
     private final PaymentIdempotencyRepository repository;
     private final ObjectMapper objectMapper;
+    private final IdempotencyClaimWriter claimWriter;
 
-    @Transactional
     public IdempotencyDecision prepare(CompleteReservationRequest request, String workflowId) {
         String tenantId = defaultText(TenantContext.getTenantId(), "default");
         String merchantId = defaultText(request.getPaymentInfo().getMerchantId(), "default");
@@ -63,7 +63,7 @@ public class CompleteReservationIdempotencyService {
                 .expiresAt(LocalDateTime.now().plusHours(IDEMPOTENCY_TTL_HOURS))
                 .build();
         try {
-            repository.save(created);
+            claimWriter.insert(created);
             return IdempotencyDecision.start(workflowId);
         } catch (DataIntegrityViolationException race) {
             PaymentIdempotencyRecord raced = repository
@@ -82,17 +82,19 @@ public class CompleteReservationIdempotencyService {
     public void recordResponse(CompleteReservationRequest request, CompleteReservationResponse response) {
         String tenantId = defaultText(TenantContext.getTenantId(), "default");
         String merchantId = defaultText(request.getPaymentInfo().getMerchantId(), "default");
-        repository.findByTenantIdAndMerchantIdAndOperationAndIdempotencyKey(
+        repository.lockByScope(
                         tenantId,
                         merchantId,
                         OPERATION,
                         request.getIdempotencyKey()
                 )
                 .ifPresent(record -> {
+                    CompleteReservationResponse stored = readStoredResponse(record.getResponseBody());
+                    if (stored != null && stored.isTerminal()) return;
                     record.setWorkflowId(response.getWorkflowId());
                     record.setStatus(response.getStatus());
                     try {
-                        record.setResponseBody(objectMapper.writeValueAsString(response));
+                        record.setResponseBody(response.isTerminal() ? objectMapper.writeValueAsString(response) : null);
                     } catch (JsonProcessingException e) {
                         record.setResponseBody(null);
                     }
@@ -105,7 +107,7 @@ public class CompleteReservationIdempotencyService {
             throw new IdempotencyConflictException("IDEMPOTENCY_KEY_CONFLICT");
         }
         CompleteReservationResponse stored = readStoredResponse(existing.getResponseBody());
-        if (stored != null && !"PENDING".equals(stored.getStatus())) {
+        if (stored != null && stored.isTerminal()) {
             return IdempotencyDecision.replay(stored);
         }
         return IdempotencyDecision.attach(existing.getWorkflowId());
@@ -144,6 +146,14 @@ public class CompleteReservationIdempotencyService {
 
     private String defaultText(String value, String fallback) {
         return value == null || value.trim().isEmpty() ? fallback : value.trim();
+    }
+
+    public String workflowId(CompleteReservationRequest request) {
+        String tenant = defaultText(TenantContext.getTenantId(), "default");
+        String merchant = defaultText(request.getPaymentInfo().getMerchantId(), "default");
+        String scope = tenant.length() + ":" + tenant + merchant.length() + ":" + merchant
+                + ":" + OPERATION + ":" + request.getIdempotencyKey();
+        return "complete-reservation-" + UUID.nameUUIDFromBytes(scope.getBytes(StandardCharsets.UTF_8));
     }
 
     @Value

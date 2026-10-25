@@ -27,10 +27,10 @@ import java.util.Map;
  * 실제 지급대행 제공자에 송금을 요청하는 어댑터.
  *
  * 상태 분류는 결제 수납 쪽 {@link TossPaymentsGateway}와 같은 기준을 따른다.
- * 4xx는 종결된 실패(FAILED), 5xx·408·429·네트워크 오류는 결과를 알 수 없는
- * 상태(UNKNOWN)다. 이 구분이 중요한 이유는 코디네이터가 UNKNOWN을 재송금이
- * 아니라 제공자 상태 조회로만 진행시키기 때문이다. 불확정을 FAILED로
- * 잘못 분류하면 이미 나간 돈을 한 번 더 보내게 된다.
+ * 송금 요청의 4xx와 달리 상태 조회 오류는 송금 실패의 증거가 아니다.
+ * 조회 HTTP 오류와 통신 오류는 UNKNOWN으로 유지한다. 코디네이터가 UNKNOWN을 재송금이
+ * 아니라 제공자 상태 조회로만 진행시키기 때문이다. 조회 실패를 FAILED로
+ * 잘못 분류하면 자동 복구가 중단되어 이미 나간 돈을 놓칠 수 있다.
  */
 @Slf4j
 @Component
@@ -79,7 +79,7 @@ public class TossPayoutsSellerPayoutTransferGateway implements SellerPayoutTrans
                     new HttpEntity<>(body, headers(request.idempotencyKey())),
                     String.class
             );
-            return readTransferResult(response.getBody());
+            return readTransferResult(response.getBody(), null, request.idempotencyKey());
 
         } catch (HttpStatusCodeException e) {
             return httpErrorResult(e, null);
@@ -113,7 +113,7 @@ public class TossPayoutsSellerPayoutTransferGateway implements SellerPayoutTrans
                     new HttpEntity<>(headers(null)),
                     String.class
             );
-            return readTransferResult(response.getBody(), providerTransferId);
+            return readTransferResult(response.getBody(), providerTransferId, idempotencyKey);
 
         } catch (HttpStatusCodeException e) {
             // 조회에서의 404는 "아직 안 만들어졌다"와 "없어졌다"를 구분할 수
@@ -121,53 +121,54 @@ public class TossPayoutsSellerPayoutTransferGateway implements SellerPayoutTrans
             if (e.getStatusCode().value() == 404) {
                 return unknown(providerTransferId, "PAYOUT_NOT_FOUND_YET");
             }
-            return httpErrorResult(e, providerTransferId);
+            return unknown(providerTransferId, "PAYOUT_LOOKUP_HTTP_" + e.getStatusCode().value());
         } catch (RestClientException e) {
             return unknown(providerTransferId, "PAYOUT_NETWORK_ERROR: " + e.getMessage());
         }
     }
 
-    private TransferResult readTransferResult(String body) {
-        return readTransferResult(body, null);
-    }
-
-    private TransferResult readTransferResult(String body, String fallbackTransferId) {
+    private TransferResult readTransferResult(String body, String fallbackTransferId, String referenceKey) {
         JsonNode node;
         try {
-            node = objectMapper.readTree(body == null ? "{}" : body);
+            node = objectMapper.reader().with(com.fasterxml.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+                    .readTree(body == null ? "{}" : body);
         } catch (Exception e) {
             return unknown(fallbackTransferId, "PAYOUT_RESPONSE_UNPARSEABLE");
         }
 
         // 목록 조회(refPayoutId 질의)는 배열로 돌아온다.
-        if (node.isArray()) {
-            if (node.isEmpty()) {
-                return unknown(fallbackTransferId, "PAYOUT_NOT_FOUND_YET");
+        if (node != null && node.isArray()) {
+            JsonNode match = null;
+            for (JsonNode candidate : node) {
+                if (hasText(referenceKey) && referenceKey.equals(text(candidate, "refPayoutId"))) {
+                    if (match != null) return unknown(fallbackTransferId, "PAYOUT_LOOKUP_AMBIGUOUS");
+                    match = candidate;
+                }
             }
-            node = node.get(0);
+            if (match == null) return unknown(fallbackTransferId, "PAYOUT_NOT_FOUND_YET");
+            node = match;
         }
-
+        if (node == null || !node.isObject()) return unknown(fallbackTransferId, "PAYOUT_RESPONSE_UNPARSEABLE");
         String transferId = text(node, "payoutId");
-        if (!hasText(transferId)) {
-            transferId = fallbackTransferId;
+        String returnedReference = text(node, "refPayoutId");
+        JsonNode amount = node.get("amount");
+        String currency = text(node, "currency");
+        if (!hasText(transferId) || !hasText(referenceKey) || !referenceKey.equals(returnedReference)
+                || (hasText(fallbackTransferId) && !fallbackTransferId.equals(transferId))
+                || amount == null || !amount.isNumber() || amount.decimalValue().signum() < 0
+                || !hasText(currency)) {
+            return unknown(fallbackTransferId, "PAYOUT_RESPONSE_MISMATCH");
         }
         String status = text(node, "status");
 
         PayoutTransferStatus mapped = mapStatus(status);
-        if (mapped == PayoutTransferStatus.SUCCEEDED) {
-            if (!hasText(transferId)) {
-                // 코디네이터는 식별자 없는 SUCCEEDED를 UNKNOWN으로 강등한다.
-                // 여기서 먼저 명시적으로 처리해 사유를 남긴다.
-                return unknown(null, "PAYOUT_SUCCEEDED_WITHOUT_TRANSFER_ID");
-            }
-            return TransferResult.succeeded(transferId);
-        }
-
         String reason = text(node, "failureReason");
         if (!hasText(reason)) {
             reason = "PAYOUT_STATUS_" + defaultText(status, "UNSPECIFIED");
         }
-        return new TransferResult(mapped, transferId, safeReason(reason));
+        return new TransferResult(mapped, transferId,
+                mapped == PayoutTransferStatus.SUCCEEDED ? null : safeReason(reason),
+                returnedReference, amount.decimalValue(), currency);
     }
 
     private PayoutTransferStatus mapStatus(String providerStatus) {

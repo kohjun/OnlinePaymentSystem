@@ -17,6 +17,7 @@ import java.time.LocalDateTime;
 public class MarketplaceOrderResponse {
 
     private String marketplaceOrderId;
+    private String cancellationStatus;
     private String saleEventId;
     private String listingId;
     private String sellerId;

@@ -2,6 +2,11 @@ spring:
   application:
     name: payment-service
 
+  servlet:
+    multipart:
+      max-file-size: 15MB
+      max-request-size: 45MB
+
   datasource:
     url: jdbc:postgresql://localhost:5434/payment
     username: payment
@@ -141,10 +146,34 @@ payment:
     payment-events: payment-events
 
 app:
+  media:
+    storage-provider: ${MEDIA_STORAGE_PROVIDER:LOCAL}
+    storage-root: ${MEDIA_STORAGE_ROOT:./.data/uploads}
+    validate-on-startup: ${MEDIA_STORAGE_VALIDATE_ON_STARTUP:false}
+    malware-scan:
+      provider: ${MEDIA_MALWARE_SCAN_PROVIDER:NONE}
+      validate-on-startup: ${MEDIA_MALWARE_SCAN_VALIDATE_ON_STARTUP:false}
+      clamav:
+        host: ${MEDIA_CLAMAV_HOST:localhost}
+        port: ${MEDIA_CLAMAV_PORT:3310}
+        connect-timeout-ms: ${MEDIA_CLAMAV_CONNECT_TIMEOUT_MS:2000}
+        read-timeout-ms: ${MEDIA_CLAMAV_READ_TIMEOUT_MS:30000}
+    s3:
+      bucket: ${MEDIA_S3_BUCKET:}
+      region: ${MEDIA_S3_REGION:ap-northeast-2}
+      endpoint: ${MEDIA_S3_ENDPOINT:}
+      path-style-access: ${MEDIA_S3_PATH_STYLE_ACCESS:false}
+      key-prefix: ${MEDIA_S3_KEY_PREFIX:listing-media}
+      server-side-encryption: ${MEDIA_S3_ENCRYPTION:AES256}
+      kms-key-id: ${MEDIA_S3_KMS_KEY_ID:}
+      # 비워두면 AWS SDK 기본 자격 증명 체인을 사용한다.
+      access-key: ${MEDIA_S3_ACCESS_KEY:}
+      secret-key: ${MEDIA_S3_SECRET_KEY:}
   audit:
     enabled: true
   checkout:
     public-complete-enabled: false
+    legacy-reservation-api-enabled: false
   marketplace:
     winner-checkout-ttl-minutes: 30
     lifecycle:
@@ -220,6 +249,11 @@ app:
     external-auth:
       enabled: false
       audience: ${OIDC_AUDIENCE:}
+      frontend:
+        authorization-uri: ${OIDC_AUTHORIZATION_URI:}
+        token-uri: ${OIDC_TOKEN_URI:}
+        client-id: ${OIDC_CLIENT_ID:}
+        scopes: ${OIDC_SCOPES:openid,profile,email}
     cors:
       enabled: true
       allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:8080,http://127.0.0.1:8080}

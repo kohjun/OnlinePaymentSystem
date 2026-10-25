@@ -17,6 +17,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -33,13 +34,16 @@ class OrderCancellationLedgerWriterTest {
     private final SellerPayoutService payoutService = mock(SellerPayoutService.class);
     private final InventoryRestorationService restorationService = mock(InventoryRestorationService.class);
     private final OutboxEventService outboxEventService = mock(OutboxEventService.class);
+    private final MarketplaceNotificationService notificationService = mock(MarketplaceNotificationService.class);
     private final OrderCancellationLedgerWriter writer = new OrderCancellationLedgerWriter(
             orderRepository,
             cancellationRepository,
             sellerRepository,
             payoutService,
             restorationService,
-            outboxEventService
+            outboxEventService,
+            notificationService,
+            mock(com.example.payment.domain.repository.OrderRecordRepository.class)
     );
 
     @Test
@@ -107,6 +111,31 @@ class OrderCancellationLedgerWriterTest {
         verify(restorationService, never()).restoreCancelledOrder(any(), any());
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"REFUND_UNKNOWN", "REFUND_FAILED"})
+    void recoveredCancellationClearsFailureAndIgnoresLateObservations(String failureCode) {
+        MarketplaceOrder order = paidOrder(FulfillmentStatus.READY_TO_FULFILL);
+        stubLedger(order);
+        var begin = writer.begin(order.getMarketplaceOrderId(), actor(), "buyer cancellation");
+        String id = begin.cancellation().getCancellationId();
+        var failure = new RefundCoordinator.RefundOutcome(false, failureCode, "Provider verification required", null, null);
+        writer.finish(id, failure);
+        var success = new RefundCoordinator.RefundOutcome(true, "REFUND_SUCCEEDED", "refunded", null,
+                RefundRecord.builder().refundId("RF-1").build());
+        var recovered = writer.finish(id, success);
+        assertEquals(OrderCancellationStatus.COMPLETED, recovered.getStatus());
+        assertNull(recovered.getFailureReason());
+        var completedAt = recovered.getCompletedAt();
+
+        writer.finish(id, success);
+        writer.finish(id, failure);
+        assertEquals(OrderCancellationStatus.COMPLETED, recovered.getStatus());
+        assertEquals(completedAt, recovered.getCompletedAt());
+        assertNull(recovered.getFailureReason());
+        verify(payoutService).cancelForOrderCancellation("MARKETPLACE_ORDER", order.getMarketplaceOrderId());
+        verify(restorationService).restoreCancelledOrder(order, "order-cancel-restore-" + order.getMarketplaceOrderId());
+    }
+
     @Test
     void shippedOrderCannotUseCancellationFlow() {
         MarketplaceOrder order = paidOrder(FulfillmentStatus.SHIPPED);
@@ -133,8 +162,20 @@ class OrderCancellationLedgerWriterTest {
                     return value;
                 });
         when(cancellationRepository.findById(any())).thenAnswer(invocation -> Optional.ofNullable(ledger.get()));
+        when(cancellationRepository.findOrderId(any())).thenReturn(Optional.of(order.getMarketplaceOrderId()));
         when(orderRepository.save(any(MarketplaceOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
         return ledger;
+    }
+
+    @Test
+    void shipmentTimestampPreventsCancellationEvenWithStaleFulfillmentStatus() {
+        var order = paidOrder(FulfillmentStatus.PROCESSING);
+        order.setShippedAt(java.time.LocalDateTime.now());
+        when(orderRepository.findByIdForUpdate(order.getMarketplaceOrderId())).thenReturn(Optional.of(order));
+        var failure = assertThrows(MarketplaceCheckoutException.class,
+                () -> writer.begin(order.getMarketplaceOrderId(), actor(), "stale shipment status"));
+        assertEquals("CANCELLATION_NOT_ALLOWED", failure.getCode());
+        verify(cancellationRepository, never()).saveAndFlush(any());
     }
 
     private MarketplaceOrder paidOrder(FulfillmentStatus fulfillmentStatus) {

@@ -19,6 +19,14 @@ import java.time.LocalDateTime;
 public class CompleteReservationResponse extends BaseResponse {
 
     private String workflowId;
+    private String phase;
+    private Integer retryAfterSeconds;
+
+    @com.fasterxml.jackson.annotation.JsonProperty(access = com.fasterxml.jackson.annotation.JsonProperty.Access.READ_ONLY)
+    public boolean isTerminal() {
+        return java.util.Set.of("SUCCESS", "FAILED", "CANCELLED", "CANCELED").contains(
+                getStatus() == null ? "" : getStatus());
+    }
     private ReservationInfo reservation;
     private OrderInfo order;
     private PaymentInfo payment;

@@ -35,6 +35,8 @@ public class OrderCancellationLedgerWriter {
     private final SellerPayoutService sellerPayoutService;
     private final InventoryRestorationService inventoryRestorationService;
     private final OutboxEventService outboxEventService;
+    private final MarketplaceNotificationService notificationService;
+    private final com.example.payment.domain.repository.OrderRecordRepository coreOrders;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public BeginResult begin(String orderId, CommerceActor actor, String reason) {
@@ -42,7 +44,6 @@ public class OrderCancellationLedgerWriter {
                 .orElseThrow(() -> new MarketplaceCheckoutException(
                         HttpStatus.NOT_FOUND, "ORDER_NOT_FOUND", "주문을 찾을 수 없습니다."));
         String requesterType = requesterType(order, actor);
-        validateCancellable(order);
 
         MarketplaceOrderCancellation cancellation = cancellationRepository
                 .findByMarketplaceOrderId(orderId)
@@ -51,8 +52,9 @@ public class OrderCancellationLedgerWriter {
             return BeginResult.terminal(cancellation);
         }
         if (cancellation != null && cancellation.getStatus() == OrderCancellationStatus.REFUND_PROCESSING) {
-            return BeginResult.terminal(cancellation);
+            return BeginResult.ready(cancellation);
         }
+        validateCancellable(order);
         if (cancellation == null) {
             String cancellationId = "MOCAN-" + IdGenerator.generateEventId();
             cancellation = MarketplaceOrderCancellation.builder()
@@ -71,17 +73,17 @@ public class OrderCancellationLedgerWriter {
         cancellation.setFailureReason(null);
         cancellationRepository.saveAndFlush(cancellation);
         recordEvent(order, cancellation, "ORDER_CANCELLATION_UPDATED");
+        notifyCancellation(order, cancellation);
         return BeginResult.ready(cancellation);
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public MarketplaceOrderCancellation finish(
             String cancellationId, RefundCoordinator.RefundOutcome outcome) {
-        MarketplaceOrderCancellation cancellation = cancellationRepository.findById(cancellationId)
-                .orElseThrow(() -> new IllegalStateException("Cancellation ledger not found: " + cancellationId));
-        MarketplaceOrder order = orderRepository.findByIdForUpdate(cancellation.getMarketplaceOrderId())
-                .orElseThrow(() -> new IllegalStateException(
-                        "Marketplace order not found: " + cancellation.getMarketplaceOrderId()));
+        String orderId = cancellationRepository.findOrderId(cancellationId).orElseThrow();
+        MarketplaceOrder order = orderRepository.findByIdForUpdate(orderId).orElseThrow();
+        // Read after taking the shared order lock, so a late failure cannot overwrite completion.
+        MarketplaceOrderCancellation cancellation = cancellationRepository.findById(cancellationId).orElseThrow();
         if (cancellation.getStatus() == OrderCancellationStatus.COMPLETED) {
             return cancellation;
         }
@@ -93,20 +95,18 @@ public class OrderCancellationLedgerWriter {
             order.setStatus(MarketplaceOrderStatus.REFUNDED);
             order.setFulfillmentStatus(FulfillmentStatus.CANCELLED);
             orderRepository.save(order);
+            coreOrders.findById(order.getOrderId()).ifPresent(core -> {
+                core.setStatus("REFUNDED");
+                coreOrders.save(core);
+            });
             sellerPayoutService.cancelForOrderCancellation(
                     "MARKETPLACE_ORDER", order.getMarketplaceOrderId());
-            try {
-                inventoryRestorationService.restoreCancelledOrder(
-                        order, "order-cancel-restore-" + order.getMarketplaceOrderId());
-            } catch (RuntimeException syncFailure) {
-                log.error("Inventory restoration deferred after order cancellation: orderId={}, productId={}",
-                        order.getMarketplaceOrderId(), order.getProductId(), syncFailure);
-                cancellation.setFailureReason("Inventory restoration queued for reconciliation: "
-                        + safeMessage(syncFailure));
-            }
+            inventoryRestorationService.restoreCancelledOrder(
+                    order, "order-cancel-restore-" + order.getMarketplaceOrderId());
             cancellation.setStatus(OrderCancellationStatus.COMPLETED);
+            cancellation.setFailureReason(null);
             cancellation.setCompletedAt(LocalDateTime.now());
-        } else if ("REFUND_UNKNOWN".equals(outcome.code())) {
+        } else if ("REFUND_UNKNOWN".equals(outcome.code()) || "REFUND_PROCESSING".equals(outcome.code())) {
             cancellation.setStatus(OrderCancellationStatus.REFUND_UNKNOWN);
             cancellation.setFailureReason(outcome.message());
         } else {
@@ -115,6 +115,7 @@ public class OrderCancellationLedgerWriter {
         }
         cancellationRepository.saveAndFlush(cancellation);
         recordEvent(order, cancellation, "ORDER_CANCELLATION_UPDATED");
+        notifyCancellation(order, cancellation);
         return cancellation;
     }
 
@@ -147,7 +148,8 @@ public class OrderCancellationLedgerWriter {
             throw new MarketplaceCheckoutException(
                     HttpStatus.CONFLICT, "CANCELLATION_NOT_ALLOWED", "결제 완료 주문만 취소할 수 있습니다.");
         }
-        if (order.getFulfillmentStatus() == FulfillmentStatus.SHIPPED
+        if (order.getShippedAt() != null || order.getFulfilledAt() != null
+                || order.getFulfillmentStatus() == FulfillmentStatus.SHIPPED
                 || order.getFulfillmentStatus() == FulfillmentStatus.DELIVERED) {
             throw new MarketplaceCheckoutException(
                     HttpStatus.CONFLICT, "CANCELLATION_NOT_ALLOWED", "배송 또는 발급이 완료된 주문은 분쟁 절차를 이용해야 합니다.");
@@ -166,6 +168,29 @@ public class OrderCancellationLedgerWriter {
         }
         outboxEventService.record("MARKETPLACE_ORDER", order.getMarketplaceOrderId(), eventType,
                 "marketplace-order-events", order.getMarketplaceOrderId(), payload);
+    }
+
+    private void notifyCancellation(MarketplaceOrder order, MarketplaceOrderCancellation cancellation) {
+        String status = cancellation.getStatus().name();
+        String message = "주문 " + order.getMarketplaceOrderId() + "의 취소 상태는 " + status + "입니다.";
+        notificationService.notifyCustomer(
+                order.getCustomerId(),
+                "ORDER_CANCELLATION_UPDATED",
+                cancellation.getStatus() == OrderCancellationStatus.COMPLETED ? "주문 취소와 환불이 완료되었습니다" : "주문 취소 상태가 변경되었습니다",
+                message,
+                "MARKETPLACE_ORDER",
+                order.getMarketplaceOrderId(),
+                "order:" + order.getMarketplaceOrderId() + ":cancellation:" + status + ":buyer"
+        );
+        notificationService.notifySeller(
+                order.getSellerId(),
+                "ORDER_CANCELLATION_UPDATED",
+                "주문 취소 상태가 변경되었습니다",
+                message,
+                "MARKETPLACE_ORDER",
+                order.getMarketplaceOrderId(),
+                "order:" + order.getMarketplaceOrderId() + ":cancellation:" + status + ":seller"
+        );
     }
 
     private String trim(String value) {

@@ -101,4 +101,10 @@ public class TossPaymentController {
                 .timestamp(java.time.LocalDateTime.now())
                 .build();
     }
+
+    @org.springframework.web.bind.annotation.GetMapping("/intents/{intentId}")
+    public ResponseEntity<CompleteReservationResponse> status(@PathVariable String intentId) {
+        authorizationGuard.requireTossIntentAccess(intentId);
+        return ResponseEntity.ok(tossPaymentIntentService.getIntentStatus(intentId));
+    }
 }

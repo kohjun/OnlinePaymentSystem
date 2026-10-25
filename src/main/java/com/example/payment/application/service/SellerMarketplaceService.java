@@ -16,6 +16,7 @@ import com.example.payment.domain.repository.MarketplaceListingRepository;
 import com.example.payment.domain.repository.ProductRepository;
 import com.example.payment.domain.repository.SaleEventRepository;
 import com.example.payment.domain.repository.SellerProfileRepository;
+import com.example.payment.domain.repository.TossPaymentIntentRepository;
 import com.example.payment.infrastructure.util.ResourceReservationService;
 import com.example.payment.infrastructure.messaging.outbox.OutboxEventService;
 import com.example.payment.presentation.dto.request.CreateSaleEventRequest;
@@ -41,10 +42,13 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class SellerMarketplaceService {
+
+    private static final Set<String> ACTIVE_CHECKOUT_STATUSES = Set.of("READY", "AUTHENTICATED", "PENDING", "UNKNOWN");
 
     private final SellerProfileRepository sellerProfileRepository;
     private final ProductRepository productRepository;
@@ -54,6 +58,7 @@ public class SellerMarketplaceService {
     private final ResourceReservationService resourceReservationService;
     private final OutboxEventService outboxEventService;
     private final MarketplaceRealtimeService realtimeService;
+    private final TossPaymentIntentRepository tossPaymentIntentRepository;
 
     @Transactional
     public SellerResponse createSeller(CreateSellerRequest request) {
@@ -183,7 +188,7 @@ public class SellerMarketplaceService {
                 .productId(productId)
                 .title(request.getName().trim())
                 .description(request.getDescription())
-                .imageUrl(request.getImageUrl())
+                .imageUrl(trimToNull(request.getImageUrl()))
                 .itemCondition(defaultText(request.getItemCondition(), "GOOD"))
                 .brand(trimToNull(request.getBrand()))
                 .tags(trimToNull(request.getTags()))
@@ -210,12 +215,16 @@ public class SellerMarketplaceService {
                                                             UpdateC2CListingRequest request) {
         SellerProfile seller = requireSellerForOwner(ownerUserId, ownerCustomerId);
         MarketplaceListing listing = requireOwnedListing(seller.getSellerId(), listingId);
-        requireEditableListing(listing);
 
         Product product = productRepository.findById(listing.getProductId())
                 .orElseThrow(() -> new IllegalArgumentException("Product not found: " + listing.getProductId()));
         Inventory inventory = inventoryRepository.findById(listing.getProductId())
                 .orElseThrow(() -> new IllegalArgumentException("Inventory not found: " + listing.getProductId()));
+        SaleEvent latestEvent = latestSaleEvent(listing);
+        boolean commerceLocked = requireListingUpdateAllowed(listing, latestEvent);
+        if (commerceLocked) {
+            validateLockedCommerceFields(request, listing, product, inventory, latestEvent);
+        }
 
         if (hasText(request.getName())) {
             product.setName(request.getName().trim());
@@ -225,13 +234,13 @@ public class SellerMarketplaceService {
             product.setDescription(request.getDescription());
             listing.setDescription(request.getDescription());
         }
-        if (request.getPrice() != null) {
+        if (!commerceLocked && request.getPrice() != null) {
             product.setPrice(request.getPrice());
         }
-        if (hasText(request.getCategory())) {
+        if (!commerceLocked && hasText(request.getCategory())) {
             product.setCategory(normalizeCategory(request.getCategory()));
         }
-        if (request.getQuantity() != null) {
+        if (!commerceLocked && request.getQuantity() != null) {
             inventory.setTotalQuantity(request.getQuantity());
             inventory.setAvailableQuantity(request.getQuantity());
             inventory.setReservedQuantity(0);
@@ -240,7 +249,7 @@ public class SellerMarketplaceService {
         if (request.getImageUrl() != null) {
             listing.setImageUrl(request.getImageUrl());
         }
-        if (request.getItemCondition() != null) {
+        if (!commerceLocked && request.getItemCondition() != null) {
             listing.setItemCondition(defaultText(request.getItemCondition(), "GOOD"));
         }
         if (request.getBrand() != null) {
@@ -255,14 +264,26 @@ public class SellerMarketplaceService {
         if (request.getDefectDescription() != null) {
             listing.setDefectDescription(trimToNull(request.getDefectDescription()));
         }
-        listing.setReviewNote(null);
-        listing.setReviewedBy(null);
-        listing.setReviewedAt(null);
+        if (!commerceLocked) {
+            listing.setReviewNote(null);
+            listing.setReviewedBy(null);
+            listing.setReviewedAt(null);
+        }
 
         Product savedProduct = productRepository.save(product);
         Inventory savedInventory = inventoryRepository.save(inventory);
         MarketplaceListing savedListing = marketplaceListingRepository.save(listing);
-        return toListingResponse(savedListing, savedProduct, savedInventory, latestSaleEvent(savedListing));
+        if (commerceLocked) {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("listingId", listingId);
+            payload.put("sellerId", seller.getSellerId());
+            payload.put("saleEventId", latestEvent != null ? latestEvent.getSaleEventId() : null);
+            payload.put("updatedAt", LocalDateTime.now(ZoneOffset.UTC));
+            outboxEventService.record(
+                    "MARKETPLACE_LISTING", listingId, "LISTING_CONTENT_UPDATED",
+                    "marketplace-listings", listingId, payload);
+        }
+        return toListingResponse(savedListing, savedProduct, savedInventory, latestEvent);
     }
 
     @Transactional
@@ -301,6 +322,102 @@ public class SellerMarketplaceService {
                                                           String eventId) {
         SellerProfile seller = requireSellerForOwner(ownerUserId, ownerCustomerId);
         return publishSaleEvent(seller.getSellerId(), eventId);
+    }
+
+    @Transactional
+    public SellerListingResponse pauseListingForOwner(String ownerUserId,
+                                                      String ownerCustomerId,
+                                                      String listingId) {
+        SellerProfile seller = requireSellerForOwner(ownerUserId, ownerCustomerId);
+        MarketplaceListing listing = marketplaceListingRepository.findByIdForUpdate(listingId)
+                .orElseThrow(() -> new IllegalArgumentException("Listing not found: " + listingId));
+        requireOwnedListing(seller.getSellerId(), listing);
+        if (listing.getStatus() == ListingStatus.PAUSED) {
+            return listingResponse(listing, latestSaleEvent(listing));
+        }
+        if (listing.getStatus() != ListingStatus.ACTIVE) {
+            throw new IllegalArgumentException("LISTING_CANNOT_BE_PAUSED: " + listing.getStatus());
+        }
+
+        SaleEvent latest = null;
+        for (SaleEvent event : saleEventRepository.findByListingIdOrderByStartsAtDesc(listingId)) {
+            if (event.getStatus() == SaleEventStatus.SCHEDULED) {
+                event.setStatus(SaleEventStatus.CANCELLED);
+                latest = saleEventRepository.save(event);
+                notifySaleStopped(latest, "SELLER_PAUSED");
+                continue;
+            }
+            if (event.getStatus() != SaleEventStatus.LIVE) {
+                if (latest == null) {
+                    latest = event;
+                }
+                continue;
+            }
+            if (event.getSaleType() == SaleType.AUCTION || event.getSaleType() == SaleType.RAFFLE) {
+                throw new IllegalArgumentException("INTERACTIVE_SALE_CANNOT_BE_PAUSED_AFTER_START");
+            }
+            long activeCheckouts = tossPaymentIntentRepository.countBySaleEventIdAndStatusInAndExpiresAtAfter(
+                    event.getSaleEventId(), ACTIVE_CHECKOUT_STATUSES, utcNow());
+            if (activeCheckouts > 0) {
+                throw new IllegalArgumentException("ACTIVE_CHECKOUT_EXISTS");
+            }
+            event.setStatus(SaleEventStatus.CANCELLED);
+            latest = saleEventRepository.save(event);
+            notifySaleStopped(latest, "SELLER_PAUSED");
+        }
+
+        listing.setStatus(ListingStatus.PAUSED);
+        MarketplaceListing saved = marketplaceListingRepository.save(listing);
+        return listingResponse(saved, latest != null ? latest : latestSaleEvent(saved));
+    }
+
+    @Transactional
+    public SellerListingResponse resumeListingForOwner(String ownerUserId,
+                                                       String ownerCustomerId,
+                                                       String listingId) {
+        SellerProfile seller = requireSellerForOwner(ownerUserId, ownerCustomerId);
+        requireActiveSeller(seller.getSellerId());
+        MarketplaceListing listing = marketplaceListingRepository.findByIdForUpdate(listingId)
+                .orElseThrow(() -> new IllegalArgumentException("Listing not found: " + listingId));
+        requireOwnedListing(seller.getSellerId(), listing);
+        if (listing.getStatus() == ListingStatus.ACTIVE) {
+            return listingResponse(listing, latestSaleEvent(listing));
+        }
+        if (listing.getStatus() != ListingStatus.PAUSED) {
+            throw new IllegalArgumentException("LISTING_CANNOT_BE_RESUMED: " + listing.getStatus());
+        }
+        if (saleEventRepository.existsByListingIdAndStatusIn(
+                listingId, List.of(SaleEventStatus.SCHEDULED, SaleEventStatus.LIVE))) {
+            throw new IllegalArgumentException("LISTING_HAS_ACTIVE_SALE_EVENT");
+        }
+        listing.setStatus(ListingStatus.ACTIVE);
+        MarketplaceListing saved = marketplaceListingRepository.save(listing);
+        return listingResponse(saved, latestSaleEvent(saved));
+    }
+
+    @Transactional
+    public SellerListingResponse archiveListingForOwner(String ownerUserId,
+                                                        String ownerCustomerId,
+                                                        String listingId) {
+        SellerProfile seller = requireSellerForOwner(ownerUserId, ownerCustomerId);
+        MarketplaceListing listing = marketplaceListingRepository.findByIdForUpdate(listingId)
+                .orElseThrow(() -> new IllegalArgumentException("Listing not found: " + listingId));
+        requireOwnedListing(seller.getSellerId(), listing);
+        if (listing.getStatus() == ListingStatus.ENDED) {
+            return listingResponse(listing, latestSaleEvent(listing));
+        }
+        if (listing.getStatus() != ListingStatus.PAUSED
+                && listing.getStatus() != ListingStatus.DRAFT
+                && listing.getStatus() != ListingStatus.REJECTED) {
+            throw new IllegalArgumentException("LISTING_MUST_BE_PAUSED_BEFORE_ARCHIVE");
+        }
+        if (saleEventRepository.existsByListingIdAndStatusIn(
+                listingId, List.of(SaleEventStatus.SCHEDULED, SaleEventStatus.LIVE))) {
+            throw new IllegalArgumentException("LISTING_HAS_ACTIVE_SALE_EVENT");
+        }
+        listing.setStatus(ListingStatus.ENDED);
+        MarketplaceListing saved = marketplaceListingRepository.save(listing);
+        return listingResponse(saved, latestSaleEvent(saved));
     }
 
     @Transactional(readOnly = true)
@@ -343,7 +460,7 @@ public class SellerMarketplaceService {
                 .productId(productId)
                 .title(product.getName())
                 .description(product.getDescription())
-                .imageUrl(request.getImageUrl())
+                .imageUrl(trimToNull(request.getImageUrl()))
                 .itemCondition(defaultText(request.getItemCondition(), "NEW"))
                 .brand(trimToNull(request.getBrand()))
                 .tags(trimToNull(request.getTags()))
@@ -405,7 +522,7 @@ public class SellerMarketplaceService {
                 request.getMinBidIncrement(), request.getReservePrice());
         int maxQuantityPerCustomer = customerLimit(request);
         SellerProfile seller = requireActiveSeller(sellerId);
-        MarketplaceListing listing = marketplaceListingRepository.findById(listingId)
+        MarketplaceListing listing = marketplaceListingRepository.findByIdForUpdate(listingId)
                 .orElseThrow(() -> new IllegalArgumentException("Listing not found: " + listingId));
         if (!seller.getSellerId().equals(listing.getSellerId())) {
             throw new IllegalArgumentException("Listing does not belong to seller: " + listingId);
@@ -465,7 +582,7 @@ public class SellerMarketplaceService {
     @Transactional
     public SellerListingResponse publishSaleEvent(String sellerId, String eventId) {
         requireActiveSeller(sellerId);
-        SaleEvent event = saleEventRepository.findById(eventId)
+        SaleEvent event = saleEventRepository.findByIdForUpdate(eventId)
                 .orElseThrow(() -> new IllegalArgumentException("Sale event not found: " + eventId));
         if (!sellerId.equals(event.getSellerId())) {
             throw new IllegalArgumentException("Sale event does not belong to seller: " + eventId);
@@ -605,12 +722,26 @@ public class SellerMarketplaceService {
     }
 
     private MarketplaceListing requireOwnedListing(String sellerId, String listingId) {
-        MarketplaceListing listing = marketplaceListingRepository.findById(listingId)
+        MarketplaceListing listing = marketplaceListingRepository.findByIdForUpdate(listingId)
                 .orElseThrow(() -> new IllegalArgumentException("Listing not found: " + listingId));
         if (!sellerId.equals(listing.getSellerId())) {
             throw new IllegalArgumentException("Listing does not belong to seller: " + listingId);
         }
         return listing;
+    }
+
+    private void requireOwnedListing(String sellerId, MarketplaceListing listing) {
+        if (!sellerId.equals(listing.getSellerId())) {
+            throw new IllegalArgumentException("Listing does not belong to seller: " + listing.getListingId());
+        }
+    }
+
+    private SellerListingResponse listingResponse(MarketplaceListing listing, SaleEvent event) {
+        Product product = productRepository.findById(listing.getProductId())
+                .orElseThrow(() -> new IllegalArgumentException("Product not found: " + listing.getProductId()));
+        Inventory inventory = inventoryRepository.findById(listing.getProductId())
+                .orElseThrow(() -> new IllegalArgumentException("Inventory not found: " + listing.getProductId()));
+        return toListingResponse(listing, product, inventory, event);
     }
 
     private void requireEditableListing(MarketplaceListing listing) {
@@ -619,6 +750,38 @@ public class SellerMarketplaceService {
         }
         if (!saleEventRepository.findByListingIdOrderByStartsAtDesc(listing.getListingId()).isEmpty()) {
             throw new IllegalArgumentException("Listing already has a sale event and cannot be edited as a C2C draft: " + listing.getListingId());
+        }
+    }
+
+    private boolean requireListingUpdateAllowed(MarketplaceListing listing, SaleEvent event) {
+        if (listing.getStatus() == ListingStatus.DRAFT || listing.getStatus() == ListingStatus.REJECTED) {
+            if (event != null) {
+                throw new IllegalArgumentException(
+                        "Listing already has a sale event and cannot be edited as a C2C draft: " + listing.getListingId());
+            }
+            return false;
+        }
+        if (listing.getStatus() != ListingStatus.ACTIVE) {
+            throw new IllegalArgumentException("Listing cannot be edited in its current status: " + listing.getListingId());
+        }
+        return true;
+    }
+
+    private void validateLockedCommerceFields(UpdateC2CListingRequest request,
+                                              MarketplaceListing listing,
+                                              Product product,
+                                              Inventory inventory,
+                                              SaleEvent event) {
+        BigDecimal currentPrice = event != null && event.getPrice() != null ? event.getPrice() : product.getPrice();
+        boolean changed = request.getPrice() != null && request.getPrice().compareTo(currentPrice) != 0;
+        changed |= request.getQuantity() != null && !request.getQuantity().equals(inventory.getTotalQuantity());
+        changed |= hasText(request.getCategory())
+                && !normalizeCategory(request.getCategory()).equals(product.getCategory());
+        changed |= request.getItemCondition() != null
+                && !defaultText(request.getItemCondition(), "GOOD").equals(listing.getItemCondition());
+        if (changed) {
+            throw new IllegalArgumentException(
+                    "ACTIVE_LISTING_COMMERCE_FIELDS_LOCKED: price, quantity, category, and item condition cannot change while a sale is active.");
         }
     }
 
@@ -784,6 +947,22 @@ public class SellerMarketplaceService {
             realtimeService.publishAuction(event.getSaleEventId(), "sale-started", payload);
         } else if (event.getSaleType() == SaleType.RAFFLE) {
             realtimeService.publishRaffle(event.getSaleEventId(), "sale-started", payload);
+        }
+    }
+
+    private void notifySaleStopped(SaleEvent event, String reason) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("saleEventId", event.getSaleEventId());
+        payload.put("status", event.getStatus());
+        payload.put("reason", reason);
+        payload.put("stoppedAt", utcNow());
+        outboxEventService.record(
+                "SALE_EVENT", event.getSaleEventId(), "SALE_STOPPED",
+                "marketplace-sale-events", event.getSaleEventId(), payload);
+        if (event.getSaleType() == SaleType.AUCTION) {
+            realtimeService.publishAuction(event.getSaleEventId(), "sale-ended", payload);
+        } else if (event.getSaleType() == SaleType.RAFFLE) {
+            realtimeService.publishRaffle(event.getSaleEventId(), "sale-ended", payload);
         }
     }
 

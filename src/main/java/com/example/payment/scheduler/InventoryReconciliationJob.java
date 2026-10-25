@@ -36,132 +36,30 @@ public class InventoryReconciliationJob {
     private final RedisTemplate<String, Object> redisTemplate;
     private final InventorySyncIssueRepository inventorySyncIssueRepository;
     private final InventorySyncIssueService inventorySyncIssueService;
+    private final com.example.payment.application.service.InventoryHoldService holds;
+    private final com.example.payment.application.service.InventoryReleasePolicy releasePolicy;
 
     @Scheduled(fixedDelayString = "${app.inventory.reconciliation.fixed-delay-ms:60000}")
     public void reconcileInventoryCounters() {
         reconcileSyncIssues();
         cleanupExpiredReservations();
         for (InventoryMismatch mismatch : findMismatches()) {
-            log.warn("Inventory reconciliation mismatch detected: {}", mismatch);
-            try {
-                String resourceKey = "inventory:" + mismatch.productId();
-                inventoryRepository.findById(mismatch.productId()).ifPresent(inventory -> {
-                    log.info("Self-healing: Overwriting Redis status for key {} to match Postgres (total={}, available={}, reserved={})",
-                            resourceKey, inventory.getTotalQuantity(), inventory.getAvailableQuantity(), inventory.getReservedQuantity());
-                    resourceReservationService.initializeResource(
-                            resourceKey,
-                            inventory.getTotalQuantity(),
-                            inventory.getAvailableQuantity()
-                    );
-                });
-            } catch (Exception e) {
-                log.error("Failed to self-heal inventory mismatch for product {}: {}", mismatch.productId(), e.getMessage(), e);
-            }
+            // Counter snapshots race live reservations. Never overwrite live Redis counters from a scan.
+            log.warn("Inventory reconciliation requires review: {}", mismatch);
         }
     }
 
     private void cleanupExpiredReservations() {
-        LocalDateTime now = LocalDateTime.now();
-        List<InventoryReservationRecord> expired =
-                inventoryReservationRecordRepository.findByStatusAndExpiresAtBefore("RESERVED", now);
-        for (InventoryReservationRecord reservation : expired) {
-            boolean redisReleased = false;
+        for (InventoryReservationRecord reservation : inventoryReservationRecordRepository
+                .findByStatusAndExpiresAtBefore("RESERVED", LocalDateTime.now())) {
             try {
-                redisReleased = resourceReservationService.releaseResource(
-                        "inventory:" + reservation.getProductId(),
-                        reservation.getQuantity(),
-                        reservation.getReservationId()
-                );
-            } catch (RuntimeException redisFailure) {
-                if (!isMissingReservationMetadata(redisFailure)) {
-                    log.warn("Expired reservation release will be retried: reservationId={}",
-                            reservation.getReservationId(), redisFailure);
-                    continue;
+                if (holds.release(reservation.getReservationId(), "CANCELLED") && reservation.getSeatId() != null) {
+                    releaseSeatLock(reservation);
                 }
-                log.warn("Expired reservation metadata was already missing; Postgres will repair Redis counters: reservationId={}",
-                        reservation.getReservationId());
+            } catch (RuntimeException failure) {
+                log.warn("Reservation expiry deferred: reservationId={}", reservation.getReservationId(), failure);
             }
-
-            try {
-                new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-                    InventoryReservationRecord current = inventoryReservationRecordRepository
-                            .findById(reservation.getReservationId())
-                            .orElse(null);
-                    if (current == null || !"RESERVED".equals(current.getStatus())) {
-                        return;
-                    }
-                    current.setStatus("CANCELLED");
-                    inventoryReservationRecordRepository.saveAndFlush(current);
-                    inventoryRepository.findById(current.getProductId()).ifPresent(inventory -> {
-                        inventory.setAvailableQuantity(inventory.getAvailableQuantity() + current.getQuantity());
-                        inventory.setReservedQuantity(Math.max(0,
-                                inventory.getReservedQuantity() - current.getQuantity()));
-                        inventoryRepository.saveAndFlush(inventory);
-                    });
-                });
-            } catch (RuntimeException databaseFailure) {
-                inventorySyncIssueService.record(
-                        reservation.getReservationId(),
-                        reservation.getProductId(),
-                        reservation.getQuantity(),
-                        "RELEASE_DB_APPLY_REQUIRED",
-                        databaseFailure
-                );
-                continue;
-            }
-
-            if (reservation.getSeatId() != null) {
-                releaseSeatLock(reservation);
-            }
-            log.info("Expired reservation reconciled: reservationId={}, redisReleased={}",
-                    reservation.getReservationId(), redisReleased);
         }
-    }
-
-    @Deprecated(forRemoval = true)
-    private void cleanupExpiredReservationsLegacy() {
-        TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
-        txTemplate.execute(status -> {
-            LocalDateTime now = LocalDateTime.now();
-            List<InventoryReservationRecord> expired = inventoryReservationRecordRepository.findByStatusAndExpiresAtBefore("RESERVED", now);
-            if (expired.isEmpty()) {
-                return null;
-            }
-            log.info("Found {} expired RESERVED reservations to clean up", expired.size());
-            for (InventoryReservationRecord reservation : expired) {
-                try {
-                    reservation.setStatus("CANCELLED");
-                    inventoryReservationRecordRepository.save(reservation);
-                    
-                    inventoryRepository.findById(reservation.getProductId()).ifPresent(inventory -> {
-                        inventory.setAvailableQuantity(inventory.getAvailableQuantity() + reservation.getQuantity());
-                        inventory.setReservedQuantity(Math.max(0, inventory.getReservedQuantity() - reservation.getQuantity()));
-                        inventoryRepository.save(inventory);
-                    });
-
-                    // Redis inventory release
-                    String resourceKey = "inventory:" + reservation.getProductId();
-                    resourceReservationService.releaseResource(resourceKey, reservation.getQuantity(), reservation.getReservationId());
-
-                    // Redis seat lock release
-                    if (reservation.getSeatId() != null) {
-                        String seatLockKey = "locked_seat:" + reservation.getSeatId();
-                        Object currentOwner = redisTemplate.opsForValue().get(seatLockKey);
-                        if (currentOwner != null && currentOwner.toString().equals(reservation.getCustomerId())) {
-                            redisTemplate.delete(seatLockKey);
-                            log.info("Released seat lock in Redis for expired reservation: seatId={}, customerId={}",
-                                    reservation.getSeatId(), reservation.getCustomerId());
-                        }
-                    }
-
-                    log.info("Expired reservation {} cancelled. Recovered stock: product={}, qty={}",
-                            reservation.getReservationId(), reservation.getProductId(), reservation.getQuantity());
-                } catch (Exception e) {
-                    log.error("Failed to clean up expired reservation {}: {}", reservation.getReservationId(), e.getMessage(), e);
-                }
-            }
-            return null;
-        });
     }
 
     private void reconcileSyncIssues() {
@@ -169,7 +67,9 @@ public class InventoryReconciliationJob {
                 .findByStatusOrderByCreatedAtAsc("PENDING", PageRequest.of(0, 50));
         for (InventorySyncIssue issue : issues) {
             try {
-                if ("RESERVE_RELEASE_REQUIRED".equals(issue.getIssueType())) {
+                if ("RESERVE_RELEASE_REQUIRED".equals(issue.getIssueType())
+                        || "ROLLBACK_RELEASE_REQUIRED".equals(issue.getIssueType())
+                        || "RELEASE_REDIS_REQUIRED".equals(issue.getIssueType())) {
                     resourceReservationService.releaseResource(
                             "inventory:" + issue.getProductId(),
                             issue.getQuantity(),
@@ -177,7 +77,13 @@ public class InventoryReconciliationJob {
                     );
                     resolveIssue(issue.getIssueId());
                 } else {
-                    applyDatabaseRepair(issue);
+                    if ("RESTORE_REDIS_REQUIRED".equals(issue.getIssueType())) {
+                        resourceReservationService.restoreConfirmedResource("inventory:" + issue.getProductId(),
+                                issue.getQuantity(), issue.getReservationId());
+                        resolveIssue(issue.getIssueId());
+                    } else {
+                        applyDatabaseRepair(issue);
+                    }
                 }
             } catch (RuntimeException failure) {
                 markIssueAttemptFailed(issue.getIssueId(), failure);
@@ -195,10 +101,19 @@ public class InventoryReconciliationJob {
                 return;
             }
             InventoryReservationRecord reservation = inventoryReservationRecordRepository
-                    .findById(currentIssue.getReservationId())
+                    .findByIdForUpdate(currentIssue.getReservationId())
                     .orElseThrow(() -> new IllegalStateException(
                             "Inventory reservation not found: " + currentIssue.getReservationId()));
-            Inventory inventory = inventoryRepository.findById(currentIssue.getProductId())
+            if ("RELEASE_DB_APPLY_REQUIRED".equals(currentIssue.getIssueType())) {
+                // Legacy repair records must use the same fence and idempotent release as expiry/Saga.
+                holds.compensate(currentIssue.getReservationId());
+                currentIssue.setStatus("RESOLVED");
+                currentIssue.setResolvedAt(LocalDateTime.now());
+                currentIssue.setFailureReason(null);
+                inventorySyncIssueRepository.save(currentIssue);
+                return;
+            }
+            Inventory inventory = inventoryRepository.findByIdForUpdate(currentIssue.getProductId())
                     .orElseThrow(() -> new IllegalStateException(
                             "Inventory not found: " + currentIssue.getProductId()));
 
@@ -207,16 +122,6 @@ public class InventoryReconciliationJob {
                     reservation.setStatus("CONFIRMED");
                     inventory.setReservedQuantity(Math.max(0,
                             inventory.getReservedQuantity() - currentIssue.getQuantity()));
-                }
-            } else if ("RELEASE_DB_APPLY_REQUIRED".equals(currentIssue.getIssueType())) {
-                if (!"CANCELLED".equals(reservation.getStatus())) {
-                    if ("RESERVED".equals(reservation.getStatus())) {
-                        inventory.setReservedQuantity(Math.max(0,
-                                inventory.getReservedQuantity() - currentIssue.getQuantity()));
-                    }
-                    inventory.setAvailableQuantity(
-                            inventory.getAvailableQuantity() + currentIssue.getQuantity());
-                    reservation.setStatus("CANCELLED");
                 }
             } else {
                 throw new IllegalStateException("Unsupported inventory sync issue type: " + currentIssue.getIssueType());
@@ -271,7 +176,7 @@ public class InventoryReconciliationJob {
             // Skip check if there are active (RESERVED), non-expired reservations in Postgres
             List<InventoryReservationRecord> activeReservations = inventoryReservationRecordRepository.findByProductId(inventory.getProductId())
                     .stream()
-                    .filter(r -> "RESERVED".equals(r.getStatus()) && r.getExpiresAt().isAfter(now))
+                    .filter(r -> "RESERVED".equals(r.getStatus()))
                     .toList();
             if (!activeReservations.isEmpty()) {
                 log.info("Skipping inventory reconciliation check for product {} because it has {} active reservation(s)",

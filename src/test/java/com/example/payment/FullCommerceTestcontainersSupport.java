@@ -59,6 +59,15 @@ abstract class FullCommerceTestcontainersSupport extends TestcontainersIntegrati
 
     static final AtomicInteger TOSS_CONFIRM_CALLS = new AtomicInteger();
     static final AtomicInteger TOSS_CANCEL_CALLS = new AtomicInteger();
+    static final AtomicInteger PAYOUT_SUBMIT_CALLS = new AtomicInteger();
+    static final AtomicInteger PAYOUT_LOOKUP_CALLS = new AtomicInteger();
+    static final AtomicInteger PAYOUT_LOOKUP_HTTP_STATUS = new AtomicInteger();
+    static final java.util.concurrent.atomic.AtomicReference<Map<String, Object>> PAYOUT_LOOKUP_OVERRIDES =
+            new java.util.concurrent.atomic.AtomicReference<>(Map.of());
+    static final java.util.concurrent.atomic.AtomicBoolean DROP_PAYOUT_RESPONSE = new java.util.concurrent.atomic.AtomicBoolean();
+    static final java.util.concurrent.ConcurrentMap<String, Map<String, Object>> PAYOUTS = new java.util.concurrent.ConcurrentHashMap<>();
+    static final java.util.concurrent.atomic.AtomicReference<CancelResponseBarrier> PAYOUT_RESPONSE_BARRIER =
+            new java.util.concurrent.atomic.AtomicReference<>();
 
     private static HttpServer tossStub;
 
@@ -83,10 +92,41 @@ abstract class FullCommerceTestcontainersSupport extends TestcontainersIntegrati
         registry.add("app.temporal.worker-enabled", () -> "true");
         registry.add("app.outbox.enabled", () -> "true");
         registry.add("app.checkout.public-complete-enabled", () -> "false");
+        registry.add("app.checkout.legacy-reservation-api-enabled", () -> "false");
         registry.add("app.marketplace.realtime.redis-broadcast-enabled", () -> "false");
     }
 
+    static final java.util.concurrent.ConcurrentMap<String, Map<String, Object>> TOSS_PAYMENTS = new java.util.concurrent.ConcurrentHashMap<>();
+    static final java.util.Set<String> TOSS_REFUND_KEYS = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    static final java.util.concurrent.atomic.AtomicBoolean DROP_CONFIRM_RESPONSE = new java.util.concurrent.atomic.AtomicBoolean();
+    static final java.util.concurrent.atomic.AtomicBoolean DROP_CANCEL_RESPONSE = new java.util.concurrent.atomic.AtomicBoolean();
+    static final java.util.concurrent.atomic.AtomicBoolean FAIL_CANCEL = new java.util.concurrent.atomic.AtomicBoolean();
+    static final java.util.concurrent.atomic.AtomicInteger FAIL_LOOKUPS = new java.util.concurrent.atomic.AtomicInteger();
+    static final java.util.concurrent.atomic.AtomicReference<CancelResponseBarrier> CANCEL_RESPONSE_BARRIER =
+            new java.util.concurrent.atomic.AtomicReference<>();
+
+    static final class CancelResponseBarrier {
+        final java.util.concurrent.CountDownLatch providerCommitted = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch releaseResponse = new java.util.concurrent.CountDownLatch(1);
+    }
+
     static void resetTossStub() {
+        var payoutBarrier = PAYOUT_RESPONSE_BARRIER.getAndSet(null);
+        if (payoutBarrier != null) payoutBarrier.releaseResponse.countDown();
+        PAYOUT_SUBMIT_CALLS.set(0);
+        PAYOUT_LOOKUP_CALLS.set(0);
+        PAYOUT_LOOKUP_HTTP_STATUS.set(0);
+        PAYOUT_LOOKUP_OVERRIDES.set(Map.of());
+        DROP_PAYOUT_RESPONSE.set(false);
+        PAYOUTS.clear();
+        var barrier = CANCEL_RESPONSE_BARRIER.getAndSet(null);
+        if (barrier != null) barrier.releaseResponse.countDown();
+        TOSS_PAYMENTS.clear();
+        TOSS_REFUND_KEYS.clear();
+        DROP_CONFIRM_RESPONSE.set(false);
+        DROP_CANCEL_RESPONSE.set(false);
+        FAIL_CANCEL.set(false);
+        FAIL_LOOKUPS.set(0);
         TOSS_CONFIRM_CALLS.set(0);
         TOSS_CANCEL_CALLS.set(0);
     }
@@ -124,41 +164,129 @@ abstract class FullCommerceTestcontainersSupport extends TestcontainersIntegrati
     private static void handleTossRequest(HttpExchange exchange) throws IOException {
         try {
             String path = exchange.getRequestURI().getPath();
+            if ("POST".equals(exchange.getRequestMethod()) && "/v1/payouts".equals(path)) {
+                PAYOUT_SUBMIT_CALLS.incrementAndGet();
+                Map<String, Object> request = OBJECT_MAPPER.readValue(exchange.getRequestBody(), new TypeReference<>() {});
+                String key = exchange.getRequestHeaders().getFirst("Idempotency-Key");
+                if (key == null || !key.equals(request.get("refPayoutId"))) {
+                    sendJson(exchange, 400, Map.of("code", "INVALID_IDEMPOTENCY_KEY")); return;
+                }
+                var payout = PAYOUTS.computeIfAbsent(key, ignored -> Map.of("payoutId", "payout-" + java.util.UUID.randomUUID(),
+                        "status", "DONE", "refPayoutId", key, "amount", request.get("amount"), "currency", request.get("currency")));
+                var barrier = PAYOUT_RESPONSE_BARRIER.getAndSet(null);
+                if (barrier != null) {
+                    barrier.providerCommitted.countDown();
+                    try {
+                        if (!barrier.releaseResponse.await(45, java.util.concurrent.TimeUnit.SECONDS)) {
+                            exchange.close(); return;
+                        }
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt(); exchange.close(); return;
+                    }
+                }
+                if (DROP_PAYOUT_RESPONSE.compareAndSet(true, false)) { exchange.close(); return; }
+                sendJson(exchange, 200, payout);
+                return;
+            }
+            if ("GET".equals(exchange.getRequestMethod()) && ("/v1/payouts".equals(path) || path.startsWith("/v1/payouts/"))) {
+                PAYOUT_LOOKUP_CALLS.incrementAndGet();
+                int failureStatus = PAYOUT_LOOKUP_HTTP_STATUS.get();
+                if (failureStatus != 0) {
+                    sendJson(exchange, failureStatus, Map.of("code", "PAYOUT_LOOKUP_UNAVAILABLE")); return;
+                }
+                if ("/v1/payouts".equals(path)) {
+                    String key = org.springframework.web.util.UriComponentsBuilder.fromUri(exchange.getRequestURI())
+                            .build().getQueryParams().getFirst("refPayoutId");
+                    var payout = key == null ? null : PAYOUTS.get(java.net.URLDecoder.decode(key, StandardCharsets.UTF_8));
+                    sendJson(exchange, 200, payout == null ? java.util.List.of() : java.util.List.of(payoutReceipt(payout)));
+                } else {
+                    String id = path.substring("/v1/payouts/".length());
+                    var payout = PAYOUTS.values().stream().filter(value -> id.equals(value.get("payoutId"))).findFirst();
+                    if (payout.isPresent()) sendJson(exchange, 200, payoutReceipt(payout.get()));
+                    else sendJson(exchange, 404, Map.of("code", "PAYOUT_NOT_FOUND"));
+                }
+                return;
+            }
             if ("POST".equals(exchange.getRequestMethod()) && "/v1/payments/confirm".equals(path)) {
                 TOSS_CONFIRM_CALLS.incrementAndGet();
-                Map<String, Object> request = OBJECT_MAPPER.readValue(
-                        exchange.getRequestBody(), new TypeReference<>() { });
-                sendJson(exchange, 200, Map.of(
-                        "paymentKey", String.valueOf(request.get("paymentKey")),
-                        "orderId", String.valueOf(request.get("orderId")),
-                        "status", "DONE",
-                        "totalAmount", new BigDecimal(String.valueOf(request.get("amount"))),
-                        "currency", "KRW",
-                        "approvedAt", OffsetDateTime.now().toString(),
-                        "card", Map.of("approveNo", "E2E12345")
-                ));
+                Map<String, Object> request = OBJECT_MAPPER.readValue(exchange.getRequestBody(), new TypeReference<>() {});
+                String paymentKey = String.valueOf(request.get("paymentKey"));
+                Map<String, Object> payment = TOSS_PAYMENTS.computeIfAbsent(paymentKey, key -> {
+                    Map<String, Object> created = new LinkedHashMap<>();
+                    created.put("paymentKey", key); created.put("orderId", request.get("orderId")); created.put("status", "DONE");
+                    created.put("totalAmount", new BigDecimal(String.valueOf(request.get("amount"))));
+                    created.put("balanceAmount", created.get("totalAmount")); created.put("currency", "KRW");
+                    created.put("approvedAt", OffsetDateTime.now().toString());
+                    created.put("card", Map.of("approveNo", "E2E12345"));
+                    created.put("cancels", new java.util.ArrayList<>());
+                    return created;
+                });
+                if (DROP_CONFIRM_RESPONSE.compareAndSet(true, false)) { exchange.close(); return; }
+                sendJson(exchange, 200, payment);
                 return;
             }
             if ("POST".equals(exchange.getRequestMethod()) && path.matches("/v1/payments/[^/]+/cancel")) {
                 TOSS_CANCEL_CALLS.incrementAndGet();
-                sendJson(exchange, 200, Map.of("status", "CANCELED"));
+                if (FAIL_CANCEL.get()) { sendJson(exchange, 400, Map.of("code", "NOT_CANCELABLE_PAYMENT", "message", "rejected")); return; }
+                String key = path.substring("/v1/payments/".length(), path.length() - "/cancel".length());
+                Map<String, Object> payment = TOSS_PAYMENTS.get(key);
+                if (payment == null) { sendJson(exchange, 404, Map.of("code", "NOT_FOUND_PAYMENT")); return; }
+                Map<String, Object> request = OBJECT_MAPPER.readValue(exchange.getRequestBody(), new TypeReference<>() {});
+                String refundKey = exchange.getRequestHeaders().getFirst("Idempotency-Key");
+                synchronized (payment) {
+                    if (TOSS_REFUND_KEYS.add(key + ":" + refundKey)) {
+                        BigDecimal balance = new BigDecimal(payment.get("balanceAmount").toString());
+                        BigDecimal amount = request.get("cancelAmount") == null ? balance : new BigDecimal(request.get("cancelAmount").toString());
+                        if (amount.compareTo(balance) > 0) { sendJson(exchange, 400, Map.of("code", "INVALID_CANCEL_AMOUNT")); return; }
+                        var cancels = (java.util.List<Object>) payment.get("cancels");
+                        cancels.add(Map.of("transactionKey", "cancel-" + java.util.UUID.randomUUID(), "cancelAmount", amount, "cancelStatus", "DONE"));
+                        payment.put("balanceAmount", balance.subtract(amount));
+                        payment.put("status", balance.compareTo(amount) == 0 ? "CANCELED" : "PARTIAL_CANCELED");
+                    }
+                }
+                // Pause after provider commit, without holding the payment monitor needed by lookups.
+                var barrier = CANCEL_RESPONSE_BARRIER.getAndSet(null);
+                if (barrier != null) {
+                    FAIL_LOOKUPS.set(10000);
+                    barrier.providerCommitted.countDown();
+                    try {
+                        if (!barrier.releaseResponse.await(30, java.util.concurrent.TimeUnit.SECONDS)) {
+                            exchange.close();
+                            return;
+                        }
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        exchange.close();
+                        return;
+                    }
+                }
+                if (DROP_CANCEL_RESPONSE.compareAndSet(true, false)) { exchange.close(); return; }
+                synchronized (payment) { sendJson(exchange, 200, payment); }
                 return;
             }
             if ("GET".equals(exchange.getRequestMethod()) && path.startsWith("/v1/payments/")) {
-                String paymentKey = path.substring("/v1/payments/".length());
-                Map<String, Object> response = new LinkedHashMap<>();
-                response.put("paymentKey", paymentKey);
-                response.put("orderId", "ORDER-E2E-STATUS");
-                response.put("status", "DONE");
-                response.put("totalAmount", 25000);
-                response.put("currency", "KRW");
-                sendJson(exchange, 200, response);
+                if (FAIL_LOOKUPS.getAndUpdate(value -> Math.max(0, value - 1)) > 0) {
+                    sendJson(exchange, 503, Map.of("code", "PROVIDER_UNAVAILABLE")); return;
+                }
+                Map<String, Object> payment;
+                if (path.startsWith("/v1/payments/orders/")) {
+                    String orderId = path.substring("/v1/payments/orders/".length());
+                    payment = TOSS_PAYMENTS.values().stream().filter(value -> orderId.equals(value.get("orderId"))).findFirst().orElse(null);
+                } else { payment = TOSS_PAYMENTS.get(path.substring("/v1/payments/".length())); }
+                if (payment == null) { sendJson(exchange, 404, Map.of("code", "NOT_FOUND_PAYMENT")); return; }
+                synchronized (payment) { sendJson(exchange, 200, payment); }
                 return;
             }
-            sendJson(exchange, 404, Map.of("code", "NOT_FOUND", "message", path));
+            sendJson(exchange, 404, Map.of("code", "NOT_FOUND"));
         } catch (RuntimeException exception) {
-            sendJson(exchange, 500, Map.of("code", "STUB_ERROR", "message", exception.getMessage()));
+            sendJson(exchange, 500, Map.of("code", "STUB_ERROR"));
         }
+    }
+
+    private static Map<String, Object> payoutReceipt(Map<String, Object> stored) {
+        Map<String, Object> receipt = new LinkedHashMap<>(stored);
+        receipt.putAll(PAYOUT_LOOKUP_OVERRIDES.get());
+        return receipt;
     }
 
     private static void sendJson(HttpExchange exchange, int status, Object body) throws IOException {

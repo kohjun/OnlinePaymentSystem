@@ -22,11 +22,23 @@ public interface SellerPayoutTransferGateway {
     ) {
     }
 
+    // Provider observations are not final ledger decisions; the writer verifies receipt evidence.
     record TransferResult(
             PayoutTransferStatus status,
             String providerTransferId,
-            String failureReason
+            String failureReason,
+            String referenceKey,
+            BigDecimal amount,
+            String currency
     ) {
+        public TransferResult(PayoutTransferStatus status, String providerTransferId, String failureReason) {
+            this(status, providerTransferId, failureReason, null, null, null);
+        }
+
+        public static TransferResult unknown(String reason) {
+            return new TransferResult(PayoutTransferStatus.UNKNOWN, null, reason);
+        }
+
         public static TransferResult succeeded(String providerTransferId) {
             return new TransferResult(PayoutTransferStatus.SUCCEEDED, providerTransferId, null);
         }

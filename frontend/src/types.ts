@@ -1,10 +1,38 @@
 export type SaleType = 'FIXED_PRICE' | 'DROP' | 'RAFFLE' | 'AUCTION';
+export interface CheckoutStatus {
+  status: string;
+  phase?: string;
+  terminal: boolean;
+  retryAfterSeconds?: number;
+  workflowId?: string;
+  message?: string;
+}
 export type EventStatus = 'SCHEDULED' | 'LIVE' | 'ACTIVATION_FAILED' | 'ENDED' | 'CANCELLED';
 export type ActivationMode = 'IMMEDIATE' | 'SCHEDULED';
 export type ListingStatus = 'DRAFT' | 'PENDING_REVIEW' | 'ACTIVE' | 'REJECTED' | 'PAUSED' | 'ENDED';
 export type SellerVerificationStatus = 'UNVERIFIED' | 'PENDING_REVIEW' | 'VERIFIED' | 'REJECTED';
 export type FulfillmentStatus = 'NOT_READY' | 'READY_TO_FULFILL' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
 export type SellerPayoutStatus = 'HELD' | 'READY_FOR_RELEASE' | 'DISPUTED' | 'RELEASED' | 'CANCELLED' | 'RECOVERY_REQUIRED' | 'RECOVERED';
+export type ListingMediaType = 'PRODUCT_IMAGE' | 'AUTHENTICITY_EVIDENCE';
+
+export interface AuthRuntimeConfig {
+  mode: 'LOCAL' | 'OIDC';
+  authorizationUri?: string;
+  tokenUri?: string;
+  clientId?: string;
+  scopes: string[];
+}
+
+export interface ListingMedia {
+  mediaId: string;
+  listingId: string;
+  mediaType: ListingMediaType;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  sortOrder: number;
+  url: string;
+}
 
 export interface SellerProfile {
   sellerId: string;
@@ -194,6 +222,7 @@ export interface MarketplaceOrder {
   currency: string;
   status: string;
   fulfillmentStatus: string;
+  cancellationStatus?: string;
   seatId?: string;
   trackingCarrier?: string;
   trackingNumber?: string;
@@ -209,6 +238,24 @@ export interface MarketplaceOrder {
   shippedAt?: string;
   fulfilledAt?: string;
   createdAt: string;
+}
+
+export interface MarketplaceNotification {
+  notificationId: string;
+  notificationType: string;
+  title: string;
+  message: string;
+  actionPath?: string;
+  aggregateType?: string;
+  aggregateId?: string;
+  read: boolean;
+  readAt?: string;
+  createdAt: string;
+}
+
+export interface NotificationInbox {
+  notifications: MarketplaceNotification[];
+  unreadCount: number;
 }
 
 export interface SellerPayout {

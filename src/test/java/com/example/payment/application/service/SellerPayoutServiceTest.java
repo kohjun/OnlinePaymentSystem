@@ -23,6 +23,13 @@ import static org.mockito.Mockito.when;
 
 class SellerPayoutServiceTest {
 
+    @org.junit.jupiter.api.BeforeEach
+    void stubLockedLookups() {
+        when(repository.findBySourceForUpdate(any(), any())).thenAnswer(call ->
+                repository.findBySourceTypeAndSourceId(call.getArgument(0), call.getArgument(1)));
+        when(repository.findByPayoutIdForUpdate(any())).thenAnswer(call -> repository.findById(call.getArgument(0)));
+    }
+
     private final SellerPayoutRepository repository = mock(SellerPayoutRepository.class);
     private final SellerPayoutAccountRepository payoutAccountRepository = mock(SellerPayoutAccountRepository.class);
     private final SellerPayoutTransferCoordinator payoutTransferCoordinator = mock(SellerPayoutTransferCoordinator.class);
@@ -70,6 +77,8 @@ class SellerPayoutServiceTest {
                 .createdAt(LocalDateTime.now())
                 .build();
         when(repository.findByPayoutIdAndSellerId("PAYOUT-1", "SELLER-1")).thenReturn(Optional.of(payout));
+        when(repository.findById("PAYOUT-1")).thenReturn(Optional.of(payout));
+        when(payoutTransferCoordinator.transfer(payout)).thenAnswer(call -> { payout.setStatus(SellerPayoutStatus.RELEASED); return null; });
         when(payoutAccountRepository.existsBySellerIdAndStatus("SELLER-1", SellerPayoutAccountStatus.VERIFIED)).thenReturn(true);
         when(repository.save(any(SellerPayout.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -93,6 +102,7 @@ class SellerPayoutServiceTest {
                 .createdAt(LocalDateTime.now())
                 .build();
         when(repository.findById("PAYOUT-1")).thenReturn(Optional.of(payout));
+        when(payoutTransferCoordinator.transfer(payout)).thenAnswer(call -> { payout.setStatus(SellerPayoutStatus.RELEASED); return null; });
         when(payoutAccountRepository.existsBySellerIdAndStatus("SELLER-1", SellerPayoutAccountStatus.VERIFIED)).thenReturn(true);
         when(repository.save(any(SellerPayout.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -269,5 +279,65 @@ class SellerPayoutServiceTest {
                 () -> service.markRecovered("PAYOUT-1"));
 
         assertEquals("Only recovery-required payouts can be marked recovered: PAYOUT-1", ex.getMessage());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = SellerPayoutStatus.class, names = {"RECOVERY_REQUIRED", "RECOVERED"})
+    void recoveryStateSurvivesLateRefundDisputeAndCancellation(SellerPayoutStatus status) {
+        var payout = SellerPayout.builder().payoutId("PAYOUT-1").status(status).build();
+        when(repository.findBySourceTypeAndSourceId("MARKETPLACE_ORDER", "MORD-1")).thenReturn(Optional.of(payout));
+        assertEquals(status, service.applyProviderRefundStatus("MARKETPLACE_ORDER", "MORD-1", false).orElseThrow().getStatus());
+        assertEquals(status, service.applyProviderRefundStatus("MARKETPLACE_ORDER", "MORD-1", true).orElseThrow().getStatus());
+        assertEquals(status, service.cancelForOrderCancellation("MARKETPLACE_ORDER", "MORD-1").orElseThrow().getStatus());
+        assertEquals(status, service.markCancelled("MARKETPLACE_ORDER", "MORD-1").getStatus());
+        assertEquals(status, service.markDisputed("MARKETPLACE_ORDER", "MORD-1").getStatus());
+        assertThrows(IllegalArgumentException.class, () -> service.markReadyForRelease("MARKETPLACE_ORDER", "MORD-1"));
+        verify(repository, never()).save(any());
+    }
+
+    private com.example.payment.domain.model.marketplace.MarketplaceOrder resolvedOrder() {
+        return com.example.payment.domain.model.marketplace.MarketplaceOrder.builder()
+                .marketplaceOrderId("MORD-1")
+                .status(com.example.payment.domain.model.marketplace.MarketplaceOrderStatus.PAID)
+                .disputedAt(LocalDateTime.now().minusHours(1))
+                .disputeResolvedAt(LocalDateTime.now()).disputeResolvedBy("ADMIN-1")
+                .disputeResolution(com.example.payment.domain.model.marketplace.DisputeResolution.PAYOUT_READY).build();
+    }
+
+    @Test
+    void explicitResolutionReleasesDisputedPayoutWithoutWeakeningGenericGuard() {
+        var payout = SellerPayout.builder().payoutId("PAYOUT-1").status(SellerPayoutStatus.DISPUTED).build();
+        when(repository.findBySourceTypeAndSourceId("MARKETPLACE_ORDER", "MORD-1")).thenReturn(Optional.of(payout));
+        when(repository.save(any())).thenAnswer(call -> call.getArgument(0));
+        assertThrows(IllegalArgumentException.class, () -> service.markReadyForRelease("MARKETPLACE_ORDER", "MORD-1"));
+        assertEquals(SellerPayoutStatus.READY_FOR_RELEASE, service.markReadyAfterDisputeResolution(resolvedOrder()).getStatus());
+        verify(payoutTransferCoordinator, never()).transfer(any());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = SellerPayoutStatus.class, mode = org.junit.jupiter.params.provider.EnumSource.Mode.EXCLUDE,
+            names = "DISPUTED")
+    void resolutionCannotReopenOtherPayoutStates(SellerPayoutStatus status) {
+        var payout = SellerPayout.builder().payoutId("PAYOUT-1").status(status).build();
+        when(repository.findBySourceTypeAndSourceId("MARKETPLACE_ORDER", "MORD-1")).thenReturn(Optional.of(payout));
+        assertThrows(IllegalArgumentException.class, () -> service.markReadyAfterDisputeResolution(resolvedOrder()));
+        assertEquals(status, payout.getStatus());
+        verify(repository, never()).save(any());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"status", "disputedAt", "resolvedAt", "operator", "resolution"})
+    void incompleteResolutionCannotMakePayoutReady(String missing) {
+        var order = resolvedOrder();
+        switch (missing) {
+            case "status" -> order.setStatus(com.example.payment.domain.model.marketplace.MarketplaceOrderStatus.REFUND_UNKNOWN);
+            case "disputedAt" -> order.setDisputedAt(null);
+            case "resolvedAt" -> order.setDisputeResolvedAt(null);
+            case "operator" -> order.setDisputeResolvedBy(" ");
+            case "resolution" -> order.setDisputeResolution(com.example.payment.domain.model.marketplace.DisputeResolution.BUYER_REFUND);
+        }
+        assertThrows(IllegalArgumentException.class, () -> service.markReadyAfterDisputeResolution(order));
+        verify(repository, never()).findBySourceForUpdate(any(), any());
+        verify(repository, never()).save(any());
     }
 }

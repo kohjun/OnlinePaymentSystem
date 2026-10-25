@@ -48,15 +48,6 @@ public class PaymentProcessingService {
         this.refundCoordinator = refundCoordinator;
     }
 
-    public PaymentProcessingService(PaymentGatewayFactory gatewayFactory,
-                                    CacheService cacheService,
-                                    PaymentRecordRepository paymentRecordRepository,
-                                    RefundRecordRepository refundRecordRepository,
-                                    OutboxEventService outboxEventService) {
-        this(gatewayFactory, cacheService, paymentRecordRepository, refundRecordRepository, outboxEventService,
-                new RefundCoordinator(gatewayFactory,
-                        new RefundLedgerWriter(paymentRecordRepository, refundRecordRepository, outboxEventService)));
-    }
 
     private static final int PAYMENT_CACHE_TTL_SECONDS = 86400; // 24시간
 

@@ -31,6 +31,12 @@ public class MarketplaceOrderService {
     private final MarketplaceOrderRepository marketplaceOrderRepository;
     private final SellerPayoutService sellerPayoutService;
     private final PaymentProcessingService paymentProcessingService;
+    private final MarketplaceNotificationService notificationService;
+    private final CommerceSettlementGuard settlementGuard;
+    private final org.springframework.transaction.PlatformTransactionManager transactionManager;
+    private final com.example.payment.domain.repository.MarketplaceOrderCancellationRepository cancellations;
+    private final com.example.payment.domain.repository.OrderRecordRepository coreOrders;
+    private final InventoryRestorationService inventoryRestoration;
 
     @Transactional
     public void recordCheckout(SaleEvent event,
@@ -60,6 +66,7 @@ public class MarketplaceOrderService {
                 .createdAt(LocalDateTime.now())
                 .build());
 
+        boolean newlyPaid = order.getStatus() != MarketplaceOrderStatus.PAID;
         order.setSeatId(request.getSeatId());
         applyCheckoutResponse(order, request, response, authorizedAmount, isDigitalTicket(listing));
         applyShippingSnapshot(order, request.getShippingInfo());
@@ -71,6 +78,9 @@ public class MarketplaceOrderService {
                     savedOrder.getMarketplaceOrderId(),
                     savedOrder.getAmount()
             );
+            if (newlyPaid) {
+                notifyOrderPaid(savedOrder);
+            }
         }
     }
 
@@ -116,9 +126,12 @@ public class MarketplaceOrderService {
                                                       String trackingCarrier,
                                                       String trackingNumber) {
         MarketplaceOrder order = marketplaceOrderRepository
-                .findByMarketplaceOrderIdAndSellerId(marketplaceOrderId, sellerId)
+                .findByIdForUpdate(marketplaceOrderId)
+                .filter(candidate -> sellerId.equals(candidate.getSellerId()))
                 .orElseThrow(() -> new IllegalArgumentException("Marketplace order not found: " + marketplaceOrderId));
+        settlementGuard.requireClear(order);
 
+        FulfillmentStatus previousStatus = order.getFulfillmentStatus();
         validateFulfillmentTransition(order, fulfillmentStatus, trackingCarrier, trackingNumber);
         order.setFulfillmentStatus(fulfillmentStatus);
         if (fulfillmentStatus == FulfillmentStatus.CANCELLED) {
@@ -134,14 +147,19 @@ public class MarketplaceOrderService {
         if (fulfillmentStatus == FulfillmentStatus.DELIVERED) {
             order.setFulfilledAt(LocalDateTime.now());
         }
-        return toResponse(marketplaceOrderRepository.save(order));
+        MarketplaceOrder savedOrder = marketplaceOrderRepository.save(order);
+        if (previousStatus != fulfillmentStatus) {
+            notifyFulfillmentUpdated(savedOrder);
+        }
+        return toResponse(savedOrder);
     }
 
     @Transactional
     public MarketplaceOrderResponse confirmDelivery(String customerId, String marketplaceOrderId) {
-        MarketplaceOrder order = marketplaceOrderRepository.findById(marketplaceOrderId)
+        MarketplaceOrder order = marketplaceOrderRepository.findByIdForUpdate(marketplaceOrderId)
                 .orElseThrow(() -> new IllegalArgumentException("Marketplace order not found: " + marketplaceOrderId));
         requireOrderBuyer(order, customerId);
+        settlementGuard.requireClear(order);
         if (order.getStatus() != MarketplaceOrderStatus.PAID) {
             throw new IllegalArgumentException("Only paid marketplace orders can be confirmed.");
         }
@@ -157,16 +175,29 @@ public class MarketplaceOrderService {
         if (order.getFulfilledAt() == null) {
             order.setFulfilledAt(LocalDateTime.now());
         }
-        if (order.getBuyerConfirmedAt() == null) {
+        boolean newlyConfirmed = order.getBuyerConfirmedAt() == null;
+        if (newlyConfirmed) {
             order.setBuyerConfirmedAt(LocalDateTime.now());
             sellerPayoutService.markReadyForRelease("MARKETPLACE_ORDER", order.getMarketplaceOrderId());
         }
-        return toResponse(marketplaceOrderRepository.save(order));
+        MarketplaceOrder savedOrder = marketplaceOrderRepository.save(order);
+        if (newlyConfirmed) {
+            notificationService.notifySeller(
+                    savedOrder.getSellerId(),
+                    "DELIVERY_CONFIRMED",
+                    "구매자가 거래를 확정했습니다",
+                    "주문 " + savedOrder.getMarketplaceOrderId() + "의 정산 준비가 시작되었습니다.",
+                    "MARKETPLACE_ORDER",
+                    savedOrder.getMarketplaceOrderId(),
+                    "order:" + savedOrder.getMarketplaceOrderId() + ":delivery-confirmed"
+            );
+        }
+        return toResponse(savedOrder);
     }
 
     @Transactional
     public MarketplaceOrderResponse openDispute(String customerId, String marketplaceOrderId, String reason) {
-        MarketplaceOrder order = marketplaceOrderRepository.findById(marketplaceOrderId)
+        MarketplaceOrder order = marketplaceOrderRepository.findByIdForUpdate(marketplaceOrderId)
                 .orElseThrow(() -> new IllegalArgumentException("Marketplace order not found: " + marketplaceOrderId));
         requireOrderBuyer(order, customerId);
         if (order.getStatus() != MarketplaceOrderStatus.PAID) {
@@ -175,58 +206,84 @@ public class MarketplaceOrderService {
         if (order.getBuyerConfirmedAt() != null) {
             throw new IllegalArgumentException("Buyer-confirmed marketplace orders cannot be disputed through this flow.");
         }
-        if (order.getDisputedAt() == null) {
+        boolean newlyDisputed = order.getDisputedAt() == null;
+        if (newlyDisputed) {
             order.setDisputedAt(LocalDateTime.now());
             order.setDisputeReason(trimToNull(reason));
             sellerPayoutService.markDisputed("MARKETPLACE_ORDER", order.getMarketplaceOrderId());
         }
-        return toResponse(marketplaceOrderRepository.save(order));
+        MarketplaceOrder savedOrder = marketplaceOrderRepository.save(order);
+        if (newlyDisputed) {
+            notificationService.notifySeller(
+                    savedOrder.getSellerId(),
+                    "DISPUTE_OPENED",
+                    "구매자가 분쟁을 접수했습니다",
+                    "주문 " + savedOrder.getMarketplaceOrderId() + "의 배송과 정산이 보류되었습니다.",
+                    "MARKETPLACE_ORDER",
+                    savedOrder.getMarketplaceOrderId(),
+                    "order:" + savedOrder.getMarketplaceOrderId() + ":dispute-opened:seller"
+            );
+            notificationService.notifyCustomer(
+                    savedOrder.getCustomerId(),
+                    "DISPUTE_OPENED",
+                    "분쟁 접수가 완료되었습니다",
+                    "운영팀이 주문 " + savedOrder.getMarketplaceOrderId() + "을 확인합니다.",
+                    "MARKETPLACE_ORDER",
+                    savedOrder.getMarketplaceOrderId(),
+                    "order:" + savedOrder.getMarketplaceOrderId() + ":dispute-opened:buyer"
+            );
+        }
+        return toResponse(savedOrder);
     }
 
-    @Transactional
-    public MarketplaceOrderResponse resolveDispute(String operatorId,
-                                                   String marketplaceOrderId,
-                                                   DisputeResolution resolution,
-                                                   String note) {
-        MarketplaceOrder order = marketplaceOrderRepository.findById(marketplaceOrderId)
-                .orElseThrow(() -> new IllegalArgumentException("Marketplace order not found: " + marketplaceOrderId));
-        if (order.getDisputedAt() == null) {
-            throw new IllegalArgumentException("Marketplace order is not disputed: " + marketplaceOrderId);
+    public MarketplaceOrderResponse resolveDispute(String operatorId, String marketplaceOrderId,
+            DisputeResolution resolution, String note) {
+        if (trimToNull(operatorId) == null || resolution == null) {
+            throw new IllegalArgumentException("Dispute resolution and operator are required.");
         }
-        if (order.getDisputeResolvedAt() != null) {
-            return toResponse(order);
-        }
-        PaymentProcessingService.RefundResult refundResult = null;
+        PaymentProcessingService.RefundResult outcome = null;
         if (resolution == DisputeResolution.BUYER_REFUND) {
-            refundResult = refundDisputedPayment(order, note);
-            if (!refundResult.success()) {
-                order.setStatus(MarketplaceOrderStatus.REFUND_FAILED);
-                order.setDisputeResolutionNote(failedRefundNote(note, refundResult));
+            MarketplaceOrder snapshot = marketplaceOrderRepository.findById(marketplaceOrderId).orElseThrow();
+            if (snapshot.getDisputedAt() == null) throw new IllegalArgumentException("Marketplace order is not disputed");
+            if (snapshot.getDisputeResolvedAt() != null) return toResponse(snapshot);
+            outcome = refundDisputedPayment(snapshot, note);
+        }
+        final PaymentProcessingService.RefundResult observed = outcome;
+        return new org.springframework.transaction.support.TransactionTemplate(transactionManager).execute(tx -> {
+            MarketplaceOrder order = marketplaceOrderRepository.findByIdForUpdate(marketplaceOrderId).orElseThrow();
+            if (order.getDisputedAt() == null) throw new IllegalArgumentException("Marketplace order is not disputed");
+            if (order.getDisputeResolvedAt() != null) return toResponse(order);
+            if (resolution == DisputeResolution.BUYER_REFUND && !observed.success()) {
+                order.setStatus("REFUND_UNKNOWN".equals(observed.code()) || "REFUND_PROCESSING".equals(observed.code())
+                        ? MarketplaceOrderStatus.REFUND_UNKNOWN : MarketplaceOrderStatus.REFUND_FAILED);
+                order.setDisputeResolutionNote(failedRefundNote(note, observed));
                 return toResponse(marketplaceOrderRepository.save(order));
             }
-        }
-
-        order.setDisputeResolution(resolution);
-        order.setDisputeResolutionNote(trimToNull(note));
-        order.setDisputeResolvedBy(trimToNull(operatorId));
-        order.setDisputeResolvedAt(LocalDateTime.now());
-
-        if (resolution == DisputeResolution.PAYOUT_READY) {
-            order.setFulfillmentStatus(FulfillmentStatus.DELIVERED);
-            if (order.getFulfilledAt() == null) {
-                order.setFulfilledAt(LocalDateTime.now());
+            order.setDisputeResolution(resolution);
+            order.setDisputeResolutionNote(trimToNull(note));
+            order.setDisputeResolvedBy(trimToNull(operatorId));
+            order.setDisputeResolvedAt(LocalDateTime.now());
+            if (resolution == DisputeResolution.PAYOUT_READY) {
+                settlementGuard.requireClear(order);
+                order.setFulfillmentStatus(FulfillmentStatus.DELIVERED);
+                if (order.getFulfilledAt() == null) order.setFulfilledAt(LocalDateTime.now());
+                sellerPayoutService.markReadyAfterDisputeResolution(order);
+            } else {
+                order.setStatus(resolution == DisputeResolution.BUYER_REFUND
+                        ? MarketplaceOrderStatus.REFUNDED : MarketplaceOrderStatus.CANCELLED);
+                order.setFulfillmentStatus(FulfillmentStatus.CANCELLED);
+                sellerPayoutService.markCancelled("MARKETPLACE_ORDER", order.getMarketplaceOrderId());
+                if (resolution == DisputeResolution.BUYER_REFUND) {
+                    coreOrders.findById(order.getOrderId()).ifPresent(core -> { core.setStatus("REFUNDED"); coreOrders.save(core); });
+                    if (order.getShippedAt() == null && order.getFulfilledAt() == null) {
+                        inventoryRestoration.restoreCancelledOrder(order, "order-cancel-restore-" + order.getMarketplaceOrderId());
+                    }
+                }
             }
-            sellerPayoutService.markReadyForRelease("MARKETPLACE_ORDER", order.getMarketplaceOrderId());
-        } else if (resolution == DisputeResolution.PAYOUT_CANCELLED) {
-            order.setStatus(MarketplaceOrderStatus.CANCELLED);
-            order.setFulfillmentStatus(FulfillmentStatus.CANCELLED);
-            sellerPayoutService.markCancelled("MARKETPLACE_ORDER", order.getMarketplaceOrderId());
-        } else if (resolution == DisputeResolution.BUYER_REFUND) {
-            order.setStatus(MarketplaceOrderStatus.REFUNDED);
-            order.setFulfillmentStatus(FulfillmentStatus.CANCELLED);
-            sellerPayoutService.markCancelled("MARKETPLACE_ORDER", order.getMarketplaceOrderId());
-        }
-        return toResponse(marketplaceOrderRepository.save(order));
+            MarketplaceOrder saved = marketplaceOrderRepository.save(order);
+            notifyDisputeResolved(saved, resolution);
+            return toResponse(saved);
+        });
     }
 
     @Transactional
@@ -235,7 +292,14 @@ public class MarketplaceOrderService {
             return Optional.empty();
         }
         return marketplaceOrderRepository.findByPaymentId(paymentId)
-                .map(order -> {
+                .map(snapshot -> {
+                    MarketplaceOrder order = marketplaceOrderRepository.findByIdForUpdate(snapshot.getMarketplaceOrderId()).orElseThrow();
+                    if (order.getStatus() == MarketplaceOrderStatus.REFUNDED) return toResponse(order);
+                    if ("REFUNDED".equals(paymentStatus) && order.getShippedAt() == null && order.getFulfilledAt() == null
+                            && order.getFulfillmentStatus() != FulfillmentStatus.SHIPPED
+                            && order.getFulfillmentStatus() != FulfillmentStatus.DELIVERED) {
+                        inventoryRestoration.restoreCancelledOrder(order, "order-cancel-restore-" + order.getMarketplaceOrderId());
+                    }
                     if ("PARTIALLY_REFUNDED".equals(paymentStatus)) {
                         applyPartialProviderRefund(order);
                     } else if ("REFUNDED".equals(paymentStatus)) {
@@ -243,8 +307,89 @@ public class MarketplaceOrderService {
                     } else {
                         return toResponse(order);
                     }
-                    return toResponse(marketplaceOrderRepository.save(order));
+                    coreOrders.findById(order.getOrderId()).ifPresent(core -> {
+                        core.setStatus(paymentStatus);
+                        coreOrders.save(core);
+                    });
+                    MarketplaceOrder savedOrder = marketplaceOrderRepository.save(order);
+                    notificationService.notifyCustomer(
+                            savedOrder.getCustomerId(),
+                            "REFUND_UPDATED",
+                            "환불 상태가 변경되었습니다",
+                            "주문 " + savedOrder.getMarketplaceOrderId() + "의 결제 상태는 " + savedOrder.getStatus() + "입니다.",
+                            "MARKETPLACE_ORDER",
+                            savedOrder.getMarketplaceOrderId(),
+                            "order:" + savedOrder.getMarketplaceOrderId() + ":provider-refund:" + savedOrder.getStatus()
+                    );
+                    return toResponse(savedOrder);
                 });
+    }
+
+    private void notifyOrderPaid(MarketplaceOrder order) {
+        notificationService.notifyCustomer(
+                order.getCustomerId(),
+                "PAYMENT_COMPLETED",
+                "결제가 완료되었습니다",
+                "주문 " + order.getMarketplaceOrderId() + "이 정상적으로 접수되었습니다.",
+                "MARKETPLACE_ORDER",
+                order.getMarketplaceOrderId(),
+                "order:" + order.getMarketplaceOrderId() + ":paid:buyer"
+        );
+        notificationService.notifySeller(
+                order.getSellerId(),
+                "NEW_ORDER",
+                "새 주문이 접수되었습니다",
+                "주문 " + order.getMarketplaceOrderId() + "의 배송 준비를 시작해 주세요.",
+                "MARKETPLACE_ORDER",
+                order.getMarketplaceOrderId(),
+                "order:" + order.getMarketplaceOrderId() + ":paid:seller"
+        );
+    }
+
+    private void notifyFulfillmentUpdated(MarketplaceOrder order) {
+        String title;
+        String message;
+        if (order.getFulfillmentStatus() == FulfillmentStatus.SHIPPED) {
+            title = "상품이 발송되었습니다";
+            message = "주문 " + order.getMarketplaceOrderId() + "의 배송 조회가 가능합니다.";
+        } else if (order.getFulfillmentStatus() == FulfillmentStatus.DELIVERED) {
+            title = "배송이 완료되었습니다";
+            message = "상품을 확인한 뒤 구매를 확정하거나 문제가 있으면 분쟁을 접수해 주세요.";
+        } else {
+            title = "주문 처리 상태가 변경되었습니다";
+            message = "주문 " + order.getMarketplaceOrderId() + "의 상태는 " + order.getFulfillmentStatus() + "입니다.";
+        }
+        notificationService.notifyCustomer(
+                order.getCustomerId(),
+                "FULFILLMENT_UPDATED",
+                title,
+                message,
+                "MARKETPLACE_ORDER",
+                order.getMarketplaceOrderId(),
+                "order:" + order.getMarketplaceOrderId() + ":fulfillment:" + order.getFulfillmentStatus()
+        );
+    }
+
+    private void notifyDisputeResolved(MarketplaceOrder order, DisputeResolution resolution) {
+        String message = "주문 " + order.getMarketplaceOrderId() + "의 분쟁 처리 결과는 " + resolution + "입니다.";
+        notificationService.notifyCustomer(
+                order.getCustomerId(),
+                "DISPUTE_RESOLVED",
+                "분쟁 처리가 완료되었습니다",
+                message,
+                "MARKETPLACE_ORDER",
+                order.getMarketplaceOrderId(),
+                "order:" + order.getMarketplaceOrderId() + ":dispute-resolved:" + resolution + ":buyer"
+        );
+        notificationService.notifySeller(
+                order.getSellerId(),
+                "DISPUTE_RESOLVED",
+                "분쟁 처리가 완료되었습니다",
+                message,
+                "MARKETPLACE_ORDER",
+                order.getMarketplaceOrderId(),
+                "order:" + order.getMarketplaceOrderId() + ":dispute-resolved:" + resolution + ":seller"
+        );
     }
 
     private void applyFullProviderRefund(MarketplaceOrder order) {
@@ -357,6 +502,10 @@ public class MarketplaceOrderService {
         if (order.getFulfillmentStatus() == FulfillmentStatus.DELIVERED && nextStatus != FulfillmentStatus.DELIVERED) {
             throw new IllegalArgumentException("Delivered marketplace orders cannot be changed.");
         }
+        if ((order.getFulfillmentStatus() == FulfillmentStatus.SHIPPED || order.getShippedAt() != null)
+                && nextStatus != FulfillmentStatus.SHIPPED && nextStatus != FulfillmentStatus.DELIVERED) {
+            throw new IllegalArgumentException("Shipped marketplace orders cannot return to pre-shipment status.");
+        }
     }
 
     private void requireOrderBuyer(MarketplaceOrder order, String customerId) {
@@ -402,7 +551,9 @@ public class MarketplaceOrderService {
     }
 
     private MarketplaceOrderResponse toResponse(MarketplaceOrder order) {
+        var cancellation = cancellations.findByMarketplaceOrderId(order.getMarketplaceOrderId()).orElse(null);
         return MarketplaceOrderResponse.builder()
+                .cancellationStatus(cancellation == null ? null : cancellation.getStatus().name())
                 .marketplaceOrderId(order.getMarketplaceOrderId())
                 .saleEventId(order.getSaleEventId())
                 .listingId(order.getListingId())

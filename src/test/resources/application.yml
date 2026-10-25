@@ -96,6 +96,7 @@ app:
     enabled: true
   checkout:
     public-complete-enabled: true
+    legacy-reservation-api-enabled: true
   distribution:
     brand-name: 에브리세일
     mode: DEMO

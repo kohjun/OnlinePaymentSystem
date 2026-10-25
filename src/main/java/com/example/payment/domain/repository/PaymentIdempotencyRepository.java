@@ -9,6 +9,10 @@ import java.util.Optional;
 @Repository
 public interface PaymentIdempotencyRepository extends JpaRepository<PaymentIdempotencyRecord, String> {
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("select p from PaymentIdempotencyRecord p where p.tenantId = :tenant and p.merchantId = :merchant and p.operation = :operation and p.idempotencyKey = :key")
+    Optional<PaymentIdempotencyRecord> lockByScope(String tenant, String merchant, String operation, String key);
+
     Optional<PaymentIdempotencyRecord> findByTenantIdAndMerchantIdAndOperationAndIdempotencyKey(
             String tenantId,
             String merchantId,

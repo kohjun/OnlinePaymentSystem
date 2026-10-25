@@ -76,6 +76,7 @@ public class TossPaymentIntentService {
     private final TicketingService ticketingService;
     private final TossPaymentsProperties tossProperties;
     private final ObjectMapper objectMapper;
+    private final TossIntentStateWriter stateWriter;
     private final RedisTemplate<String, Object> redisTemplate;
 
     /**
@@ -264,6 +265,8 @@ public class TossPaymentIntentService {
                 .orElseThrow(() -> new IllegalArgumentException("TOSS_PAYMENT_INTENT_NOT_FOUND"));
 
         validateConfirm(request, intent);
+        if (hasText(intent.getResponseBody())) return readResponse(intent.getResponseBody());
+        if (hasText(intent.getWorkflowId())) return getIntentStatus(intent.getIntentId());
 
         boolean isLockRequired = "RAFFLE_WINNER".equals(intent.getMarketplaceCheckoutType())
                 || "AUCTION_WINNER".equals(intent.getMarketplaceCheckoutType());
@@ -316,14 +319,12 @@ public class TossPaymentIntentService {
                 if (response != null) {
                     persistTerminalResponse(intent, response);
                     recordMarketplaceCheckout(intent, response);
-                    repository.save(intent);
+                    stateWriter.recordResponse(intent.getIntentId(), response);
                     return response;
                 }
             }
 
-            intent.setPaymentKey(request.getPaymentKey());
-            intent.setStatus("AUTHENTICATED");
-            repository.save(intent);
+            intent = stateWriter.authenticate(request);
 
             CompleteReservationRequest completeRequest = toCompleteReservationRequest(intent);
             CompleteReservationResponse response = completeReservationGateway.processCompleteReservation(completeRequest);
@@ -332,7 +333,7 @@ public class TossPaymentIntentService {
             intent.setStatus(response.getStatus());
             persistTerminalResponse(intent, response);
             recordMarketplaceCheckout(intent, response);
-            repository.save(intent);
+            stateWriter.recordResponse(intent.getIntentId(), response);
             return response;
         } finally {
             if (isLockRequired) {
@@ -343,22 +344,24 @@ public class TossPaymentIntentService {
 
     @Transactional
     public TossPaymentIntentResponse cancelReadyIntent(String intentId) {
-        TossPaymentIntent intent = repository.findById(intentId)
-                .orElseThrow(() -> new IllegalArgumentException("TOSS_PAYMENT_INTENT_NOT_FOUND"));
-        if ("CANCELLED".equals(intent.getStatus()) || "CANCELED".equals(intent.getStatus())) {
-            return toResponse(intent);
-        }
-        if (!"READY".equals(intent.getStatus())) {
-            throw new IllegalArgumentException("TOSS_PAYMENT_INTENT_CANNOT_BE_CANCELLED: " + intent.getStatus());
-        }
-        intent.setStatus("CANCELLED");
-        intent.setResponseBody(null);
-        TossPaymentIntent saved = repository.save(intent);
+        TossPaymentIntent intent = stateWriter.cancelReady(intentId);
         if (intent.getInventoryReservationId() != null) {
             inventoryHoldService.release(intent.getInventoryReservationId(), "CANCELLED");
         }
         ticketingService.completeCheckout(intent.getSaleEventId(), intent.getSeatId(), intent.getCustomerId());
-        return toResponse(saved);
+        return toResponse(intent);
+    }
+
+    public CompleteReservationResponse getIntentStatus(String intentId) {
+        TossPaymentIntent intent = repository.findById(intentId)
+                .orElseThrow(() -> new IllegalArgumentException("TOSS_PAYMENT_INTENT_NOT_FOUND"));
+        if (hasText(intent.getResponseBody())) return readResponse(intent.getResponseBody());
+        CompleteReservationResponse response = recoverIntent(intent);
+        if (response != null) return response;
+        return CompleteReservationResponse.builder().workflowId(intent.getWorkflowId())
+                .status(Set.of("FAILED", "CANCELLED", "CANCELED").contains(intent.getStatus()) ? intent.getStatus() : "PENDING")
+                .phase("READY".equals(intent.getStatus()) ? "AWAITING_AUTHENTICATION" : "PAYMENT_RECONCILING")
+                .retryAfterSeconds(5).message("Transaction verification is in progress").build();
     }
 
     public int reconcileRecoverableIntents(LocalDateTime cutoff) {
@@ -378,10 +381,14 @@ public class TossPaymentIntentService {
 
     public CompleteReservationResponse recoverIntentByProviderReference(String paymentKey, String orderId) {
         TossPaymentIntent intent = findIntentByProviderReference(paymentKey, orderId);
-        if (hasText(paymentKey) && !paymentKey.equals(intent.getPaymentKey())) {
-            intent.setPaymentKey(paymentKey);
-            intent.setStatus("AUTHENTICATED");
-            repository.save(intent);
+        if (!intent.getOrderId().equals(orderId) || !hasText(paymentKey)
+                || (intent.getPaymentKey() != null && !intent.getPaymentKey().equals(paymentKey))) {
+            throw new IllegalArgumentException("TOSS_PAYMENT_CONFLICT");
+        }
+        if (intent.getPaymentKey() == null) {
+            intent = stateWriter.authenticate(TossPaymentConfirmRequest.builder()
+                    .intentId(intent.getIntentId()).orderId(orderId).paymentKey(paymentKey)
+                    .amount(intent.getAmount()).build());
         }
 
         if (intent.getResponseBody() != null && !intent.getResponseBody().isBlank()) {
@@ -400,16 +407,6 @@ public class TossPaymentIntentService {
                 .build();
     }
 
-    @Transactional
-    public void markProviderTerminalStatus(String paymentKey, String orderId, String providerStatus) {
-        TossPaymentIntent intent = findIntentByProviderReference(paymentKey, orderId);
-        if (hasText(paymentKey) && !paymentKey.equals(intent.getPaymentKey())) {
-            intent.setPaymentKey(paymentKey);
-        }
-        intent.setStatus(mapProviderStatus(providerStatus));
-        repository.save(intent);
-    }
-
     private CompleteReservationResponse recoverIntent(TossPaymentIntent intent) {
         CompleteReservationResponse response = null;
         if (hasText(intent.getWorkflowId())) {
@@ -424,7 +421,7 @@ public class TossPaymentIntentService {
         }
         persistTerminalResponse(intent, response);
         recordMarketplaceCheckout(intent, response);
-        repository.save(intent);
+        stateWriter.recordResponse(intent.getIntentId(), response);
         return response;
     }
 
@@ -442,19 +439,6 @@ public class TossPaymentIntentService {
         throw new IllegalArgumentException("TOSS_PAYMENT_REFERENCE_REQUIRED");
     }
 
-    private String mapProviderStatus(String providerStatus) {
-        if ("DONE".equals(providerStatus)) {
-            return "SUCCESS";
-        }
-        if ("CANCELED".equals(providerStatus) || "PARTIAL_CANCELED".equals(providerStatus)) {
-            return "CANCELLED";
-        }
-        if ("ABORTED".equals(providerStatus) || "EXPIRED".equals(providerStatus)) {
-            return "FAILED";
-        }
-        return "UNKNOWN";
-    }
-
     private void validateConfirm(TossPaymentConfirmRequest request, TossPaymentIntent intent) {
         if (!intent.getOrderId().equals(request.getOrderId())) {
             throw new IllegalArgumentException("TOSS_PAYMENT_CONFLICT");
@@ -462,7 +446,7 @@ public class TossPaymentIntentService {
         if (intent.getPaymentKey() != null && !intent.getPaymentKey().equals(request.getPaymentKey())) {
             throw new IllegalArgumentException("TOSS_PAYMENT_CONFLICT");
         }
-        if (LocalDateTime.now().isAfter(intent.getExpiresAt())) {
+        if (!hasText(intent.getPaymentKey()) && LocalDateTime.now().isAfter(intent.getExpiresAt())) {
             throw new IllegalArgumentException("TOSS_PAYMENT_INTENT_EXPIRED");
         }
         if (money(intent.getAmount()).compareTo(money(request.getAmount())) != 0) {

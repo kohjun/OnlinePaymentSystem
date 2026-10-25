@@ -24,6 +24,9 @@ public class InventoryHoldService {
     private final InventoryRepository inventoryRepository;
     private final InventoryReservationRecordRepository reservationRepository;
     private final InventorySyncIssueService inventorySyncIssueService;
+    private final InventoryReleasePolicy releasePolicy;
+    private final com.example.payment.domain.repository.InventorySyncIssueRepository syncIssues;
+    private final ReservationAuthorizationFence authorizationFence;
 
     @Transactional
     public InventoryReservationRecord hold(String reservationId, String productId, String customerId,
@@ -65,6 +68,7 @@ public class InventoryHoldService {
                     .customerId(customerId)
                     .quantity(quantity)
                     .status("RESERVED")
+                    .authorizationState("NOT_STARTED")
                     .origin(origin)
                     .sourceType(sourceType)
                     .sourceId(sourceId)
@@ -108,8 +112,10 @@ public class InventoryHoldService {
         if (!"RESERVED".equals(reservation.getStatus())) {
             throw new IllegalStateException("INVENTORY_HOLD_NOT_ACTIVE: " + reservationId);
         }
-        resourceReservationService.confirmResource(
-                inventoryKey(reservation.getProductId()), reservation.getQuantity(), reservationId);
+        if (!resourceReservationService.confirmResource(
+                inventoryKey(reservation.getProductId()), reservation.getQuantity(), reservationId)) {
+            throw new IllegalStateException("Inventory confirmation requires reconciliation");
+        }
         try {
             reservation.setStatus("CONFIRMED");
             reservation.setOrderId(orderId);
@@ -132,7 +138,7 @@ public class InventoryHoldService {
     @Transactional
     public boolean release(String reservationId, String terminalStatus) {
         InventoryReservationRecord reservation = reservationRepository.findByIdForUpdate(reservationId).orElse(null);
-        if (reservation == null || !"RESERVED".equals(reservation.getStatus())) {
+        if (reservation == null || !"RESERVED".equals(reservation.getStatus()) || !releasePolicy.mayRelease(reservation)) {
             return false;
         }
         return releaseLocked(reservation, terminalStatus);
@@ -150,31 +156,61 @@ public class InventoryHoldService {
         if (!"RESERVED".equals(reservation.getStatus())) {
             return "EXPIRED".equals(reservation.getStatus()) || "CANCELLED".equals(reservation.getStatus());
         }
-        if (reservation.getClaimedIntentId() != null) {
+        if (!releasePolicy.mayRelease(reservation)) {
             return false;
         }
         return releaseLocked(reservation, "EXPIRED");
     }
 
+    @Transactional
+    public boolean compensate(String reservationId) {
+        var reservation = reservationRepository.findByIdForUpdate(reservationId).orElse(null);
+        return compensateLocked(reservation);
+    }
+
+    @Transactional
+    public boolean compensate(com.example.payment.application.temporal.ReservationWorkflowCommand command) {
+        var reservation = reservationRepository.findByIdForUpdate(command.getReservationId()).orElse(null);
+        if (reservation != null) authorizationFence.closeBeforeAuthorization(reservation, command);
+        return compensateLocked(reservation);
+    }
+
+    private boolean compensateLocked(InventoryReservationRecord reservation) {
+        if (reservation == null || java.util.Set.of("CANCELLED", "CANCELED", "EXPIRED", "RELEASED").contains(reservation.getStatus())) return false;
+        if (!releasePolicy.mayRelease(reservation)) throw new IllegalStateException("Payment verification blocks inventory release");
+        return releaseLocked(reservation, "CANCELLED");
+    }
+
     private boolean releaseLocked(InventoryReservationRecord reservation, String terminalStatus) {
         String reservationId = reservation.getReservationId();
-        resourceReservationService.releaseResource(
-                inventoryKey(reservation.getProductId()), reservation.getQuantity(), reservationId);
-        try {
-            reservation.setStatus(terminalStatus);
-            reservationRepository.saveAndFlush(reservation);
-            Inventory inventory = inventoryRepository.findByIdForUpdate(reservation.getProductId())
-                    .orElseThrow(() -> new IllegalStateException("Inventory not found: " + reservation.getProductId()));
-            inventory.setAvailableQuantity(inventory.getAvailableQuantity() + reservation.getQuantity());
-            inventory.setReservedQuantity(Math.max(0,
-                    inventory.getReservedQuantity() - reservation.getQuantity()));
-            inventoryRepository.saveAndFlush(inventory);
-            return true;
-        } catch (RuntimeException failure) {
-            inventorySyncIssueService.record(reservationId, reservation.getProductId(), reservation.getQuantity(),
-                    "RELEASE_DB_APPLY_REQUIRED", failure);
-            throw failure;
+        boolean wasReserved = "RESERVED".equals(reservation.getStatus());
+        reservation.setStatus(terminalStatus);
+        reservationRepository.saveAndFlush(reservation);
+        Inventory inventory = inventoryRepository.findByIdForUpdate(reservation.getProductId()).orElseThrow();
+        if (wasReserved && inventory.getReservedQuantity() < reservation.getQuantity()) {
+            throw new IllegalStateException("Inventory reserved count mismatch");
         }
+        inventory.setAvailableQuantity(inventory.getAvailableQuantity() + reservation.getQuantity());
+        if (wasReserved) inventory.setReservedQuantity(inventory.getReservedQuantity() - reservation.getQuantity());
+        inventoryRepository.saveAndFlush(inventory);
+        syncIssues.save(com.example.payment.domain.entity.InventorySyncIssue.builder()
+                .issueId("RELEASE-" + java.util.UUID.nameUUIDFromBytes(reservationId.getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                .reservationId(reservationId).productId(reservation.getProductId()).quantity(reservation.getQuantity())
+                .issueType("RELEASE_REDIS_REQUIRED").status("PENDING").attemptCount(0).build());
+        // The durable projection commits with the DB release. Redis is only touched after commit.
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() {
+                    try {
+                        resourceReservationService.releaseResource(inventoryKey(reservation.getProductId()),
+                                reservation.getQuantity(), reservationId);
+                    } catch (RuntimeException failure) {
+                        log.warn("Redis release queued: reservationId={}", reservationId);
+                    }
+                }
+            });
+        }
+        return true;
     }
 
     private void validateExisting(InventoryReservationRecord reservation, String productId,

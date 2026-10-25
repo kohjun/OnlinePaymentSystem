@@ -43,6 +43,10 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
     private final OutboxEventService outboxEventService;
     private final InventorySyncIssueService inventorySyncIssueService;
     private final RefundCoordinator refundCoordinator;
+    private final com.example.payment.application.service.PaymentObservationWriter paymentWriter;
+    private final com.example.payment.application.service.InventoryReleasePolicy releasePolicy;
+    private final com.example.payment.application.service.RefundLedgerWriter refundWriter;
+    private final com.example.payment.application.service.InventoryHoldService holds;
 
     @Override
     @Transactional
@@ -55,7 +59,8 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
                 return ReservationWorkflowStepResult.failure("INVENTORY_HOLD_CONFLICT");
             }
             if ("RESERVED".equals(existing.getStatus())
-                    && !existing.getExpiresAt().isAfter(LocalDateTime.now())) {
+                    && !existing.getExpiresAt().isAfter(LocalDateTime.now())
+                    && (command.getTossIntentId() == null || !command.getTossIntentId().equals(existing.getClaimedIntentId()))) {
                 return ReservationWorkflowStepResult.failure("INVENTORY_HOLD_EXPIRED");
             }
             return ReservationWorkflowStepResult.builder()
@@ -88,11 +93,12 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
                     .quantity(command.getQuantity())
                     .seatId(command.getSeatId())
                     .status("RESERVED")
+                    .authorizationState("NOT_STARTED")
                     .expiresAt(expiresAt)
                     .createdAt(LocalDateTime.now())
                     .build());
 
-            Inventory inventory = inventoryRepository.findById(command.getProductId())
+            Inventory inventory = inventoryRepository.findByIdForUpdate(command.getProductId())
                     .orElseThrow(() -> new IllegalStateException(
                             "Inventory not found: " + command.getProductId()));
             if (inventory.getAvailableQuantity() < command.getQuantity()) {
@@ -127,8 +133,14 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
     @Override
     @Transactional
     public ReservationWorkflowStepResult createOrder(ReservationWorkflowCommand command) {
+        var hold = reservationRepository.findByIdForUpdate(command.getReservationId()).orElseThrow();
+        if (!java.util.Set.of("RESERVED", "CONFIRMED").contains(hold.getStatus())
+                || "CLOSED_WITHOUT_AUTHORIZATION".equals(hold.getAuthorizationState())) {
+            return ReservationWorkflowStepResult.failure("Inventory hold is no longer available for order creation");
+        }
         OrderRecord existing = orderRepository.findById(command.getOrderId()).orElse(null);
         if (existing != null) {
+            if ("CANCELLED".equals(existing.getStatus())) return ReservationWorkflowStepResult.failure("Order already cancelled");
             return ReservationWorkflowStepResult.builder()
                     .success(true)
                     .orderId(existing.getOrderId())
@@ -137,6 +149,7 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
                     .build();
         }
 
+        if (!"RESERVED".equals(hold.getStatus())) return ReservationWorkflowStepResult.failure("Inventory is already confirmed");
         OrderRecord order = orderRepository.save(OrderRecord.builder()
                 .orderId(command.getOrderId())
                 .customerId(command.getCustomerId())
@@ -171,88 +184,37 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
 
     @Override
     public ReservationWorkflowStepResult processPayment(ReservationWorkflowCommand command) {
-        PaymentRecord existing = paymentRepository.findById(command.getPaymentId()).orElse(null);
-        if (existing != null && isApprovedPayment(existing.getStatus())) {
-            ensurePaymentSideEffects(command, existing);
-            return paymentResult(existing, true, "payment already completed");
-        }
-        if (existing != null && "FAILED".equals(existing.getStatus())) {
-            return paymentResult(existing, false, "payment already failed: " + existing.getFailureReason());
-        }
-        if (existing != null && ("PROCESSING".equals(existing.getStatus()) || "UNKNOWN".equals(existing.getStatus()))) {
-            log.warn("Payment status is {}, verifying provider status before retry: paymentId={}",
-                    existing.getStatus(), command.getPaymentId());
+        var claim = paymentWriter.begin(command);
+        if (!claim.authorize()) {
+            if (isApprovedPayment(claim.payment().getStatus()) || "FAILED".equals(claim.payment().getStatus())) {
+                return paymentResult(claim.payment(), isApprovedPayment(claim.payment().getStatus()), "existing payment");
+            }
             return verifyPaymentStatus(command);
         }
-
-        PaymentRecord payment = existing != null ? existing : paymentRepository.save(PaymentRecord.builder()
-                .paymentId(command.getPaymentId())
-                .orderId(command.getOrderId())
-                .reservationId(command.getReservationId())
-                .customerId(command.getCustomerId())
-                .amount(command.getAmount())
-                .currency(command.getCurrency())
-                .method(command.getPaymentMethod())
-                .status("PROCESSING")
-                .createdAt(LocalDateTime.now())
-                .build());
-
-        PaymentGatewayResult gatewayResult;
+        PaymentGatewayResult observation;
         try {
-            PaymentGatewayService gateway = paymentGatewayFactory.getGateway(command.getPaymentMethod());
-            gatewayResult = gateway.authorize(PaymentGatewayRequest.builder()
-                .paymentId(command.getPaymentId())
-                .idempotencyKey(command.getPaymentId())
-                .customerId(command.getCustomerId())
-                .amount(command.getAmount())
-                .currency(command.getCurrency())
-                .method(command.getPaymentMethod())
-                .tossPaymentKey(command.getTossPaymentKey())
-                .tossOrderId(command.getTossOrderId())
-                .tossIntentId(command.getTossIntentId())
-                .orderName("온라인 상품 결제")
-                .build());
-        } catch (IllegalArgumentException e) {
-            payment.setStatus("FAILED");
-            payment.setFailureReason(e.getMessage());
-            payment.setProcessedAt(LocalDateTime.now());
-            paymentRepository.save(payment);
-            return paymentResult(payment, false, e.getMessage());
-        } catch (Exception e) {
-            payment.setStatus("UNKNOWN");
-            payment.setFailureReason("PG result unknown: " + e.getMessage());
-            payment.setProcessedAt(LocalDateTime.now());
-            paymentRepository.save(payment);
-            return paymentResult(payment, false, "PG result unknown; provider status verification required");
+            observation = paymentGatewayFactory.getGateway(command.getPaymentMethod()).authorize(PaymentGatewayRequest.builder()
+                    .paymentId(command.getPaymentId()).idempotencyKey(command.getPaymentId())
+                    .customerId(command.getCustomerId()).amount(command.getAmount()).currency(command.getCurrency())
+                    .method(command.getPaymentMethod()).tossPaymentKey(command.getTossPaymentKey())
+                    .tossOrderId(command.getTossOrderId()).tossIntentId(command.getTossIntentId())
+                    .orderName("EverySale").build());
+        } catch (Exception failure) {
+            observation = PaymentGatewayResult.unknown("Provider authorization result unavailable");
         }
-
-        if (gatewayResult.isSuccess()) {
-            payment.setStatus("APPROVED");
-            payment.setTransactionId(gatewayResult.getTransactionId());
-            payment.setApprovalNumber(gatewayResult.getApprovalNumber());
-            payment.setGatewayName(gatewayResult.getGatewayName());
-            payment.setProcessedAt(LocalDateTime.now());
-            payment.setFailureReason(null);
-            paymentRepository.save(payment);
-
-            ensurePaymentSideEffects(command, payment);
-            return paymentResult(payment, true, "payment completed");
+        // Persistence errors must escape to Temporal; they are not evidence of provider rejection.
+        PaymentRecord payment = paymentWriter.apply(command, observation);
+        if (observation != null && (observation.observation() == PaymentGatewayResult.Observation.REFUNDED
+                || observation.observation() == PaymentGatewayResult.Observation.PARTIALLY_REFUNDED)) {
+            payment = refundWriter.observe(command.getPaymentId(), observation, null, false).payment();
         }
-
-        payment.setStatus("FAILED");
-        payment.setFailureReason(gatewayResult.getErrorMessage());
-        payment.setProcessedAt(LocalDateTime.now());
-        paymentRepository.save(payment);
-
-        outboxEventService.record("PAYMENT", command.getPaymentId(), "PAYMENT_FAILED",
-                "payment-events", command.getProductId(), payload(command, "PAYMENT_FAILED"));
-        return paymentResult(payment, false, "결제 실패: " + gatewayResult.getErrorMessage());
+        return paymentResult(payment, isApprovedPayment(payment.getStatus()), payment.getFailureReason());
     }
 
     @Override
     @Transactional
     public ReservationWorkflowStepResult confirmInventory(ReservationWorkflowCommand command) {
-        InventoryReservationRecord reservation = reservationRepository.findById(command.getReservationId()).orElse(null);
+        InventoryReservationRecord reservation = reservationRepository.findByIdForUpdate(command.getReservationId()).orElse(null);
         if (reservation == null) {
             return ReservationWorkflowStepResult.failure("예약 정보를 찾을 수 없어 확정 실패");
         }
@@ -276,7 +238,7 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
             reservation.setPaymentId(command.getPaymentId());
             reservationRepository.saveAndFlush(reservation);
 
-            Inventory inventory = inventoryRepository.findById(command.getProductId())
+            Inventory inventory = inventoryRepository.findByIdForUpdate(command.getProductId())
                     .orElseThrow(() -> new IllegalStateException(
                             "Inventory not found: " + command.getProductId()));
             inventory.setReservedQuantity(Math.max(0, inventory.getReservedQuantity() - command.getQuantity()));
@@ -314,39 +276,10 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
     @Override
     @Transactional
     public void cancelReservation(ReservationWorkflowCommand command, String reason) {
-        InventoryReservationRecord reservation = reservationRepository.findById(command.getReservationId()).orElse(null);
-        if (reservation == null || "CANCELLED".equals(reservation.getStatus())) {
-            return;
-        }
+        if (!holds.compensate(command)) return;
 
-        String previousStatus = reservation.getStatus();
-        boolean released = resourceReservationService.releaseResource(
-                inventoryKey(command),
-                command.getQuantity(),
-                command.getReservationId()
-        );
-
-        if (!released) {
-            log.warn("Redis reservation release failed: reservationId={}", command.getReservationId());
-            throw new IllegalStateException("Redis reservation release failed: " + command.getReservationId());
-        }
-
-        try {
-            reservation.setStatus("CANCELLED");
-            reservationRepository.saveAndFlush(reservation);
-
-            Inventory inventory = inventoryRepository.findById(command.getProductId())
-                    .orElseThrow(() -> new IllegalStateException(
-                            "Inventory not found: " + command.getProductId()));
-            inventory.setAvailableQuantity(inventory.getAvailableQuantity() + command.getQuantity());
-            if ("RESERVED".equals(previousStatus)) {
-                inventory.setReservedQuantity(Math.max(0, inventory.getReservedQuantity() - command.getQuantity()));
-            }
-            inventoryRepository.saveAndFlush(inventory);
-        } catch (RuntimeException databaseFailure) {
-            recordInventoryIssue(command, "RELEASE_DB_APPLY_REQUIRED", databaseFailure);
-            throw databaseFailure;
-        }
+        // A late createOrder retry may have committed between the two compensation activities.
+        cancelOrderLocked(command, reason);
 
         outboxEventService.record("RESERVATION", command.getReservationId(), "RESERVATION_CANCELLED",
                 "reservation-events", command.getProductId(), payload(command, "RESERVATION_CANCELLED", reason));
@@ -355,6 +288,11 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
     @Override
     @Transactional
     public void cancelOrder(ReservationWorkflowCommand command, String reason) {
+        reservationRepository.findByIdForUpdate(command.getReservationId());
+        cancelOrderLocked(command, reason);
+    }
+
+    private void cancelOrderLocked(ReservationWorkflowCommand command, String reason) {
         orderRepository.findById(command.getOrderId()).ifPresent(order -> {
             if (!"CANCELLED".equals(order.getStatus())) {
                 order.setStatus("CANCELLED");
@@ -456,75 +394,24 @@ public class CompleteReservationActivitiesImpl implements CompleteReservationAct
         return "APPROVED".equals(status) || "COMPLETED".equals(status);
     }
 
-    @Transactional
-    protected void ensurePaymentSideEffects(ReservationWorkflowCommand command, PaymentRecord payment) {
-        reservationRepository.findById(command.getReservationId()).ifPresent(reservation -> {
-            if (reservation.getPaymentId() == null) {
-                reservation.setPaymentId(command.getPaymentId());
-                reservationRepository.save(reservation);
-            }
-        });
-
-        outboxEventService.record("PAYMENT", command.getPaymentId(), "PAYMENT_PROCESSED",
-                "payment-events", command.getProductId(), payload(command, "PAYMENT_PROCESSED"));
-    }
-
     @Override
     public ReservationWorkflowStepResult verifyPaymentStatus(ReservationWorkflowCommand command) {
-        log.info("Verifying payment status: paymentId={}", command.getPaymentId());
-        PaymentRecord payment = paymentRepository.findById(command.getPaymentId()).orElse(null);
+        paymentWriter.begin(command);
+        PaymentGatewayResult observation;
         try {
             PaymentGatewayService gateway = paymentGatewayFactory.getGateway(command.getPaymentMethod());
-            PaymentGatewayResult gatewayResult = command.getTossPaymentKey() != null && !command.getTossPaymentKey().isBlank()
+            observation = command.getTossPaymentKey() != null && !command.getTossPaymentKey().isBlank()
                     ? gateway.getPaymentStatus(command.getTossPaymentKey())
-                    : gateway.getPaymentStatusByPaymentId(command.getTossOrderId() != null ? command.getTossOrderId() : command.getPaymentId());
-            
-            if (gatewayResult.isSuccess()) {
-                log.info("Payment was verified as APPROVED on gateway: paymentId={}, transactionId={}",
-                        command.getPaymentId(), gatewayResult.getTransactionId());
-                PaymentRecord verified = payment != null ? payment : paymentRepository.save(PaymentRecord.builder()
-                        .paymentId(command.getPaymentId())
-                        .orderId(command.getOrderId())
-                        .reservationId(command.getReservationId())
-                        .customerId(command.getCustomerId())
-                        .amount(command.getAmount())
-                        .currency(command.getCurrency())
-                        .method(command.getPaymentMethod())
-                        .status("PROCESSING")
-                        .createdAt(LocalDateTime.now())
-                        .build());
-                verified.setStatus("APPROVED");
-                verified.setTransactionId(gatewayResult.getTransactionId());
-                verified.setApprovalNumber(gatewayResult.getApprovalNumber());
-                verified.setGatewayName(gatewayResult.getGatewayName());
-                verified.setProcessedAt(LocalDateTime.now());
-                verified.setFailureReason(null);
-                paymentRepository.save(verified);
-                ensurePaymentSideEffects(command, verified);
-                return paymentResult(verified, true, "verified as approved");
-            } else {
-                log.info("Payment was verified as NOT_APPROVED on gateway: paymentId={}, code={}",
-                        command.getPaymentId(), gatewayResult.getErrorCode());
-                if (payment != null) {
-                    payment.setStatus("UNKNOWN");
-                    payment.setFailureReason("Provider status not approved: " + gatewayResult.getErrorMessage());
-                    payment.setProcessedAt(LocalDateTime.now());
-                    paymentRepository.save(payment);
-                    return paymentResult(payment, false, "provider status not approved: " + gatewayResult.getErrorMessage());
-                }
-                return ReservationWorkflowStepResult.failure("결제 승인 이력 없음: " + gatewayResult.getErrorMessage());
-            }
-        } catch (Exception e) {
-            log.error("Error verifying payment status for paymentId={}", command.getPaymentId(), e);
-            if (payment != null) {
-                payment.setStatus("UNKNOWN");
-                payment.setFailureReason("Provider status verification failed: " + e.getMessage());
-                payment.setProcessedAt(LocalDateTime.now());
-                paymentRepository.save(payment);
-                return paymentResult(payment, false, "provider status verification failed: " + e.getMessage());
-            }
-            return ReservationWorkflowStepResult.failure("결제 상태 확인 실패: " + e.getMessage());
+                    : gateway.getPaymentStatusByPaymentId(command.getTossOrderId() != null ? command.getTossOrderId() : command.getOrderId());
+        } catch (Exception failure) {
+            observation = PaymentGatewayResult.unknown("Provider status lookup unavailable");
         }
+        PaymentRecord payment = paymentWriter.apply(command, observation);
+        if (observation != null && (observation.observation() == PaymentGatewayResult.Observation.REFUNDED
+                || observation.observation() == PaymentGatewayResult.Observation.PARTIALLY_REFUNDED)) {
+            payment = refundWriter.observe(command.getPaymentId(), observation, null, false).payment();
+        }
+        return paymentResult(payment, isApprovedPayment(payment.getStatus()), payment.getFailureReason());
     }
 
     private Map<String, Object> payload(ReservationWorkflowCommand command, String eventType) {

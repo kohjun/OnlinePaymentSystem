@@ -16,6 +16,8 @@ import java.util.Optional;
 
 @Repository
 public interface SellerPayoutRepository extends JpaRepository<SellerPayout, String> {
+    @Query("select p.sourceId from SellerPayout p where p.payoutId = :id and p.sourceType = 'MARKETPLACE_ORDER'")
+    Optional<String> findMarketplaceOrderId(@Param("id") String id);
     List<SellerPayout> findBySellerIdAndStatusOrderByCreatedAtDesc(String sellerId, SellerPayoutStatus status);
 
     List<SellerPayout> findBySellerIdOrderByCreatedAtDesc(String sellerId);
@@ -33,6 +35,10 @@ public interface SellerPayoutRepository extends JpaRepository<SellerPayout, Stri
             @Param("sellerId") String sellerId);
 
     Optional<SellerPayout> findBySourceTypeAndSourceId(String sourceType, String sourceId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from SellerPayout p where p.sourceType = :sourceType and p.sourceId = :sourceId")
+    Optional<SellerPayout> findBySourceForUpdate(@Param("sourceType") String sourceType, @Param("sourceId") String sourceId);
 
     boolean existsBySourceTypeAndSourceId(String sourceType, String sourceId);
 

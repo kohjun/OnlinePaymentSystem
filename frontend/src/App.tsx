@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Check, ChevronLeft, ChevronRight, Heart, LogIn, LogOut, Loader2, MapPin, Maximize2, Minus, PackageCheck, Plus, Search, ShieldCheck, ShoppingBag, Store, Trash2, UserRound, X } from 'lucide-react';
-import { api, authToken } from './api';
+import { AlertCircle, Bell, Check, CheckCheck, ChevronLeft, ChevronRight, Heart, LogIn, LogOut, Loader2, MapPin, Maximize2, Minus, PackageCheck, Plus, Search, ShieldCheck, ShoppingBag, Store, Trash2, UserRound, X } from 'lucide-react';
+import { ApiError, api, authToken, completeOidcCallbackIfPresent } from './api';
 import { EventCard, formatMoney } from './EventCard';
 import { EventDetail } from './EventDetail';
 import { SellerCenter } from './SellerCenter';
 import { AdminOperations } from './AdminOperations';
 import { AuthPanel } from './AuthPanel';
-import type { Identity, MarketplaceEvent, MarketplaceOrder, Page, SaleType, ShippingAddress, WishlistItem } from './types';
+import { CheckoutRecovery } from './CheckoutRecovery';
+import { cancellationLabel } from './cancellationStatus';
+import type { Identity, MarketplaceEvent, MarketplaceNotification, MarketplaceOrder, NotificationInbox, Page, SaleType, ShippingAddress, WishlistItem } from './types';
 
 const filters: Array<{ value: '' | SaleType; label: string }> = [
   { value: '', label: '전체' }, { value: 'FIXED_PRICE', label: '일반 판매' }, { value: 'DROP', label: '한정 수량' },
@@ -15,6 +17,7 @@ const filters: Array<{ value: '' | SaleType; label: string }> = [
 
 export function App() {
   const [identity, setIdentity] = useState<Identity>();
+  const [identityLoaded, setIdentityLoaded] = useState(false);
   const [events, setEvents] = useState<Page<MarketplaceEvent>>();
   const [selected, setSelected] = useState<MarketplaceEvent>();
   const [saleType, setSaleType] = useState<'' | SaleType>('');
@@ -29,6 +32,8 @@ export function App() {
   const [adminOpen, setAdminOpen] = useState(false);
   const [wishlist, setWishlist] = useState<WishlistItem[]>();
   const [wishlistOpen, setWishlistOpen] = useState(false);
+  const [notificationInbox, setNotificationInbox] = useState<NotificationInbox>();
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [signedIn, setSignedIn] = useState(() => Boolean(authToken.get()));
   const [notice, setNotice] = useState<{ message: string; tone: 'success' | 'error' | 'info' }>();
@@ -43,7 +48,15 @@ export function App() {
     void api.listWishlist().then(setWishlist).catch(() => setWishlist([]));
   }, []);
 
+  const refreshNotifications = useCallback(() => {
+    void api.notificationInbox().then(setNotificationInbox).catch(() => undefined);
+  }, []);
+
   const toggleWishlist = useCallback((saleEventId: string, wishlisted: boolean) => {
+    if (!identity) {
+      requireAuthentication();
+      return;
+    }
     const action = wishlisted
       ? api.removeFromWishlist(saleEventId)
       : api.addToWishlist(saleEventId);
@@ -53,32 +66,33 @@ export function App() {
         notify(wishlisted ? '찜을 해제했습니다.' : '찜 목록에 담았습니다.', 'success');
       })
       .catch(error => notify(error.message, 'error'));
+  }, [identity, notify, refreshWishlist]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const oidcCompleted = await completeOidcCallbackIfPresent();
+        if (oidcCompleted) setSignedIn(true);
+        const currentIdentity = await api.me();
+        setIdentity(currentIdentity);
+        refreshWishlist();
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 401) {
+          notify(error instanceof Error ? error.message : '로그인 상태를 확인하지 못했습니다.', 'error');
+        }
+        setIdentity(undefined);
+      } finally {
+        setIdentityLoaded(true);
+      }
+    })();
   }, [notify, refreshWishlist]);
 
   useEffect(() => {
-    void api.me().then(setIdentity).catch(error => notify(error.message, 'error'));
-    refreshWishlist();
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('tossResult') === 'success') {
-      const intentId = params.get('intentId');
-      const paymentKey = params.get('paymentKey');
-      const orderId = params.get('orderId');
-      const amount = Number(params.get('amount'));
-      if (intentId && paymentKey && orderId && Number.isFinite(amount)) {
-        void api.confirmToss({ intentId, paymentKey, orderId, amount })
-          .then(result => notify(result.status === 'SUCCESS' ? '결제가 완료되었습니다.' : '결제 승인 결과를 확인 중입니다.', result.status === 'SUCCESS' ? 'success' : 'info'))
-          .catch(error => notify(error.message, 'error'));
-      }
-      window.history.replaceState({}, '', '/app/');
-    } else if (params.get('tossResult') === 'fail') {
-      const intentId = params.get('intentId');
-      if (intentId) {
-        void api.cancelToss(intentId).catch(error => notify(error.message, 'error'));
-      }
-      notify(params.get('message') ?? '결제가 취소되었거나 승인되지 않았습니다.', 'error');
-      window.history.replaceState({}, '', '/app/');
-    }
-  }, [notify, refreshWishlist]);
+    if (!identity) return;
+    refreshNotifications();
+    const timer = window.setInterval(refreshNotifications, 30_000);
+    return () => window.clearInterval(timer);
+  }, [identity, refreshNotifications]);
 
   useEffect(() => {
     setLoading(true);
@@ -93,12 +107,13 @@ export function App() {
   const wishlistedIds = useMemo(() => new Set((wishlist ?? []).map(item => item.saleEventId)), [wishlist]);
 
   async function openOrders() {
-    if (!identity) return;
+    if (!identity) return requireAuthentication();
     setSelected(undefined);
     setAddressBookOpen(false);
     setSellerCenterOpen(false);
     setAdminOpen(false);
     setWishlistOpen(false);
+    setNotificationsOpen(false);
     setAuthOpen(false);
     setLoading(true);
     try { setOrders(await api.orders(identity.customerId)); } catch (error) { notify((error as Error).message, 'error'); }
@@ -106,31 +121,37 @@ export function App() {
   }
 
   function openAddressBook() {
+    if (!identity) return requireAuthentication();
     setSelected(undefined);
     setOrders(undefined);
     setSellerCenterOpen(false);
     setAdminOpen(false);
     setWishlistOpen(false);
+    setNotificationsOpen(false);
     setAuthOpen(false);
     setAddressBookOpen(true);
   }
 
   function openSellerCenter() {
+    if (!identity) return requireAuthentication();
     setSelected(undefined);
     setOrders(undefined);
     setAddressBookOpen(false);
     setAdminOpen(false);
     setWishlistOpen(false);
+    setNotificationsOpen(false);
     setAuthOpen(false);
     setSellerCenterOpen(true);
   }
 
   function openAdmin() {
+    if (!identity) return requireAuthentication();
     setSelected(undefined);
     setOrders(undefined);
     setAddressBookOpen(false);
     setSellerCenterOpen(false);
     setWishlistOpen(false);
+    setNotificationsOpen(false);
     setAuthOpen(false);
     setAdminOpen(true);
   }
@@ -142,6 +163,7 @@ export function App() {
     setSellerCenterOpen(false);
     setAdminOpen(false);
     setWishlistOpen(false);
+    setNotificationsOpen(false);
     setAuthOpen(true);
   }
 
@@ -150,18 +172,34 @@ export function App() {
     setSignedIn(false);
     // 신원과 찜 목록을 다시 읽는다. 로그아웃하면 로컬 목 인증 기본 계정으로
     // 돌아가므로 화면에 남아 있던 이전 계정 데이터를 그대로 두면 안 된다.
-    void api.me().then(setIdentity).catch(() => undefined);
-    refreshWishlist();
+    setOrders(undefined);
+    setAddressBookOpen(false);
+    setSellerCenterOpen(false);
+    setAdminOpen(false);
+    setWishlistOpen(false);
+    setNotificationsOpen(false);
+    void api.me().then(setIdentity).catch(() => setIdentity(undefined));
+    setWishlist([]);
+    setNotificationInbox(undefined);
     notify('로그아웃했습니다.', 'info');
   }
 
   function afterAuthenticated() {
     setSignedIn(true);
-    void api.me().then(setIdentity).catch(error => notify(error.message, 'error'));
-    refreshWishlist();
+    void api.me()
+      .then(currentIdentity => {
+        setIdentity(currentIdentity);
+        refreshWishlist();
+      })
+      .catch(error => {
+        if (!(error instanceof ApiError) || error.status !== 401) notify(error.message, 'error');
+        setIdentity(undefined);
+      })
+      .finally(() => setIdentityLoaded(true));
   }
 
   function openWishlist() {
+    if (!identity) return requireAuthentication();
     setSelected(undefined);
     setOrders(undefined);
     setAddressBookOpen(false);
@@ -169,10 +207,39 @@ export function App() {
     setAdminOpen(false);
     setAuthOpen(false);
     setWishlistOpen(true);
+    setNotificationsOpen(false);
     refreshWishlist();
   }
 
-  if (!identity) return <div className="boot-screen"><Loader2 className="spin" /><strong>에브리세일 마켓을 준비하고 있습니다</strong></div>;
+  function openNotifications() {
+    if (!identity) return requireAuthentication();
+    setSelected(undefined);
+    setOrders(undefined);
+    setAddressBookOpen(false);
+    setSellerCenterOpen(false);
+    setAdminOpen(false);
+    setWishlistOpen(false);
+    setAuthOpen(false);
+    setNotificationsOpen(true);
+    refreshNotifications();
+  }
+
+  function requireAuthentication() {
+    openAuth();
+    notify('계속하려면 로그인해 주세요.', 'info');
+  }
+
+  async function openNotification(notification: MarketplaceNotification) {
+    if (!notification.read) {
+      await api.markNotificationRead(notification.notificationId);
+      refreshNotifications();
+    }
+    if (notification.aggregateType === 'MARKETPLACE_ORDER') {
+      await openOrders();
+    }
+  }
+
+  if (!identityLoaded) return <div className="boot-screen"><Loader2 className="spin" /><strong>에브리세일 마켓을 준비하고 있습니다</strong></div>;
 
   return <div className="app-shell">
     {window.electronAPI && <div className="electron-titlebar">
@@ -184,30 +251,37 @@ export function App() {
       </div>
     </div>}
     <header className="topbar">
-      <button className="brand" type="button" onClick={() => { setSelected(undefined); setOrders(undefined); setAddressBookOpen(false); setSellerCenterOpen(false); setAdminOpen(false); setWishlistOpen(false); setAuthOpen(false); }}><span>EVERYSALE</span><strong>에브리세일</strong></button>
+      <button className="brand" type="button" onClick={() => { setSelected(undefined); setOrders(undefined); setAddressBookOpen(false); setSellerCenterOpen(false); setAdminOpen(false); setWishlistOpen(false); setNotificationsOpen(false); setAuthOpen(false); }}><span>EVERYSALE</span><strong>에브리세일</strong></button>
       <form className="search-box" onSubmit={event => { event.preventDefault(); setPage(0); setKeyword(searchValue.trim()); }} role="search">
         <Search size={18} /><input value={searchValue} onChange={event => setSearchValue(event.target.value)} placeholder="상품, 브랜드, 판매자 검색" aria-label="마켓 검색" />
         {searchValue && <button type="button" onClick={() => { setSearchValue(''); setKeyword(''); }} title="검색어 지우기"><X size={16} /></button>}
       </form>
       <nav aria-label="사용자 메뉴">
-        {identity.roles.includes('ADMIN') && <button type="button" onClick={openAdmin}><ShieldCheck />운영 관리</button>}
-        <button type="button" onClick={openSellerCenter}><Store />상품 판매</button>
-        <button type="button" onClick={openAddressBook}><MapPin />배송지</button>
-        <button type="button" onClick={openWishlist}><Heart />찜 목록</button>
-        <button type="button" onClick={() => void openOrders()}><ShoppingBag />구매 내역</button>
-        <span className="account-chip"><UserRound />{displayName}</span>
+        {identity?.roles.includes('ADMIN') && <button type="button" title="운영 관리" onClick={openAdmin}><ShieldCheck />운영 관리</button>}
+        <button type="button" title="상품 판매" onClick={openSellerCenter}><Store />상품 판매</button>
+        <button type="button" title="배송지" onClick={openAddressBook}><MapPin />배송지</button>
+        <button type="button" title="찜 목록" onClick={openWishlist}><Heart />찜 목록</button>
+        <button type="button" title="구매 내역" onClick={() => void openOrders()}><ShoppingBag />구매 내역</button>
+        <button className="notification-trigger" type="button" onClick={openNotifications} title="거래 알림" aria-label={`거래 알림 ${notificationInbox?.unreadCount ?? 0}개`}>
+          <Bell />{Boolean(notificationInbox?.unreadCount) && <span>{Math.min(notificationInbox!.unreadCount, 99)}</span>}
+        </button>
+        <span className="account-chip"><UserRound />{identity ? displayName : '방문자'}</span>
         {signedIn
-          ? <button type="button" onClick={signOut}><LogOut />로그아웃</button>
-          : <button type="button" onClick={openAuth}><LogIn />로그인</button>}
+          ? <button type="button" title="로그아웃" onClick={signOut}><LogOut />로그아웃</button>
+          : <button type="button" title="로그인" onClick={openAuth}><LogIn />로그인</button>}
       </nav>
     </header>
 
     <main>
-      {selected ? <EventDetail event={selected} identity={identity} onClose={() => setSelected(undefined)} notify={notify} />
+      {identity && <CheckoutRecovery key={identity.customerId} customerId={identity.customerId} />}
+      {selected ? <EventDetail event={selected} identity={identity} onClose={() => setSelected(undefined)} onRequireAuthentication={openAuth} notify={notify} />
         : adminOpen ? <AdminOperations close={() => setAdminOpen(false)} notify={notify} />
-          : sellerCenterOpen ? <SellerCenter identity={identity} close={() => setSellerCenterOpen(false)} notify={notify} onIdentityChange={setIdentity} />
+          : sellerCenterOpen && identity ? <SellerCenter identity={identity} close={() => setSellerCenterOpen(false)} notify={notify} onIdentityChange={setIdentity} />
           : addressBookOpen ? <AddressBook close={() => setAddressBookOpen(false)} notify={notify} />
           : authOpen ? <AuthPanel close={() => setAuthOpen(false)} notify={notify} onAuthenticated={afterAuthenticated} />
+          : notificationsOpen ? <Notifications inbox={notificationInbox} close={() => setNotificationsOpen(false)}
+              openNotification={notification => void openNotification(notification)}
+              markAll={async () => { await api.markAllNotificationsRead(); refreshNotifications(); }} />
           : wishlistOpen ? <Wishlist items={wishlist} close={() => setWishlistOpen(false)}
               onOpen={event => { setWishlistOpen(false); setSelected(event); }}
               onRemove={saleEventId => toggleWishlist(saleEventId, true)} />
@@ -244,6 +318,37 @@ export function App() {
   </div>;
 }
 
+export function Notifications({ inbox, close, openNotification, markAll }: {
+  inbox?: NotificationInbox;
+  close: () => void;
+  openNotification: (notification: MarketplaceNotification) => void;
+  markAll: () => Promise<void>;
+}) {
+  return <section className="notifications-view" aria-labelledby="notifications-title">
+    <header>
+      <button className="icon-button" onClick={close} title="마켓으로"><ChevronLeft /></button>
+      <div><h1 id="notifications-title">거래 알림</h1><p>주문, 배송, 정산과 분쟁 진행 상태를 확인합니다.</p></div>
+      <button className="secondary-button" type="button" onClick={() => void markAll()} disabled={!inbox?.unreadCount}>
+        <CheckCheck />전체 읽음
+      </button>
+    </header>
+    {!inbox ? <div className="content-state"><Loader2 className="spin" />알림을 불러오는 중입니다</div>
+      : inbox.notifications.length === 0 ? <div className="content-state"><Bell />새로운 거래 알림이 없습니다</div>
+        : <div className="notification-list">{inbox.notifications.map(notification =>
+          <article key={notification.notificationId} className={notification.read ? '' : 'notification-list__unread'}>
+            <button type="button" onClick={() => openNotification(notification)}>
+              <span className="notification-list__icon"><Bell /></span>
+              <span className="notification-list__content">
+                <span>{notification.notificationType.replaceAll('_', ' ')}</span>
+                <strong>{notification.title}</strong>
+                <small>{notification.message}</small>
+              </span>
+              <time dateTime={notification.createdAt}>{new Date(notification.createdAt).toLocaleString('ko-KR')}</time>
+            </button>
+          </article>)}</div>}
+  </section>;
+}
+
 function Orders({ orders, close, notify, refresh }: { orders: MarketplaceOrder[]; close: () => void; notify: (message: string, tone?: 'success' | 'error' | 'info') => void; refresh: () => Promise<void> }) {
   const [action, setAction] = useState<{ orderId: string; type: 'cancel' | 'dispute' | 'review' }>();
   const [reason, setReason] = useState('');
@@ -260,7 +365,7 @@ function Orders({ orders, close, notify, refresh }: { orders: MarketplaceOrder[]
       if (action.type === 'cancel') await api.cancelOrder(action.orderId, reason);
       else if (action.type === 'dispute') await api.openDispute(action.orderId, reason);
       else await api.reviewSeller(action.orderId, rating, reason);
-      notify(action.type === 'cancel' ? '주문 취소 및 환불 요청이 처리되었습니다.'
+      notify(action.type === 'cancel' ? '취소 요청을 접수했습니다. 주문에서 환불 상태를 확인해 주세요.'
         : action.type === 'dispute' ? '분쟁 조정 요청이 접수되었습니다.' : '판매자 후기가 등록되었습니다.', 'success');
       setAction(undefined); setReason(''); await refresh();
     } catch (error) { notify((error as Error).message, 'error'); }
@@ -272,10 +377,10 @@ function Orders({ orders, close, notify, refresh }: { orders: MarketplaceOrder[]
       : <div className="orders-table" role="table">{orders.map(order => <article key={order.marketplaceOrderId} role="row">
         <div><span>{new Date(order.createdAt).toLocaleDateString('ko-KR')}</span><strong>{order.title ?? order.marketplaceOrderId}</strong></div>
         <div><span>결제</span><strong>{order.status}</strong>{order.seatId && <small className="ticket-order-seat">{order.seatId}</small>}</div>
-        <div><span>{order.seatId ? '티켓' : '배송'}</span><strong>{order.seatId ? '발급 완료' : order.fulfillmentStatus}</strong></div>
+        <div><span>{order.cancellationStatus ? '취소' : order.seatId ? '티켓' : '배송'}</span><strong>{order.cancellationStatus ? cancellationLabel(order.cancellationStatus) : order.seatId && order.status === 'PAID' ? '발급 완료' : order.fulfillmentStatus}</strong></div>
         <div className="order-price"><strong>{formatMoney(order.amount)}</strong><div className="order-buttons">
-          {(order.fulfillmentStatus === 'SHIPPED' || order.fulfillmentStatus === 'DELIVERED') && !order.buyerConfirmedAt && <button onClick={() => void confirm(order.marketplaceOrderId)}>구매 확정</button>}
-          {order.status === 'PAID' && (order.fulfillmentStatus === 'READY_TO_FULFILL' || order.fulfillmentStatus === 'PROCESSING') && <button onClick={() => setAction({ orderId: order.marketplaceOrderId, type: 'cancel' })}>주문 취소</button>}
+          {order.status === 'PAID' && !order.cancellationStatus && (order.fulfillmentStatus === 'SHIPPED' || order.fulfillmentStatus === 'DELIVERED') && !order.buyerConfirmedAt && <button onClick={() => void confirm(order.marketplaceOrderId)}>구매 확정</button>}
+          {order.status === 'PAID' && !order.cancellationStatus && (order.fulfillmentStatus === 'READY_TO_FULFILL' || order.fulfillmentStatus === 'PROCESSING') && <button onClick={() => setAction({ orderId: order.marketplaceOrderId, type: 'cancel' })}>주문 취소</button>}
           {!order.disputedAt && <button onClick={() => setAction({ orderId: order.marketplaceOrderId, type: 'dispute' })}>분쟁 요청</button>}
           {order.buyerConfirmedAt && <button onClick={() => setAction({ orderId: order.marketplaceOrderId, type: 'review' })}>후기</button>}
         </div></div>

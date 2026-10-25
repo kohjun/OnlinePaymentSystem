@@ -10,6 +10,8 @@ import java.util.List;
 import java.util.Optional;
 
 public interface SellerPayoutTransferRepository extends JpaRepository<SellerPayoutTransfer, String> {
+    @org.springframework.data.jpa.repository.Query("select t.payoutId from SellerPayoutTransfer t where t.transferId = :id")
+    Optional<String> findPayoutId(@org.springframework.data.repository.query.Param("id") String id);
     Optional<SellerPayoutTransfer> findByPayoutIdAndIdempotencyKey(String payoutId, String idempotencyKey);
 
     List<SellerPayoutTransfer> findByStatusInAndUpdatedAtBeforeOrderByUpdatedAtAsc(

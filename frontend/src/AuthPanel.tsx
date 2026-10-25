@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { ChevronLeft, Loader2, LogIn, UserPlus } from 'lucide-react';
-import { api, authToken } from './api';
+import { useEffect, useState } from 'react';
+import { ChevronLeft, Loader2, LogIn, ShieldCheck, UserPlus } from 'lucide-react';
+import { api, authToken, prepareOidcAuthorizationUrl } from './api';
+import type { AuthRuntimeConfig } from './types';
 
 /**
  * 로그인 / 회원가입.
@@ -19,8 +20,29 @@ export function AuthPanel({ close, notify, onAuthenticated }: {
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [runtime, setRuntime] = useState<AuthRuntimeConfig>();
+  const [configError, setConfigError] = useState<string>();
 
   const signingUp = mode === 'signup';
+
+  useEffect(() => {
+    let active = true;
+    void api.authConfig()
+      .then(config => { if (active) setRuntime(config); })
+      .catch(error => { if (active) setConfigError(error instanceof Error ? error.message : '로그인 설정을 불러오지 못했습니다.'); });
+    return () => { active = false; };
+  }, []);
+
+  async function beginExternalLogin() {
+    if (!runtime) return;
+    setBusy(true);
+    try {
+      window.location.assign(await prepareOidcAuthorizationUrl(runtime));
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '외부 로그인을 시작하지 못했습니다.', 'error');
+      setBusy(false);
+    }
+  }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -39,6 +61,32 @@ export function AuthPanel({ close, notify, onAuthenticated }: {
     } finally {
       setBusy(false);
     }
+  }
+
+  if (!runtime) {
+    return <section className="auth-view" aria-labelledby="auth-title">
+      <header>
+        <button className="icon-button" type="button" onClick={close} title="마켓으로"><ChevronLeft /></button>
+        <div><h1 id="auth-title">로그인</h1><p>안전한 거래를 위한 로그인 방식을 확인하고 있습니다.</p></div>
+      </header>
+      <div className="content-state">{configError ? <><ShieldCheck />{configError}</> : <><Loader2 className="spin" />로그인 설정 확인 중</>}</div>
+    </section>;
+  }
+
+  if (runtime.mode === 'OIDC') {
+    return <section className="auth-view" aria-labelledby="auth-title">
+      <header>
+        <button className="icon-button" type="button" onClick={close} title="마켓으로"><ChevronLeft /></button>
+        <div><h1 id="auth-title">로그인</h1><p>에브리세일 인증 계정으로 안전하게 연결합니다.</p></div>
+      </header>
+      <div className="auth-form auth-form--external">
+        <div className="auth-provider"><ShieldCheck /><div><strong>보안 로그인</strong><span>Authorization Code + PKCE</span></div></div>
+        <button className="primary-button" type="button" disabled={busy} onClick={() => void beginExternalLogin()}>
+          {busy ? <Loader2 className="spin" /> : <LogIn />}계속하기
+        </button>
+      </div>
+      <p className="auth-hint">비밀번호는 에브리세일 서버에 전달되거나 저장되지 않습니다.</p>
+    </section>;
   }
 
   return (

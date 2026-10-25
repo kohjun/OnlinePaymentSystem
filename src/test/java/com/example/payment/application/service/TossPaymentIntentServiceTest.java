@@ -65,12 +65,25 @@ class TossPaymentIntentServiceTest {
     private final ShippingAddressService shippingAddressService = mock(ShippingAddressService.class);
     private final TicketingService ticketingService = mock(TicketingService.class);
     private final TossPaymentsProperties tossProperties = new TossPaymentsProperties();
+    private final TossIntentStateWriter stateWriter = mock(TossIntentStateWriter.class);
     private final RedisTemplate<String, Object> redisTemplate = mock(RedisTemplate.class);
     private TossPaymentIntentService service;
 
     @BeforeEach
     void setUp() {
         tossProperties.setClientKey("test_ck_client");
+        when(stateWriter.cancelReady(any())).thenAnswer(call -> {
+            TossPaymentIntent intent = repository.findById(call.getArgument(0)).orElseThrow();
+            intent.setStatus("CANCELLED");
+            return intent;
+        });
+        when(stateWriter.authenticate(any())).thenAnswer(call -> {
+            TossPaymentConfirmRequest request = call.getArgument(0);
+            TossPaymentIntent intent = repository.findById(request.getIntentId()).orElseThrow();
+            intent.setPaymentKey(request.getPaymentKey());
+            intent.setStatus("AUTHENTICATED");
+            return intent;
+        });
         org.springframework.data.redis.core.ValueOperations valueOps = mock(org.springframework.data.redis.core.ValueOperations.class);
         org.springframework.data.redis.core.SetOperations setOps = mock(org.springframework.data.redis.core.SetOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
@@ -93,6 +106,7 @@ class TossPaymentIntentServiceTest {
                 ticketingService,
                 tossProperties,
                 new ObjectMapper(),
+                stateWriter,
                 redisTemplate
         );
     }

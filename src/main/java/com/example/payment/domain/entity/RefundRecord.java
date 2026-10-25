@@ -52,6 +52,10 @@ public class RefundRecord {
 
     @Column(name = "provider_refund_id")
     private String providerRefundId;
+    private String sourceType;
+    private String sourceId;
+    @Column(name = "active_payment_id")
+    private String activePaymentId;
 
     @Column(name = "failure_reason", columnDefinition = "TEXT")
     private String failureReason;
@@ -70,6 +74,7 @@ public class RefundRecord {
 
     @PrePersist
     void onCreate() {
+        updateActivePayment();
         LocalDateTime now = LocalDateTime.now();
         if (createdAt == null) {
             createdAt = now;
@@ -79,6 +84,11 @@ public class RefundRecord {
 
     @PreUpdate
     void onUpdate() {
+        updateActivePayment();
         updatedAt = LocalDateTime.now();
+    }
+
+    private void updateActivePayment() {
+        activePaymentId = "PROCESSING".equals(status) || "UNKNOWN".equals(status) ? paymentId : null;
     }
 }

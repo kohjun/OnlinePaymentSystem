@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, CheckCircle2, Flag, Gavel, Loader2, LockKeyhole, Radio, ShieldCheck, Star, Ticket, Users } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, Flag, Gavel, Loader2, LockKeyhole, LogIn, Radio, ShieldCheck, Star, Ticket, Users } from 'lucide-react';
 import { ApiError, api, openTossPayment } from './api';
 import { formatMoney } from './EventCard';
 import { TicketPanel } from './TicketPanel';
-import type { AuctionStatus, Identity, MarketplaceEvent, RaffleStatus, SellerReview } from './types';
+import type { AuctionStatus, Identity, ListingMedia, MarketplaceEvent, RaffleStatus, SellerReview } from './types';
 
 interface Props {
   event: MarketplaceEvent;
-  identity: Identity;
+  identity?: Identity;
   onClose: () => void;
+  onRequireAuthentication: () => void;
   notify: (message: string, tone?: 'success' | 'error' | 'info') => void;
 }
 
-export function EventDetail({ event, identity, onClose, notify }: Props) {
+export function EventDetail({ event, identity, onClose, onRequireAuthentication, notify }: Props) {
   const [auction, setAuction] = useState<AuctionStatus>();
   const [raffle, setRaffle] = useState<RaffleStatus>();
   const [bidAmount, setBidAmount] = useState('');
@@ -23,6 +24,8 @@ export function EventDetail({ event, identity, onClose, notify }: Props) {
   const [reportReason, setReportReason] = useState('MISLEADING');
   const [reportDetails, setReportDetails] = useState('');
   const [reviews, setReviews] = useState<SellerReview[]>();
+  const [productImages, setProductImages] = useState<ListingMedia[]>([]);
+  const [imageIndex, setImageIndex] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -35,15 +38,28 @@ export function EventDetail({ event, identity, onClose, notify }: Props) {
   }, [event.sellerId]);
 
   useEffect(() => {
+    let cancelled = false;
+    setImageIndex(0);
+    api.publicListingImages(event.listingId)
+      .then(images => { if (!cancelled) setProductImages(images); })
+      .catch(() => { if (!cancelled) setProductImages([]); });
+    return () => { cancelled = true; };
+  }, [event.listingId]);
+
+  useEffect(() => {
     const timer = window.setInterval(() => setTick(value => value + 1), 1000);
     return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
     if (event.saleType === 'AUCTION') {
-      void Promise.all([api.auctionStatus(event.saleEventId), api.auctionMe(event.saleEventId)])
-        .then(([publicStatus, mine]) => {
-          setAuction({ ...publicStatus, currentUserWinning: mine.currentUserWinning });
+      const statusRequest = identity
+        ? Promise.all([api.auctionStatus(event.saleEventId), api.auctionMe(event.saleEventId)])
+            .then(([publicStatus, mine]) => ({ ...publicStatus, currentUserWinning: mine.currentUserWinning }))
+        : api.auctionStatus(event.saleEventId);
+      void statusRequest
+        .then(publicStatus => {
+          setAuction(publicStatus);
           setBidAmount(String(publicStatus.minNextBid));
         })
         .catch(error => notify(messageOf(error), 'error'));
@@ -56,17 +72,17 @@ export function EventDetail({ event, identity, onClose, notify }: Props) {
       );
     }
     if (event.saleType === 'RAFFLE') {
-      void api.raffleStatus(event.saleEventId, identity.customerId)
+      void api.raffleStatus(event.saleEventId, identity?.customerId)
         .then(setRaffle)
         .catch(error => notify(messageOf(error), 'error'));
       return connectStream(
         `/api/marketplace/events/${encodeURIComponent(event.saleEventId)}/raffle/stream`,
         ['raffle-status', 'entry-count-changed', 'raffle-drawn', 'winner-checkout-updated', 'winner-offered', 'winner-offer-expired', 'sale-started', 'sale-activation-failed'],
-        () => void api.raffleStatus(event.saleEventId, identity.customerId).then(setRaffle),
+        () => void api.raffleStatus(event.saleEventId, identity?.customerId).then(setRaffle),
         setStreamState
       );
     }
-  }, [event.saleEventId, event.saleType, identity.customerId, notify]);
+  }, [event.saleEventId, event.saleType, identity?.customerId, notify]);
 
   const secondsRemaining = useMemo(() => {
     void tick;
@@ -75,6 +91,10 @@ export function EventDetail({ event, identity, onClose, notify }: Props) {
   }, [event.endsAt, tick]);
   const isTicketEvent = event.digitalTicket
     && (event.saleType === 'FIXED_PRICE' || event.saleType === 'DROP');
+  const imageUrls = productImages.length
+    ? productImages.map(image => image.url)
+    : event.imageUrl ? [event.imageUrl] : [];
+  const activeImage = imageUrls[Math.min(imageIndex, Math.max(0, imageUrls.length - 1))];
 
   async function perform(action: () => Promise<void>) {
     setBusy(true);
@@ -88,11 +108,20 @@ export function EventDetail({ event, identity, onClose, notify }: Props) {
     }
   }
 
+  function performAuthenticated(action: (actor: Identity) => Promise<void>) {
+    if (!identity) {
+      notify('거래를 계속하려면 로그인해 주세요.', 'info');
+      onRequireAuthentication();
+      return Promise.resolve();
+    }
+    return perform(() => action(identity));
+  }
+
   const checkout = (
     type: 'DIRECT' | 'RAFFLE_WINNER' | 'AUCTION_WINNER',
     amount: number,
     options?: { seatId?: string; digitalDelivery?: boolean }
-  ) => perform(async () => {
+  ) => performAuthenticated(async actor => {
     let shippingAddressId: string | undefined;
     if (!options?.digitalDelivery) {
       const addresses = await api.addresses();
@@ -105,16 +134,16 @@ export function EventDetail({ event, identity, onClose, notify }: Props) {
       seatId: options?.seatId,
       shippingAddressId
     });
-    await openTossPayment(intent, identity.buyerProfile?.displayName ?? identity.user?.displayName ?? '에브리세일 고객');
+    await openTossPayment(intent, actor.buyerProfile?.displayName ?? actor.user?.displayName ?? '에브리세일 고객');
   });
 
-  const enterRaffle = () => perform(async () => {
+  const enterRaffle = () => performAuthenticated(async actor => {
     await api.enterRaffle(event.saleEventId);
-    setRaffle(await api.raffleStatus(event.saleEventId, identity.customerId));
+    setRaffle(await api.raffleStatus(event.saleEventId, actor.customerId));
     notify('래플 응모가 완료되었습니다.', 'success');
   });
 
-  const placeBid = () => perform(async () => {
+  const placeBid = () => performAuthenticated(async () => {
     const amount = Number(bidAmount);
     if (!Number.isFinite(amount) || amount < (auction?.minNextBid ?? 0)) {
       throw new ApiError(`최소 입찰가는 ${formatMoney(auction?.minNextBid ?? 0)}입니다.`, 422, 'BID_TOO_LOW');
@@ -126,7 +155,7 @@ export function EventDetail({ event, identity, onClose, notify }: Props) {
     notify('입찰이 정상적으로 반영되었습니다.', 'success');
   });
 
-  const submitReport = () => perform(async () => {
+  const submitReport = () => performAuthenticated(async () => {
     await api.reportListing(event.listingId, reportReason, reportDetails);
     setReportOpen(false);
     setReportDetails('');
@@ -145,12 +174,22 @@ export function EventDetail({ event, identity, onClose, notify }: Props) {
 
       <div className="detail-layout">
         <div className="detail-media">
-          {event.imageUrl ? <img src={event.imageUrl} alt={event.title} /> : <div className="detail-media__fallback">EVERYSALE</div>}
+          <div className="detail-media__stage">
+            {activeImage ? <img src={activeImage} alt={`${event.title} 상품 이미지 ${imageIndex + 1}`} /> : <div className="detail-media__fallback">EVERYSALE</div>}
+            {imageUrls.length > 1 && <>
+              <button className="detail-media__nav detail-media__nav--previous" type="button" title="이전 이미지" onClick={() => setImageIndex(index => (index - 1 + imageUrls.length) % imageUrls.length)}><ChevronLeft /></button>
+              <button className="detail-media__nav detail-media__nav--next" type="button" title="다음 이미지" onClick={() => setImageIndex(index => (index + 1) % imageUrls.length)}><ChevronRight /></button>
+              <span className="detail-media__count">{imageIndex + 1} / {imageUrls.length}</span>
+            </>}
+          </div>
+          {imageUrls.length > 1 && <div className="detail-media__thumbs" aria-label="상품 이미지 선택">
+            {imageUrls.map((url, index) => <button key={url} className={index === imageIndex ? 'active' : ''} type="button" onClick={() => setImageIndex(index)} aria-label={`상품 이미지 ${index + 1}`} aria-current={index === imageIndex ? 'true' : undefined}><img src={url} alt="" /></button>)}
+          </div>}
         </div>
         <div className="detail-commerce">
           <div className="detail-price"><span>판매 기준가</span><strong>{formatMoney(event.price)}</strong></div>
           <p className="detail-description">{event.description || '판매자가 등록한 상세 설명을 준비 중입니다.'}</p>
-          <button className="text-button" type="button" onClick={() => setReportOpen(true)}><Flag />상품 신고</button>
+          <button className="text-button" type="button" onClick={() => identity ? setReportOpen(true) : void performAuthenticated(async () => undefined)}><Flag />상품 신고</button>
 
           <div className="trust-row">
             <span><ShieldCheck />안전 결제</span><span><LockKeyhole />거래 기록 보호</span>
@@ -164,7 +203,7 @@ export function EventDetail({ event, identity, onClose, notify }: Props) {
               <div className="stock-line"><span>구매 가능 수량</span><strong>{event.availableQuantity.toLocaleString('ko-KR')}개</strong></div>
               <button className="primary-button" disabled={busy || event.status !== 'LIVE' || event.availableQuantity < 1}
                       onClick={() => void checkout('DIRECT', event.price)}>
-                {busy ? <Loader2 className="spin" /> : <LockKeyhole />} Toss로 안전하게 결제
+                {busy ? <Loader2 className="spin" /> : identity ? <LockKeyhole /> : <LogIn />} {identity ? 'Toss로 안전하게 결제' : '로그인 후 구매'}
               </button>
             </div>
           )}
@@ -173,10 +212,10 @@ export function EventDetail({ event, identity, onClose, notify }: Props) {
             checkout={seatId => checkout('DIRECT', event.price, { seatId, digitalDelivery: true })} />}
 
           {event.saleType === 'AUCTION' && <AuctionPanel status={auction} bidAmount={bidAmount} setBidAmount={setBidAmount}
-            busy={busy} secondsRemaining={secondsRemaining} placeBid={placeBid}
+            busy={busy} authenticated={Boolean(identity)} secondsRemaining={secondsRemaining} placeBid={placeBid}
             checkout={() => void checkout('AUCTION_WINNER', auction?.highestBid ?? event.price)} />}
 
-          {event.saleType === 'RAFFLE' && <RafflePanel status={raffle} busy={busy} enter={enterRaffle}
+          {event.saleType === 'RAFFLE' && <RafflePanel status={raffle} busy={busy} authenticated={Boolean(identity)} enter={enterRaffle}
             checkout={() => void checkout('RAFFLE_WINNER', event.price)} />}
         </div>
       </div>
@@ -195,9 +234,9 @@ export function EventDetail({ event, identity, onClose, notify }: Props) {
   );
 }
 
-function AuctionPanel({ status, bidAmount, setBidAmount, busy, secondsRemaining, placeBid, checkout }: {
+function AuctionPanel({ status, bidAmount, setBidAmount, busy, authenticated, secondsRemaining, placeBid, checkout }: {
   status?: AuctionStatus; bidAmount: string; setBidAmount: (value: string) => void; busy: boolean;
-  secondsRemaining?: number; placeBid: () => void; checkout: () => void;
+  authenticated: boolean; secondsRemaining?: number; placeBid: () => void; checkout: () => void;
 }) {
   if (!status) return <div className="action-panel loading-line"><Loader2 className="spin" />경매 상태 확인 중</div>;
   return <div className="action-panel">
@@ -208,7 +247,7 @@ function AuctionPanel({ status, bidAmount, setBidAmount, busy, secondsRemaining,
     {!status.closed && <form onSubmit={event => { event.preventDefault(); placeBid(); }} className="bid-form">
       <label htmlFor="bidAmount">입찰 금액</label>
       <div><input id="bidAmount" type="number" min={status.minNextBid} step="1000" value={bidAmount}
-                  onChange={event => setBidAmount(event.target.value)} /><button className="primary-button" disabled={busy}><Gavel />입찰</button></div>
+                  onChange={event => setBidAmount(event.target.value)} /><button className="primary-button" disabled={busy}><Gavel />{authenticated ? '입찰' : '로그인 후 입찰'}</button></div>
       <small>최소 다음 입찰가 {formatMoney(status.minNextBid)}</small>
     </form>}
     {status.closed && status.currentUserWinning && status.checkoutAvailable && <button className="primary-button" disabled={busy} onClick={checkout}><LockKeyhole />낙찰 상품 결제</button>}
@@ -222,14 +261,14 @@ function AuctionPanel({ status, bidAmount, setBidAmount, busy, secondsRemaining,
   </div>;
 }
 
-function RafflePanel({ status, busy, enter, checkout }: { status?: RaffleStatus; busy: boolean; enter: () => void; checkout: () => void }) {
+function RafflePanel({ status, busy, authenticated, enter, checkout }: { status?: RaffleStatus; busy: boolean; authenticated: boolean; enter: () => void; checkout: () => void }) {
   if (!status) return <div className="action-panel loading-line"><Loader2 className="spin" />래플 상태 확인 중</div>;
   return <div className="action-panel">
     <div className="live-metrics">
       <div><span>총 응모</span><strong>{status.entryCount.toLocaleString('ko-KR')}명</strong><small><Users size={13} /> 중복 응모 방지</small></div>
       <div><span>추첨 상태</span><strong>{status.drawn ? '추첨 완료' : '응모 중'}</strong><small><Ticket size={13} /> 서버 검증 추첨</small></div>
     </div>
-    {!status.drawn && !status.entered && <button className="primary-button" disabled={busy} onClick={enter}><Ticket />래플 응모</button>}
+    {!status.drawn && !status.entered && <button className="primary-button" disabled={busy} onClick={enter}><Ticket />{authenticated ? '래플 응모' : '로그인 후 응모'}</button>}
     {!status.drawn && status.entered && <div className="result-notice result-notice--success"><CheckCircle2 />응모가 완료되었습니다.</div>}
     {status.drawn && status.winner && status.checkoutStatus === 'PENDING' && <button className="primary-button" disabled={busy} onClick={checkout}><LockKeyhole />당첨 상품 결제</button>}
     {status.drawn && status.winner && status.offerSequence && <div className="result-notice result-notice--success">당첨 결제 제안 {status.offerSequence}순위가 배정되었습니다.</div>}

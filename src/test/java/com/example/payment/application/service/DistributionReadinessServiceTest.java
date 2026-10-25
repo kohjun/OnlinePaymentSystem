@@ -54,6 +54,7 @@ class DistributionReadinessServiceTest {
                 .withProperty("app.temporal.target", "localhost:7233")
                 .withProperty("payment.default-gateway", "MOCK_PAYMENT_GATEWAY")
                 .withProperty("app.checkout.public-complete-enabled", "true")
+                .withProperty("app.checkout.legacy-reservation-api-enabled", "true")
                 .withProperty("payment.allow-gateway-fallback", "true")
                 .withProperty("app.security.mock-auth.enabled", "true")
                 .withProperty("app.security.cors.allowed-origins", "*,http://localhost:3000,http://frontend.example.com")
@@ -83,6 +84,8 @@ class DistributionReadinessServiceTest {
                 .anyMatch(issue -> issue.contains("non-local Temporal endpoint")));
         assertTrue(report.blockingIssues().stream()
                 .anyMatch(issue -> issue.contains("CORS allowlist contains unsafe")));
+        assertTrue(report.blockingIssues().stream()
+                .anyMatch(issue -> issue.contains("Direct reservation mutation APIs")));
     }
 
     @Test
@@ -101,6 +104,27 @@ class DistributionReadinessServiceTest {
         assertEquals("BLOCKED", report.status());
         assertTrue(report.blockingIssues().stream()
                 .anyMatch(issue -> issue.contains("JWT issuer/JWK Set URI and OIDC audience")));
+    }
+
+    @Test
+    void productionModeBlocksMissingFrontendOidcPkceConfiguration() {
+        CacheService cacheService = mock(CacheService.class);
+        when(cacheService.isRedisConnected()).thenReturn(true);
+
+        MockEnvironment environment = baseEnvironment()
+                .withProperty("app.distribution.mode", "PRODUCTION")
+                .withProperty("app.distribution.require-external-auth", "true")
+                .withProperty("app.security.external-auth.enabled", "true")
+                .withProperty("app.security.external-auth.frontend.client-id", "");
+
+        DistributionReadinessService.ReadinessCheck check =
+                new DistributionReadinessService(cacheService, environment, payoutGatewayProvider).evaluate().checks().stream()
+                        .filter(candidate -> "external-auth-frontend".equals(candidate.id()))
+                        .findFirst()
+                        .orElseThrow();
+
+        assertEquals("FAIL", check.status());
+        assertTrue(check.blocking());
     }
 
     @Test
@@ -129,6 +153,80 @@ class DistributionReadinessServiceTest {
         assertTrue(report.blockingIssues().stream().anyMatch(issue -> issue.contains("Distributed marketplace realtime broadcast is disabled")));
         assertTrue(report.blockingIssues().stream().anyMatch(issue -> issue.contains("Flyway database migrations are disabled")));
         assertTrue(report.blockingIssues().stream().anyMatch(issue -> issue.contains("ddl-auto=validate")));
+    }
+
+    @Test
+    void productionModeBlocksLocalMarketplaceMediaStorage() {
+        CacheService cacheService = mock(CacheService.class);
+        when(cacheService.isRedisConnected()).thenReturn(true);
+
+        MockEnvironment environment = baseEnvironment()
+                .withProperty("app.distribution.mode", "PRODUCTION")
+                .withProperty("app.media.storage-provider", "LOCAL");
+
+        DistributionReadinessService.ReadinessCheck check =
+                new DistributionReadinessService(cacheService, environment, payoutGatewayProvider).evaluate().checks().stream()
+                        .filter(candidate -> "marketplace-media-storage".equals(candidate.id()))
+                        .findFirst()
+                        .orElseThrow();
+
+        assertEquals("FAIL", check.status());
+        assertTrue(check.blocking());
+    }
+
+    @Test
+    void productionModeAcceptsEncryptedS3MarketplaceMediaStorage() {
+        CacheService cacheService = mock(CacheService.class);
+        when(cacheService.isRedisConnected()).thenReturn(true);
+
+        MockEnvironment environment = baseEnvironment()
+                .withProperty("app.distribution.mode", "PRODUCTION");
+
+        DistributionReadinessService.ReadinessCheck check =
+                new DistributionReadinessService(cacheService, environment, payoutGatewayProvider).evaluate().checks().stream()
+                        .filter(candidate -> "marketplace-media-storage".equals(candidate.id()))
+                        .findFirst()
+                        .orElseThrow();
+
+        assertEquals("PASS", check.status());
+        assertFalse(check.blocking());
+    }
+
+    @Test
+    void productionModeBlocksDisabledMediaMalwareScanning() {
+        CacheService cacheService = mock(CacheService.class);
+        when(cacheService.isRedisConnected()).thenReturn(true);
+
+        MockEnvironment environment = baseEnvironment()
+                .withProperty("app.distribution.mode", "PRODUCTION")
+                .withProperty("app.media.malware-scan.provider", "NONE");
+
+        DistributionReadinessService.ReadinessCheck check =
+                new DistributionReadinessService(cacheService, environment, payoutGatewayProvider).evaluate().checks().stream()
+                        .filter(candidate -> "marketplace-media-malware-scan".equals(candidate.id()))
+                        .findFirst()
+                        .orElseThrow();
+
+        assertEquals("FAIL", check.status());
+        assertTrue(check.blocking());
+    }
+
+    @Test
+    void productionModeAcceptsValidatedClamAvMediaScanning() {
+        CacheService cacheService = mock(CacheService.class);
+        when(cacheService.isRedisConnected()).thenReturn(true);
+
+        MockEnvironment environment = baseEnvironment()
+                .withProperty("app.distribution.mode", "PRODUCTION");
+
+        DistributionReadinessService.ReadinessCheck check =
+                new DistributionReadinessService(cacheService, environment, payoutGatewayProvider).evaluate().checks().stream()
+                        .filter(candidate -> "marketplace-media-malware-scan".equals(candidate.id()))
+                        .findFirst()
+                        .orElseThrow();
+
+        assertEquals("PASS", check.status());
+        assertFalse(check.blocking());
     }
 
     @Test
@@ -268,14 +366,27 @@ class DistributionReadinessServiceTest {
                 .withProperty("spring.jpa.hibernate.ddl-auto", "validate")
                 .withProperty("app.legacy-wal.enabled", "false")
                 .withProperty("app.checkout.public-complete-enabled", "false")
+                .withProperty("app.checkout.legacy-reservation-api-enabled", "false")
                 .withProperty("payment.allow-gateway-fallback", "false")
                 .withProperty("app.audit.enabled", "true")
+                .withProperty("app.media.storage-provider", "S3")
+                .withProperty("app.media.validate-on-startup", "true")
+                .withProperty("app.media.s3.bucket", "everysale-private-media")
+                .withProperty("app.media.s3.server-side-encryption", "AES256")
+                .withProperty("app.media.malware-scan.provider", "CLAMAV")
+                .withProperty("app.media.malware-scan.validate-on-startup", "true")
+                .withProperty("app.media.malware-scan.clamav.host", "clamav.example.com")
+                .withProperty("app.media.malware-scan.clamav.port", "3310")
                 .withProperty("spring.datasource.url", "jdbc:postgresql://db.example.com:5432/payment")
                 .withProperty("spring.data.redis.host", "redis.example.com")
                 .withProperty("spring.kafka.bootstrap-servers", "kafka-1.example.com:9092,kafka-2.example.com:9092")
                 .withProperty("app.temporal.target", "temporal.example.com:7233")
                 .withProperty("app.security.cors.allowed-origins", "https://app.example.com,https://admin.example.com")
                 .withProperty("app.security.external-auth.enabled", "false")
+                .withProperty("app.security.external-auth.frontend.authorization-uri", "https://identity.example.com/authorize")
+                .withProperty("app.security.external-auth.frontend.token-uri", "https://identity.example.com/token")
+                .withProperty("app.security.external-auth.frontend.client-id", "everysale-web")
+                .withProperty("app.security.external-auth.frontend.scopes", "openid,profile,email")
                 .withProperty("app.tenancy.require-tenant-header", "true");
     }
 }

@@ -4,6 +4,14 @@
 
 공식 웹 화면은 React 기반 `http://localhost:8080/app/`입니다. 루트 URL과 과거 `index.html`, `shared.html`, `seller.html` 진입점도 모두 `/app/`으로 이동합니다. 구매, 판매자 상품 등록·주문·배송·정산, 관리자 검수 기능은 같은 애플리케이션에서 권한에 따라 표시됩니다. 판매 방식에서 `DROP`은 선착순 한정 판매, `RAFFLE`은 중복 응모를 막은 무작위 추첨을 뜻합니다.
 
+### 거래 복구 원칙
+
+결제 또는 환불 응답이 유실되면 실패로 단정하지 않습니다. 제공자 상태가 확인될 때까지 재고를 유지하고, 환불 확인 중 배송·구매 확정·새 정산 지급을 차단합니다. `202 PENDING`은 결제 성공이 아닙니다. 클라이언트는 소유자 전용 `GET /api/payments/toss/intents/{intentId}`로 최종 상태를 확인합니다. 재접속용 저장소에는 `intentId`만 보관합니다.
+
+승인 재호출 대신 상태 조회, 제공자 취소 영수증별 중복 방지, 독립 트랜잭션 환불 원장, 재고 동기화 작업 원장을 사용합니다. 자동 검증은 로컬 HTTP stub과 Testcontainers만 사용하며 `.env`의 실제 Toss 키를 변경하지 않습니다.
+
+설계와 운영 절차는 [거래 복구 ADR](docs/adr/payment-recovery.md), 실행 증거와 남은 운영 검증은 [복구 검증 기록](docs/payment-recovery-verification.md)을 참고하세요. 로컬 테스트 통과는 상용 운영 승인과 별개입니다.
+
 The public checkout path is Toss Payments intent/confirm:
 
 ```text
@@ -24,7 +32,7 @@ Reserve inventory in Redis
 -> Publish outbox events to Kafka
 ```
 
-`/api/reservations/complete` remains an internal Saga test hook and is disabled by default with `app.checkout.public-complete-enabled=false`. The former public payment process/retry/refund, non-Toss marketplace checkout, simulation, and demo-auth APIs have been removed. The local mock-auth filter is development-only and is disabled by the `prod` profile.
+`/api/reservations/complete` remains an internal Saga test hook and is disabled by default with `app.checkout.public-complete-enabled=false`. Direct inventory reservation/cancellation is also disabled with `app.checkout.legacy-reservation-api-enabled=false`; customer cancellation must use `POST /api/c2c/orders/{orderId}/cancellations` so refund, inventory, payout, and cancellation ledgers stay consistent. The former public payment process/retry/refund, direct order cancel, non-Toss marketplace checkout, simulation, and demo-auth APIs have been removed. The local mock-auth filter is development-only and is disabled by the `prod` profile.
 
 ## Implementation Scope
 
@@ -154,6 +162,9 @@ KAFKA_BOOTSTRAP_SERVERS=kafka-1.example.com:9092,kafka-2.example.com:9092
 TEMPORAL_TARGET=temporal.example.com:7233
 OIDC_ISSUER_URI=https://idp.example.com/realms/everysale
 OIDC_AUDIENCE=everysale-api
+OIDC_AUTHORIZATION_URI=https://idp.example.com/realms/everysale/protocol/openid-connect/auth
+OIDC_TOKEN_URI=https://idp.example.com/realms/everysale/protocol/openid-connect/token
+OIDC_CLIENT_ID=everysale-web
 EVERYSALE_TENANT_ID=everysale
 TOSS_CLIENT_KEY=live_...
 TOSS_SECRET_KEY=live_...
@@ -162,11 +173,32 @@ CORS_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com
 PAYOUT_TRANSFER_PROVIDER=TOSS_PAYOUTS
 PAYOUT_TRANSFER_ADAPTER_ENABLED=true
 PAYOUT_TOSS_SECRET_KEY=live_...
+MEDIA_STORAGE_PROVIDER=S3
+MEDIA_S3_BUCKET=everysale-private-media
+MEDIA_S3_REGION=ap-northeast-2
+MEDIA_S3_ENCRYPTION=AES256
+MEDIA_MALWARE_SCAN_PROVIDER=CLAMAV
+MEDIA_CLAMAV_HOST=clamav.production.internal
+MEDIA_CLAMAV_PORT=3310
 ```
 
 Use `.env.prod.example` as the deployment-variable inventory. Do not load it as credentials. After injecting real values from the deployment secret manager, run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-production-env.ps1`; the preflight validates required values without printing secrets.
 
-`GET /api/system/readiness` blocks production when DB, Redis, Kafka, or Temporal still point at localhost, when CORS allows wildcard/local/insecure HTTP origins, when mock auth is enabled, when Toss live keys or webhook token are missing/mismatched, or when external auth/tenant isolation is not configured.
+`GET /api/system/readiness` blocks production when DB, Redis, Kafka, or Temporal still point at localhost, when CORS allows wildcard/local/insecure HTTP origins, when mock auth is enabled, when Toss live keys or webhook token are missing/mismatched, when encrypted S3 marketplace media storage or malware scanning is missing, or when external auth/tenant isolation is not configured. The web client uses OIDC Authorization Code with PKCE; register the exact `{public-origin}/app/` redirect URI and allow the public SPA client to call the configured token endpoint from that origin.
+
+Product images and authenticity evidence are stored in a private bucket. Evidence is served only through seller-authorized endpoints, while product images become public only after the listing reaches a public state. Production must not use local instance storage. Prefer workload identity or an instance role over long-lived `MEDIA_S3_ACCESS_KEY` credentials; use `MEDIA_S3_ENCRYPTION=AWS_KMS` with `MEDIA_S3_KMS_KEY_ID` when customer-managed keys are required. Production also requires ClamAV; uploads fail closed before object storage when the scanner is unavailable or reports malware.
+
+The marketplace UI includes a persistent transaction inbox backed by `marketplace_notifications`. Payment completion, new orders, fulfillment, buyer confirmation, disputes, cancellations, auction offers, raffle offers, and offer expiry use idempotency keys so retries do not create duplicate alerts.
+
+Seller listing lifecycle endpoints are:
+
+```text
+POST /api/c2c/listings/{listingId}/pause
+POST /api/c2c/listings/{listingId}/resume
+POST /api/c2c/listings/{listingId}/archive
+```
+
+Live auctions and raffles cannot be paused after participation begins. Fixed-price and drop sales can only be paused when no unexpired Toss checkout intent exists. Archiving is terminal and requires a draft, rejected, or paused listing.
 ## Toss Checkout API
 
 Create a Toss payment intent:

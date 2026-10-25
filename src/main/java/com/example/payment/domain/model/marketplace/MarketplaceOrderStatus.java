@@ -7,5 +7,6 @@ public enum MarketplaceOrderStatus {
     CANCELLED,
     REFUNDED,
     PARTIALLY_REFUNDED,
-    REFUND_FAILED
+    REFUND_FAILED,
+    REFUND_UNKNOWN
 }

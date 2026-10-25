@@ -65,12 +65,107 @@ class CompleteReservationWorkflowTest {
             }
         };
 
-        CompleteReservationResponse response = runWorkflow(activities);
-
-        assertEquals("COMPENSATION_PENDING", response.getStatus());
-        assertEquals(1, activities.refundPaymentCalls.get());
+        CompleteReservationResponse response;
+        try (TestWorkflowEnvironment environment = TestWorkflowEnvironment.newInstance()) {
+            Worker worker = environment.newWorker(TASK_QUEUE);
+            worker.registerWorkflowImplementationTypes(CompleteReservationWorkflowImpl.class);
+            worker.registerActivitiesImplementations(activities);
+            environment.start();
+            var workflow = environment.getWorkflowClient().newWorkflowStub(CompleteReservationWorkflow.class,
+                    WorkflowOptions.newBuilder().setTaskQueue(TASK_QUEUE).setWorkflowId("unknown-refund").build());
+            WorkflowClient.start(workflow::process, request());
+            environment.sleep(java.time.Duration.ofSeconds(25));
+            response = workflow.getResult();
+            assertEquals("REFUND_RECONCILING", response.getPhase());
+            io.temporal.client.WorkflowStub.fromTyped(workflow).terminate("test completed");
+        }
+        assertEquals("PENDING", response.getStatus());
+        org.junit.jupiter.api.Assertions.assertTrue(activities.refundPaymentCalls.get() >= 1);
         assertEquals(0, activities.cancelOrderCalls.get());
         assertEquals(0, activities.cancelReservationCalls.get());
+    }
+
+    @Test
+    void unknownApprovalQueriesUntilApprovedWithoutReauthorizationOrRelease() {
+        AtomicInteger authorizations = new AtomicInteger();
+        AtomicInteger queries = new AtomicInteger();
+        ConfigurableActivities activities = new ConfigurableActivities(FailStep.PAYMENT) {
+            @Override public ReservationWorkflowStepResult processPayment(ReservationWorkflowCommand command) {
+                authorizations.incrementAndGet();
+                return ReservationWorkflowStepResult.builder().status("UNKNOWN").build();
+            }
+            @Override public ReservationWorkflowStepResult verifyPaymentStatus(ReservationWorkflowCommand command) {
+                if (queries.incrementAndGet() < 3) throw new IllegalStateException("lookup unavailable");
+                return ReservationWorkflowStepResult.success("approved");
+            }
+        };
+        assertEquals("SUCCESS", runWorkflow(activities).getStatus());
+        assertEquals(1, authorizations.get());
+        assertEquals(0, activities.cancelOrderCalls.get());
+        assertEquals(0, activities.cancelReservationCalls.get());
+    }
+
+    @Test
+    void unknownRefundResumesCompensationOnlyAfterConfirmation() {
+        ConfigurableActivities activities = new ConfigurableActivities(FailStep.CONFIRM_INVENTORY) {
+            @Override public RefundCompensationResult refundPayment(ReservationWorkflowCommand command, String reason) {
+                int attempt = refundPaymentCalls.incrementAndGet();
+                assertEquals(0, cancelReservationCalls.get());
+                return RefundCompensationResult.builder().successful(attempt >= 3)
+                        .status(attempt >= 3 ? "REFUND_SUCCEEDED" : "REFUND_UNKNOWN").build();
+            }
+        };
+        assertEquals("FAILED", runWorkflow(activities).getStatus());
+        assertEquals(3, activities.refundPaymentCalls.get());
+        assertEquals(1, activities.cancelReservationCalls.get());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void prolongedUncertaintyRequiresReviewWithoutReleasingInventory(boolean refundPending) {
+        AtomicInteger authorizations = new AtomicInteger();
+        AtomicInteger observations = new AtomicInteger();
+        ConfigurableActivities activities = new ConfigurableActivities(FailStep.CONFIRM_INVENTORY) {
+            @Override public ReservationWorkflowStepResult processPayment(ReservationWorkflowCommand command) {
+                authorizations.incrementAndGet();
+                return refundPending ? ReservationWorkflowStepResult.success("approved")
+                        : ReservationWorkflowStepResult.builder().status("UNKNOWN").build();
+            }
+            @Override public ReservationWorkflowStepResult verifyPaymentStatus(ReservationWorkflowCommand command) {
+                observations.incrementAndGet();
+                return ReservationWorkflowStepResult.builder().status("UNKNOWN").build();
+            }
+            @Override public RefundCompensationResult refundPayment(ReservationWorkflowCommand command, String reason) {
+                observations.incrementAndGet();
+                return RefundCompensationResult.builder().successful(false).status("REFUND_UNKNOWN").build();
+            }
+        };
+        try (TestWorkflowEnvironment environment = TestWorkflowEnvironment.newInstance()) {
+            Worker worker = environment.newWorker(TASK_QUEUE);
+            worker.registerWorkflowImplementationTypes(CompleteReservationWorkflowImpl.class);
+            worker.registerActivitiesImplementations(activities);
+            environment.start();
+            var workflow = environment.getWorkflowClient().newWorkflowStub(CompleteReservationWorkflow.class,
+                    WorkflowOptions.newBuilder().setTaskQueue(TASK_QUEUE)
+                            .setWorkflowId("long-pending-" + refundPending).build());
+            WorkflowClient.start(workflow::process, request());
+            try {
+                environment.sleep(java.time.Duration.ofMinutes(31));
+                var pending = workflow.getResult();
+                assertEquals("PENDING", pending.getStatus());
+                assertEquals("MANUAL_REVIEW", pending.getPhase());
+                assertEquals(900, pending.getRetryAfterSeconds());
+                int previousObservations = observations.get();
+                environment.sleep(java.time.Duration.ofMinutes(16));
+                assertEquals("PENDING", workflow.getResult().getStatus());
+                org.junit.jupiter.api.Assertions.assertTrue(observations.get() > previousObservations);
+                assertEquals(1, authorizations.get());
+                assertEquals(0, activities.cancelOrderCalls.get());
+                assertEquals(0, activities.cancelReservationCalls.get());
+            } finally {
+                io.temporal.client.WorkflowStub.fromTyped(workflow).terminate("test completed");
+            }
+        }
     }
 
     private CompleteReservationResponse runWorkflow(CompleteReservationActivities activities) {
@@ -193,7 +288,7 @@ class CompleteReservationWorkflowTest {
         @Override
         public ReservationWorkflowStepResult processPayment(ReservationWorkflowCommand command) {
             if (failStep == FailStep.PAYMENT) {
-                return ReservationWorkflowStepResult.failure("payment failed");
+                return ReservationWorkflowStepResult.builder().status("FAILED").message("declined").build();
             }
             return super.processPayment(command);
         }
@@ -225,7 +320,7 @@ class CompleteReservationWorkflowTest {
         @Override
         public ReservationWorkflowStepResult verifyPaymentStatus(ReservationWorkflowCommand command) {
             if (failStep == FailStep.PAYMENT) {
-                return ReservationWorkflowStepResult.failure("payment not approved on PG");
+                return ReservationWorkflowStepResult.builder().status("FAILED").message("declined").build();
             }
             return super.verifyPaymentStatus(command);
         }

@@ -60,6 +60,7 @@ public class RaffleService {
     private final MarketplaceRealtimeService marketplaceRealtimeService;
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
+    private final MarketplaceNotificationService notificationService;
 
     @Value("${app.marketplace.winner-checkout-ttl-minutes:30}")
     private long winnerCheckoutTtlMinutes;
@@ -390,6 +391,15 @@ public class RaffleService {
 
         expired.setCheckoutStatus(RaffleCheckoutStatus.EXPIRED);
         raffleWinnerRepository.save(expired);
+        notificationService.notifyCustomer(
+                expired.getCustomerId(),
+                "RAFFLE_WINNER_OFFER_EXPIRED",
+                "래플 결제 기한이 만료되었습니다",
+                "래플 " + event.getSaleEventId() + "의 결제 기회가 다음 순위 응모자에게 넘어갑니다.",
+                "RAFFLE_WINNER",
+                expired.getWinnerId(),
+                "raffle:" + event.getSaleEventId() + ":offer-expired:" + expired.getOfferSequence()
+        );
         raffleEntryRepository.findById(expired.getEntryId()).ifPresent(entry -> {
             entry.setStatus(RaffleEntryStatus.NOT_SELECTED);
             raffleEntryRepository.save(entry);
@@ -443,7 +453,7 @@ public class RaffleService {
                 "RAFFLE_WINNER",
                 winnerId
         );
-        return raffleWinnerRepository.save(RaffleWinner.builder()
+        RaffleWinner winner = raffleWinnerRepository.save(RaffleWinner.builder()
                 .winnerId(winnerId)
                 .saleEventId(event.getSaleEventId())
                 .entryId(entry.getEntryId())
@@ -458,6 +468,16 @@ public class RaffleService {
                 .createdAt(now)
                 .checkoutExpiresAt(expiresAt)
                 .build());
+        notificationService.notifyCustomer(
+                entry.getCustomerId(),
+                "RAFFLE_WINNER_OFFERED",
+                offerSequence == 1 ? "래플에 당첨되었습니다" : "래플 결제 기회가 승계되었습니다",
+                "래플 " + event.getSaleEventId() + "의 결제 가능 시각은 " + expiresAt + "까지입니다.",
+                "RAFFLE_WINNER",
+                winnerId,
+                "raffle:" + event.getSaleEventId() + ":offer:" + offerSequence + ":" + entry.getCustomerId()
+        );
+        return winner;
     }
 
     private SaleEvent requireRaffleEvent(String eventId) {

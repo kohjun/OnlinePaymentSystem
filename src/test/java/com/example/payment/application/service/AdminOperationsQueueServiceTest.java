@@ -179,7 +179,8 @@ class AdminOperationsQueueServiceTest {
 
         assertNotNull(response.getGeneratedAt());
         assertEquals(12L, response.getTotalOpen());
-        assertEquals(10, response.getQueues().size());
+        assertEquals(11, response.getQueues().size());
+        assertEquals(0L, queue(response, "paymentRecovery").getCount());
         assertEquals(2L, queue(response, "listingReviews").getCount());
         assertEquals("검수 대기 상품", queue(response, "listingReviews").getItems().get(0).getTitle());
         assertEquals("SELLER-1", queue(response, "payoutAccounts").getItems().get(0).getId());

@@ -33,6 +33,13 @@ public class InventoryReservationRecord {
     private String orderId;
     private String paymentId;
 
+    @Column(nullable = false, length = 32)
+    @Builder.Default
+    private String authorizationState = "UNTRACKED";
+    private LocalDateTime authorizationStartedAt;
+    private LocalDateTime authorizationClosedAt;
+    private String authorizationCloseWorkflowId;
+
     @Column(nullable = false)
     @Builder.Default
     private String origin = "CHECKOUT";

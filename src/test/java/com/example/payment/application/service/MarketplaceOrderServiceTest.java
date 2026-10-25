@@ -35,11 +35,23 @@ class MarketplaceOrderServiceTest {
     private final MarketplaceOrderRepository repository = mock(MarketplaceOrderRepository.class);
     private final SellerPayoutService sellerPayoutService = mock(SellerPayoutService.class);
     private final PaymentProcessingService paymentProcessingService = mock(PaymentProcessingService.class);
+    private final MarketplaceNotificationService notificationService = mock(MarketplaceNotificationService.class);
     private final MarketplaceOrderService service = new MarketplaceOrderService(
             repository,
             sellerPayoutService,
-            paymentProcessingService
+            paymentProcessingService,
+            notificationService,
+            mock(CommerceSettlementGuard.class),
+            mock(org.springframework.transaction.PlatformTransactionManager.class),
+            mock(com.example.payment.domain.repository.MarketplaceOrderCancellationRepository.class),
+            mock(com.example.payment.domain.repository.OrderRecordRepository.class),
+            mock(InventoryRestorationService.class)
     );
+
+    @org.junit.jupiter.api.BeforeEach
+    void lookupPreview() {
+        when(repository.findById(org.mockito.ArgumentMatchers.anyString())).thenAnswer(call -> repository.findByIdForUpdate(call.getArgument(0)));
+    }
 
     @Test
     void sellerCannotBypassRefundBySettingFulfillmentCancelled() {
@@ -49,7 +61,7 @@ class MarketplaceOrderServiceTest {
                 .status(MarketplaceOrderStatus.PAID)
                 .fulfillmentStatus(FulfillmentStatus.READY_TO_FULFILL)
                 .build();
-        when(repository.findByMarketplaceOrderIdAndSellerId("MORD-CANCEL", "SELLER-1"))
+        when(repository.findByIdForUpdate("MORD-CANCEL"))
                 .thenReturn(Optional.of(order));
 
         IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
@@ -92,6 +104,20 @@ class MarketplaceOrderServiceTest {
                 any(),
                 eq(new BigDecimal("59000"))
         );
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = FulfillmentStatus.class,
+            names = {"READY_TO_FULFILL", "PROCESSING"})
+    void shippedOrderCannotReturnToPreShipmentStatus(FulfillmentStatus target) {
+        var order = MarketplaceOrder.builder().marketplaceOrderId("MORD-1").sellerId("SELLER-1")
+                .status(MarketplaceOrderStatus.PAID).fulfillmentStatus(FulfillmentStatus.SHIPPED)
+                .shippedAt(LocalDateTime.now()).build();
+        when(repository.findByIdForUpdate("MORD-1")).thenReturn(Optional.of(order));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.updateFulfillment("SELLER-1", "MORD-1", target));
+        assertEquals(FulfillmentStatus.SHIPPED, order.getFulfillmentStatus());
+        verify(repository, never()).save(any());
     }
 
     @Test
@@ -204,7 +230,7 @@ class MarketplaceOrderServiceTest {
     @Test
     void sellerCanMovePaidOrderToShipped() {
         MarketplaceOrder order = paidOrder();
-        when(repository.findByMarketplaceOrderIdAndSellerId("MORD-1", "SELLER-1")).thenReturn(Optional.of(order));
+        when(repository.findByIdForUpdate("MORD-1")).thenReturn(Optional.of(order));
         when(repository.save(any(MarketplaceOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         MarketplaceOrderResponse response = service.updateFulfillment(
@@ -223,7 +249,7 @@ class MarketplaceOrderServiceTest {
     @Test
     void shippingRequiresTrackingInformation() {
         MarketplaceOrder order = paidOrder();
-        when(repository.findByMarketplaceOrderIdAndSellerId("MORD-1", "SELLER-1")).thenReturn(Optional.of(order));
+        when(repository.findByIdForUpdate("MORD-1")).thenReturn(Optional.of(order));
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> service.updateFulfillment("SELLER-1", "MORD-1", FulfillmentStatus.SHIPPED));
@@ -236,7 +262,7 @@ class MarketplaceOrderServiceTest {
         MarketplaceOrder order = paidOrder();
         order.setStatus(MarketplaceOrderStatus.PENDING);
         order.setFulfillmentStatus(FulfillmentStatus.NOT_READY);
-        when(repository.findByMarketplaceOrderIdAndSellerId("MORD-1", "SELLER-1")).thenReturn(Optional.of(order));
+        when(repository.findByIdForUpdate("MORD-1")).thenReturn(Optional.of(order));
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> service.updateFulfillment("SELLER-1", "MORD-1", FulfillmentStatus.SHIPPED));
@@ -248,7 +274,7 @@ class MarketplaceOrderServiceTest {
     void buyerConfirmationMarksOrderDeliveredAndPayoutReady() {
         MarketplaceOrder order = paidOrder();
         order.setFulfillmentStatus(FulfillmentStatus.SHIPPED);
-        when(repository.findById("MORD-1")).thenReturn(Optional.of(order));
+        when(repository.findByIdForUpdate("MORD-1")).thenReturn(Optional.of(order));
         when(repository.save(any(MarketplaceOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         MarketplaceOrderResponse response = service.confirmDelivery("CUST-1", "MORD-1");
@@ -261,7 +287,7 @@ class MarketplaceOrderServiceTest {
     void buyerConfirmationRejectsWrongCustomer() {
         MarketplaceOrder order = paidOrder();
         order.setFulfillmentStatus(FulfillmentStatus.SHIPPED);
-        when(repository.findById("MORD-1")).thenReturn(Optional.of(order));
+        when(repository.findByIdForUpdate("MORD-1")).thenReturn(Optional.of(order));
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> service.confirmDelivery("CUST-OTHER", "MORD-1"));
@@ -274,15 +300,17 @@ class MarketplaceOrderServiceTest {
     void buyerDisputeMarksPayoutDisputedAndBlocksFulfillment() {
         MarketplaceOrder order = paidOrder();
         order.setFulfillmentStatus(FulfillmentStatus.SHIPPED);
-        when(repository.findById("MORD-1")).thenReturn(Optional.of(order));
+        when(repository.findByIdForUpdate("MORD-1")).thenReturn(Optional.of(order));
         when(repository.save(any(MarketplaceOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         MarketplaceOrderResponse response = service.openDispute("CUST-1", "MORD-1", "Box arrived empty.");
 
         assertEquals("Box arrived empty.", response.getDisputeReason());
+        verify(repository).findByIdForUpdate("MORD-1");
+        verify(repository, never()).findById("MORD-1");
         verify(sellerPayoutService).markDisputed("MARKETPLACE_ORDER", "MORD-1");
 
-        when(repository.findByMarketplaceOrderIdAndSellerId("MORD-1", "SELLER-1")).thenReturn(Optional.of(order));
+        when(repository.findByIdForUpdate("MORD-1")).thenReturn(Optional.of(order));
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> service.updateFulfillment("SELLER-1", "MORD-1", FulfillmentStatus.DELIVERED));
         assertEquals("Disputed marketplace orders cannot be fulfilled until the dispute is resolved.", ex.getMessage());
@@ -294,7 +322,7 @@ class MarketplaceOrderServiceTest {
         order.setFulfillmentStatus(FulfillmentStatus.SHIPPED);
         order.setDisputedAt(LocalDateTime.now());
         order.setDisputeReason("배송 지연");
-        when(repository.findById("MORD-1")).thenReturn(Optional.of(order));
+        when(repository.findByIdForUpdate("MORD-1")).thenReturn(Optional.of(order));
         when(repository.save(any(MarketplaceOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         MarketplaceOrderResponse response = service.resolveDispute(
@@ -306,7 +334,8 @@ class MarketplaceOrderServiceTest {
 
         assertEquals(DisputeResolution.PAYOUT_READY, response.getDisputeResolution());
         assertEquals(FulfillmentStatus.DELIVERED, response.getFulfillmentStatus());
-        verify(sellerPayoutService).markReadyForRelease("MARKETPLACE_ORDER", "MORD-1");
+        verify(sellerPayoutService).markReadyAfterDisputeResolution(order);
+        verify(sellerPayoutService, never()).markReadyForRelease(any(), any());
     }
 
     @Test
@@ -315,7 +344,7 @@ class MarketplaceOrderServiceTest {
         order.setFulfillmentStatus(FulfillmentStatus.SHIPPED);
         order.setDisputedAt(LocalDateTime.now());
         order.setDisputeReason("빈 박스 수령");
-        when(repository.findById("MORD-1")).thenReturn(Optional.of(order));
+        when(repository.findByIdForUpdate("MORD-1")).thenReturn(Optional.of(order));
         when(repository.save(any(MarketplaceOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         MarketplaceOrderResponse response = service.resolveDispute(
@@ -337,7 +366,7 @@ class MarketplaceOrderServiceTest {
         order.setFulfillmentStatus(FulfillmentStatus.SHIPPED);
         order.setDisputedAt(LocalDateTime.now());
         order.setDisputeReason("Item was not delivered.");
-        when(repository.findById("MORD-1")).thenReturn(Optional.of(order));
+        when(repository.findByIdForUpdate("MORD-1")).thenReturn(Optional.of(order));
         when(repository.save(any(MarketplaceOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(paymentProcessingService.refundPaymentWithResult(
                 eq("PAY-1"),
@@ -374,7 +403,7 @@ class MarketplaceOrderServiceTest {
         order.setFulfillmentStatus(FulfillmentStatus.SHIPPED);
         order.setDisputedAt(LocalDateTime.now());
         order.setDisputeReason("Item was not delivered.");
-        when(repository.findById("MORD-1")).thenReturn(Optional.of(order));
+        when(repository.findByIdForUpdate("MORD-1")).thenReturn(Optional.of(order));
         when(repository.save(any(MarketplaceOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(paymentProcessingService.refundPaymentWithResult(any(), any(), any())).thenReturn(
                 new PaymentProcessingService.RefundResult(
@@ -401,6 +430,7 @@ class MarketplaceOrderServiceTest {
     @Test
     void providerFullRefundSyncMarksMarketplaceOrderRefundedAndCancelsPayout() {
         MarketplaceOrder order = paidOrder();
+        when(repository.findByIdForUpdate("MORD-1")).thenReturn(Optional.of(order));
         when(repository.findByPaymentId("PAY-1")).thenReturn(Optional.of(order));
         when(repository.save(any(MarketplaceOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -415,6 +445,7 @@ class MarketplaceOrderServiceTest {
     @Test
     void providerPartialRefundSyncMarksMarketplaceOrderPartiallyRefundedAndDisputed() {
         MarketplaceOrder order = paidOrder();
+        when(repository.findByIdForUpdate("MORD-1")).thenReturn(Optional.of(order));
         when(repository.findByPaymentId("PAY-1")).thenReturn(Optional.of(order));
         when(repository.save(any(MarketplaceOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
 

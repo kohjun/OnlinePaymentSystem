@@ -55,6 +55,7 @@ class RaffleServiceTest {
     private final MarketplaceRealtimeService marketplaceRealtimeService = mock(MarketplaceRealtimeService.class);
     private final RedisTemplate<String, Object> redisTemplate = mock(RedisTemplate.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final MarketplaceNotificationService notificationService = mock(MarketplaceNotificationService.class);
 
     private final RaffleService service = new RaffleService(
             saleEventRepository,
@@ -66,7 +67,8 @@ class RaffleServiceTest {
             commercePolicyService,
             marketplaceRealtimeService,
             redisTemplate,
-            objectMapper
+            objectMapper,
+            notificationService
     );
 
     @BeforeEach

@@ -38,6 +38,9 @@ public class ReservationController {
     @Value("${app.checkout.public-complete-enabled:false}")
     private boolean publicCompleteEnabled;
 
+    @Value("${app.checkout.legacy-reservation-api-enabled:false}")
+    private boolean legacyReservationApiEnabled;
+
     // ========================================
     // 새로운 통합 API (권장 방식)
     // ========================================
@@ -141,6 +144,13 @@ public class ReservationController {
     public ResponseEntity<ReservationResponse> reserveInventory(  // 변경된 Response 타입
                                                                   @Valid @RequestBody ReservationOnlyRequest request) {  // 변경된 Request 타입
 
+        if (!legacyReservationApiEnabled) {
+            return ResponseEntity.status(HttpStatus.GONE).body(ReservationResponse.failed(
+                    request.getProductId(), request.getQuantity(), "DIRECT_RESERVATION_DISABLED",
+                    "단독 재고 예약 API는 비활성화되어 있습니다. 마켓플레이스 Toss 결제를 이용해 주세요."
+            ));
+        }
+
         request.setCustomerId(authorizationGuard.currentCustomerId());
         log.info("Inventory reservation request: productId={}, customerId={}, quantity={}",
                 request.getProductId(), request.getCustomerId(), request.getQuantity());
@@ -226,6 +236,12 @@ public class ReservationController {
     public ResponseEntity<String> cancelReservation(@PathVariable String reservationId,
                                                     @RequestParam String customerId,
                                                     @RequestParam(required = false) String reason) {
+
+        if (!legacyReservationApiEnabled) {
+            return ResponseEntity.status(HttpStatus.GONE).body(
+                    "단독 예약 취소 API는 비활성화되어 있습니다. 주문 취소·환불 절차를 이용해 주세요."
+            );
+        }
 
         // customerId 파라미터가 호출자 본인인지 확인한 뒤, 그 예약이 실제로
         // 호출자의 것인지까지 확인한다. 후자가 없으면 남의 예약에 취소를 걸어도
