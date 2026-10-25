@@ -406,6 +406,148 @@ class CommerceLifecycleHttpIntegrationTest extends FullCommerceTestcontainersSup
         runDropPurchase(fault);
     }
 
+    /**
+     * 래플 추첨·경매 마감부터 낙찰자 결제, 주문·정산 원장까지.
+     *
+     * 낙찰자 재고 hold는 UTC 만료 시각으로 만들어진다. 서버 시간대가 UTC가 아니던
+     * 시절에는 추첨·마감이 hold 생성에서 실패했고, 이 경로를 끝까지 타는 시나리오가 없어
+     * 드러나지 않았다.
+     */
+    @org.junit.jupiter.params.ParameterizedTest(name = "{0} confirmResponseLost={1}")
+    @org.junit.jupiter.params.provider.CsvSource({"RAFFLE,false", "RAFFLE,true", "AUCTION,false", "AUCTION,true"})
+    void winnerCheckoutCompletesThroughTemporalTossAndPayoutLedger(String saleType, boolean confirmResponseLost)
+            throws Exception {
+        String runId = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        HttpHeaders sellerHeaders = headers("USER-SELLER-" + runId, "CUST-SELLER-" + runId, "CUSTOMER,SELLER");
+        String winnerId = "CUST-WINNER-" + runId;
+        HttpHeaders winnerHeaders = headers("USER-WINNER-" + runId, winnerId, "CUSTOMER");
+        HttpHeaders outsiderHeaders = headers("USER-OUTSIDER-" + runId, "CUST-OUTSIDER-" + runId, "CUSTOMER");
+        HttpHeaders adminHeaders = headers("USER-ADMIN-" + runId, "CUST-ADMIN-" + runId, "ADMIN");
+        Map<String, String> listing = publishApprovedListing(runId, sellerHeaders, adminHeaders);
+        String productId = listing.get("productId");
+
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        Map<String, Object> eventBody = new java.util.HashMap<>(Map.of(
+                "saleType", saleType,
+                "price", 25000,
+                "stockQuantity", 1,
+                "maxQuantityPerCustomer", 1,
+                "activationMode", "IMMEDIATE",
+                "startsAt", now.minusMinutes(1).toString(),
+                "endsAt", now.plusHours(2).toString()
+        ));
+        if ("AUCTION".equals(saleType)) eventBody.put("minBidIncrement", 1000);
+        Map<?, ?> saleEvent = post("/api/c2c/listings/" + listing.get("listingId") + "/sale-events",
+                sellerHeaders, eventBody, Map.class, HttpStatus.CREATED).getBody();
+        assertNotNull(saleEvent);
+        assertEquals("LIVE", saleEvent.get("saleEventStatus"));
+        String eventPath = "/api/marketplace/events/" + saleEvent.get("saleEventId");
+        // 브라우저가 UTC 시각을 현지 시각으로 오해하지 않도록 응답 시각에는 Z가 붙는다.
+        Map<?, ?> publicEvent = get(eventPath, winnerHeaders, Map.class, HttpStatus.OK).getBody();
+        assertNotNull(publicEvent);
+        assertTrue(String.valueOf(publicEvent.get("endsAt")).endsWith("Z"), "endsAt: " + publicEvent.get("endsAt"));
+
+        int amount;
+        String checkoutPath;
+        if ("RAFFLE".equals(saleType)) {
+            post(eventPath + "/raffle/entries", winnerHeaders,
+                    Map.of("idempotencyKey", "E2E-ENTRY-" + runId), String.class, HttpStatus.CREATED);
+            post(eventPath + "/raffle/draw", adminHeaders, Map.of("winnerCount", 1), String.class, HttpStatus.OK);
+            amount = 25000;
+            checkoutPath = eventPath + "/raffle/winner-checkout/toss/intents";
+        } else {
+            post(eventPath + "/bids", winnerHeaders,
+                    Map.of("bidAmount", 26000, "idempotencyKey", "E2E-BID-" + runId), String.class, HttpStatus.CREATED);
+            post(eventPath + "/auction/close", adminHeaders, null, String.class, HttpStatus.OK);
+            amount = 26000;
+            checkoutPath = eventPath + "/auction/winner-checkout/toss/intents";
+        }
+        assertEquals(1, jdbc.queryForObject(
+                "select count(*) from inventory_reservations where product_id=? and status='RESERVED'",
+                Integer.class, productId));
+        String offerMessage = jdbc.queryForObject(
+                "select message from marketplace_notifications where recipient_customer_id=? and notification_type=?",
+                String.class, winnerId, saleType + "_WINNER_OFFERED");
+        assertTrue(offerMessage != null && offerMessage.contains("(KST)"), offerMessage);
+
+        Map<String, Object> checkout = new java.util.HashMap<>(checkoutBody(runId, winnerId));
+        checkout.put("paymentInfo", Map.of("amount", amount, "currency", "KRW", "paymentMethod", "CREDIT_CARD"));
+        assertEquals(HttpStatus.FORBIDDEN, post(checkoutPath, outsiderHeaders, checkout, String.class).getStatusCode());
+        TossPaymentIntentResponse intent = post(checkoutPath, winnerHeaders, checkout,
+                TossPaymentIntentResponse.class, HttpStatus.OK).getBody();
+        assertNotNull(intent);
+
+        Map<String, Object> confirmBody = Map.of(
+                "intentId", intent.getIntentId(),
+                "paymentKey", "pay_test_winner_" + runId,
+                "orderId", intent.getOrderId(),
+                "amount", intent.getAmount()
+        );
+        DROP_CONFIRM_RESPONSE.set(confirmResponseLost);
+        FAIL_LOOKUPS.set(confirmResponseLost ? 1 : 0);
+        CompleteReservationResponse terminal = awaitTerminalConfirm(winnerHeaders, confirmBody);
+        assertEquals("SUCCESS", terminal.getStatus());
+        assertEquals(1, TOSS_CONFIRM_CALLS.get());
+        assertEquals(0, TOSS_CANCEL_CALLS.get());
+
+        String orderStatus = jdbc.queryForObject(
+                "select status from marketplace_orders where sale_event_id=? and customer_id=?",
+                String.class, saleEvent.get("saleEventId"), winnerId);
+        assertEquals("PAID", orderStatus);
+        assertEquals("HELD", jdbc.queryForObject(
+                "select p.status from seller_payouts p join marketplace_orders o on p.source_id = o.marketplace_order_id"
+                        + " where o.sale_event_id=?", String.class, saleEvent.get("saleEventId")));
+        assertEquals("RAFFLE".equals(saleType) ? "COMPLETED" : "PAID", jdbc.queryForObject(
+                "RAFFLE".equals(saleType)
+                        ? "select checkout_status from raffle_winners where sale_event_id=? and customer_id=?"
+                        : "select status from auction_settlements where sale_event_id=? and customer_id=?",
+                String.class, saleEvent.get("saleEventId"), winnerId));
+        Inventory inventory = inventoryRepository.findById(productId).orElseThrow();
+        assertEquals(0, inventory.getAvailableQuantity());
+        assertEquals(0, inventory.getReservedQuantity());
+        assertEquals(0, Integer.parseInt(String.valueOf(
+                resourceReservationService.getResourceStatus("inventory:" + productId).get("reserved"))));
+
+        CompleteReservationResponse replay = post("/api/payments/toss/confirm", winnerHeaders, confirmBody,
+                CompleteReservationResponse.class, HttpStatus.OK).getBody();
+        assertNotNull(replay);
+        assertEquals("SUCCESS", replay.getStatus());
+        assertEquals(1, TOSS_CONFIRM_CALLS.get());
+    }
+
+    private Map<String, String> publishApprovedListing(String runId, HttpHeaders sellerHeaders, HttpHeaders adminHeaders) {
+        Map<?, ?> seller = post("/api/me/seller-profile", sellerHeaders,
+                Map.of("displayName", "E2E Seller " + runId), Map.class, HttpStatus.CREATED).getBody();
+        assertNotNull(seller);
+        String sellerId = String.valueOf(seller.get("sellerId"));
+        post("/api/c2c/seller/verification", sellerHeaders, Map.of(
+                "evidenceRef", "e2e://verification/" + runId,
+                "note", "Winner checkout E2E verification"
+        ), String.class, HttpStatus.OK);
+        post("/api/admin/operations/queues/sellerVerifications/items/" + sellerId + "/actions/approve",
+                adminHeaders, Map.of("note", "Approved by winner checkout E2E"), String.class, HttpStatus.OK);
+
+        Map<?, ?> listing = post("/api/c2c/listings", sellerHeaders, Map.of(
+                "name", "E2E Winner Item " + runId,
+                "description", "Winner checkout lifecycle test item",
+                "price", 25000,
+                "category", "OTHER",
+                "quantity", 1,
+                "itemCondition", "GOOD",
+                "authenticityNote", "E2E fixture"
+        ), Map.class, HttpStatus.CREATED).getBody();
+        assertNotNull(listing);
+        String listingId = String.valueOf(listing.get("listingId"));
+        uploadMedia(listingId, sellerHeaders, "PRODUCT_IMAGE", "front.png",
+                new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3});
+        uploadMedia(listingId, sellerHeaders, "AUTHENTICITY_EVIDENCE", "receipt.pdf",
+                "%PDF-1.7 winner-e2e".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        post("/api/c2c/listings/" + listingId + "/submit", sellerHeaders, null, String.class, HttpStatus.OK);
+        post("/api/admin/operations/queues/listingReviews/items/" + listingId + "/actions/approve",
+                adminHeaders, Map.of("note", "Approved by winner checkout E2E"), String.class, HttpStatus.OK);
+        return Map.of("listingId", listingId, "productId", String.valueOf(listing.get("productId")));
+    }
+
     private void runDropPurchase(CheckoutFault fault) throws Exception {
         boolean lostResponses = fault == CheckoutFault.RESPONSE_LOSS;
         boolean replaceWorker = fault == CheckoutFault.WORKER_REPLACEMENT;
