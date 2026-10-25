@@ -11,7 +11,9 @@ export default defineConfig({
   build: {
     outDir: '../src/main/resources/static/app',
     emptyOutDir: true,
-    sourcemap: true
+    // 이 출력이 jar에 그대로 들어가 공개 경로(/app/)로 서빙된다. 소스맵을 넣으면
+    // 원본 TypeScript가 함께 배포된다. 디버깅이 필요하면 `vite build --sourcemap`.
+    sourcemap: false
   },
   server: {
     port: 5173,

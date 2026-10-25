@@ -199,6 +199,13 @@ Invoke-Step "React marketplace quality gate" {
     }
 }
 
+Invoke-Step "Public bundle has no source maps" {
+    $maps = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot "src\main\resources\static\app") -Recurse -File -Filter *.map)
+    if ($maps.Count -gt 0) {
+        throw "Source maps would ship in the public /app/ bundle: $($maps.Name -join ', ')"
+    }
+}
+
 # The whole unit suite, not a hand-picked list. The previous 20 --tests filters
 # silently omitted 19 existing test classes and still referenced a test that had
 # been deleted. build.gradle already excludes the integration and toss-sandbox
