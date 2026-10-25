@@ -342,6 +342,20 @@ Invoke-Step "Toss payment configuration scan" {
 }
 
 if (-not $SkipDesktopPackage) {
+    # The desktop app runs whatever jar sits next to main.js. Without rebuilding it,
+    # the package kept shipping a months-old backend while every check here passed.
+    $builtJar = Join-Path $repoRoot "build_sim_new\libs\payment-0.0.1-SNAPSHOT.jar"
+    $bundledJar = Join-Path $desktopApp "payment-0.0.1-SNAPSHOT.jar"
+
+    Invoke-Step "Backend jar for desktop package" {
+        Clear-GradleProblemsReport
+        Invoke-Native $gradle @("bootJar", "--no-daemon", "--no-problems-report")
+        if (-not (Test-Path $builtJar)) {
+            throw "bootJar did not produce the expected backend jar: $builtJar"
+        }
+        Copy-Item -LiteralPath $builtJar -Destination $bundledJar -Force
+    }
+
     Invoke-Step "Electron desktop package" {
         Push-Location $desktopApp
         try {
@@ -353,6 +367,13 @@ if (-not $SkipDesktopPackage) {
         $exe = Join-Path $desktopApp "dist\EverySale-win32-x64\EverySale.exe"
         if (-not (Test-Path $exe)) {
             throw "Expected packaged executable was not found: $exe"
+        }
+        $packagedJar = Join-Path $desktopApp "dist\EverySale-win32-x64\resources\app\payment-0.0.1-SNAPSHOT.jar"
+        if (-not (Test-Path $packagedJar)) {
+            throw "Packaged executable has no backend jar: $packagedJar"
+        }
+        if ((Get-FileHash -LiteralPath $packagedJar).Hash -ne (Get-FileHash -LiteralPath $builtJar).Hash) {
+            throw "Packaged backend jar does not match the jar built from this working tree."
         }
     }
 }
