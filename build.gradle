@@ -25,6 +25,10 @@ repositories {
     mavenCentral()
 }
 
+// Boot 3.2 BOM이 Testcontainers 코어를 1.19.5로 고정한다. 1.21.4 미만은 Docker 29
+// (최소 API 1.44)에 접속하지 못해 통합 테스트가 전부 스킵되므로 BOM 버전을 올린다.
+ext['testcontainers.version'] = '1.21.4'
+
 dependencies {
     // Spring Boot 기본 의존성
     implementation 'org.springframework.boot:spring-boot-starter-web'
@@ -95,9 +99,9 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.kafka:spring-kafka-test'
     testImplementation 'io.temporal:temporal-testing:1.35.0'
-    testImplementation 'org.testcontainers:junit-jupiter:1.20.4'
-    testImplementation 'org.testcontainers:postgresql:1.20.4'
-    testImplementation 'org.testcontainers:kafka:1.20.4'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:postgresql'
+    testImplementation 'org.testcontainers:kafka'
 }
 
 tasks.withType(Test).configureEach {
