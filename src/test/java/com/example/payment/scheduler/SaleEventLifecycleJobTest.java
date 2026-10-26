@@ -1,6 +1,7 @@
 package com.example.payment.scheduler;
 
 import com.example.payment.application.service.RaffleService;
+import com.example.payment.application.service.SaleEventActivationService;
 import com.example.payment.domain.model.marketplace.SaleEvent;
 import com.example.payment.domain.model.marketplace.SaleEventStatus;
 import com.example.payment.domain.model.marketplace.SaleType;
@@ -20,7 +21,9 @@ class SaleEventLifecycleJobTest {
 
     private final SaleEventRepository saleEventRepository = mock(SaleEventRepository.class);
     private final RaffleService raffleService = mock(RaffleService.class);
-    private final SaleEventLifecycleJob job = new SaleEventLifecycleJob(saleEventRepository, raffleService);
+    private final SaleEventActivationService activationService = mock(SaleEventActivationService.class);
+    private final SaleEventLifecycleJob job = new SaleEventLifecycleJob(
+            saleEventRepository, raffleService, activationService);
 
     @Test
     void closesDueRafflesAndNonCompetitiveEvents() {
@@ -42,5 +45,12 @@ class SaleEventLifecycleJobTest {
                 eq(SaleEventStatus.LIVE),
                 eq(SaleEventStatus.ENDED),
                 any(LocalDateTime.class));
+    }
+
+    @Test
+    void activatesDueSchedulesThroughLockedBatchService() {
+        job.activateDueEvents();
+
+        verify(activationService).activateDueEvents(any(LocalDateTime.class), eq(100));
     }
 }

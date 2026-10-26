@@ -29,6 +29,7 @@ public class SellerPayoutTransferCoordinator {
     private final SellerPayoutAccountRepository payoutAccountRepository;
     private final SellerPayoutRepository payoutRepository;
     private final ObjectProvider<SellerPayoutTransferGateway> gatewayProvider;
+    private final PayoutTransferClaimWriter writer;
 
     public SellerPayoutTransfer transfer(SellerPayout payout) {
         SellerPayoutTransferGateway gateway = gatewayProvider.getIfAvailable();
@@ -45,20 +46,8 @@ public class SellerPayoutTransferCoordinator {
             throw new IllegalStateException("Seller payout transfer gateway provider name is missing.");
         }
         String idempotencyKey = "seller-payout:" + payout.getPayoutId();
-        SellerPayoutTransfer transfer = transferRepository
-                .findByPayoutIdAndIdempotencyKey(payout.getPayoutId(), idempotencyKey)
-                .orElseGet(() -> transferRepository.save(SellerPayoutTransfer.builder()
-                        .transferId("PTR-" + shortId())
-                        .payoutId(payout.getPayoutId())
-                        .idempotencyKey(idempotencyKey)
-                        .amount(payout.getNetAmount())
-                        .currency("KRW")
-                        .status(PayoutTransferStatus.CREATED)
-                        .provider(gatewayName)
-                        .attemptCount(0)
-                        .createdAt(LocalDateTime.now())
-                        .updatedAt(LocalDateTime.now())
-                        .build()));
+        var claim = writer.claim(payout.getPayoutId(), gatewayName);
+        SellerPayoutTransfer transfer = claim.transfer();
 
         if (transfer.getStatus() == PayoutTransferStatus.SUCCEEDED) {
             return transfer;
@@ -68,27 +57,20 @@ public class SellerPayoutTransferCoordinator {
         }
 
         SellerPayoutTransferGateway.TransferResult result;
-        if (transfer.getStatus() == PayoutTransferStatus.PROCESSING
-                || transfer.getStatus() == PayoutTransferStatus.UNKNOWN) {
+        if (!claim.submit()) {
             result = gateway.getStatus(transfer.getProviderTransferId(), idempotencyKey);
         } else {
-            transfer.setStatus(PayoutTransferStatus.PROCESSING);
-            transfer.setAttemptCount(transfer.getAttemptCount() + 1);
-            transfer.setFailureReason(null);
-            transferRepository.save(transfer);
             try {
                 result = gateway.transfer(new SellerPayoutTransferGateway.TransferRequest(
                         payout.getPayoutId(),
                         payout.getSellerId(),
                         account.getAccountRef(),
-                        payout.getNetAmount(),
-                        "KRW",
+                        transfer.getAmount(),
+                        transfer.getCurrency(),
                         idempotencyKey
                 ));
             } catch (RuntimeException e) {
-                transfer.setStatus(PayoutTransferStatus.UNKNOWN);
-                transfer.setFailureReason(e.getMessage());
-                transferRepository.save(transfer);
+                writer.observe(transfer.getTransferId(), SellerPayoutTransferGateway.TransferResult.unknown("Payout response unavailable"));
                 throw new IllegalStateException("Payout transfer result is unknown: " + payout.getPayoutId(), e);
             }
         }
@@ -124,9 +106,7 @@ public class SellerPayoutTransferCoordinator {
             String gatewayProviderName = gateway.providerName();
             if (gatewayProviderName == null || transfer.getProvider() == null
                     || !gatewayProviderName.equalsIgnoreCase(transfer.getProvider())) {
-                transfer.setStatus(PayoutTransferStatus.UNKNOWN);
-                transfer.setFailureReason("Configured payout provider does not match transfer provider.");
-                transferRepository.save(transfer);
+                writer.observe(transfer.getTransferId(), SellerPayoutTransferGateway.TransferResult.unknown("Payout provider mismatch"));
                 continue;
             }
 
@@ -135,51 +115,17 @@ public class SellerPayoutTransferCoordinator {
                         transfer.getProviderTransferId(),
                         transfer.getIdempotencyKey());
                 SellerPayoutTransfer saved = applyResult(transfer, result);
-                if (saved.getStatus() == PayoutTransferStatus.SUCCEEDED) {
-                    markPayoutReleased(saved.getPayoutId());
-                }
                 reconciled++;
             } catch (RuntimeException exception) {
-                transfer.setStatus(PayoutTransferStatus.UNKNOWN);
-                transfer.setFailureReason(safeFailureReason(exception));
-                transferRepository.save(transfer);
+                writer.observe(transfer.getTransferId(), SellerPayoutTransferGateway.TransferResult.unknown("Payout lookup unavailable"));
             }
         }
         return reconciled;
     }
 
-    private SellerPayoutTransfer applyResult(
-            SellerPayoutTransfer transfer,
-            SellerPayoutTransferGateway.TransferResult result) {
-        if (result == null || result.status() == null) {
-            transfer.setStatus(PayoutTransferStatus.UNKNOWN);
-            transfer.setFailureReason("Payout provider returned an empty transfer status.");
-            return transferRepository.save(transfer);
-        }
-        if (result.status() == PayoutTransferStatus.SUCCEEDED
-                && (result.providerTransferId() == null || result.providerTransferId().isBlank())) {
-            transfer.setStatus(PayoutTransferStatus.UNKNOWN);
-            transfer.setFailureReason("Payout provider reported success without a transfer identifier.");
-            return transferRepository.save(transfer);
-        }
-
-        transfer.setStatus(result.status());
-        transfer.setProviderTransferId(result.providerTransferId());
-        transfer.setFailureReason(result.failureReason());
-        if (result.status() == PayoutTransferStatus.SUCCEEDED) {
-            transfer.setCompletedAt(LocalDateTime.now());
-        }
-        return transferRepository.save(transfer);
-    }
-
-    private void markPayoutReleased(String payoutId) {
-        payoutRepository.findById(payoutId).ifPresent(payout -> {
-            if (payout.getStatus() == SellerPayoutStatus.READY_FOR_RELEASE) {
-                payout.setStatus(SellerPayoutStatus.RELEASED);
-                payout.setReleasedAt(LocalDateTime.now());
-                payoutRepository.save(payout);
-            }
-        });
+    private SellerPayoutTransfer applyResult(SellerPayoutTransfer transfer,
+                                            SellerPayoutTransferGateway.TransferResult result) {
+        return writer.observe(transfer.getTransferId(), result);
     }
 
     private String safeFailureReason(RuntimeException exception) {

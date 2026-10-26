@@ -9,6 +9,7 @@ vi.mock('./api', () => ({
   ApiError: class extends Error {},
   api: {
     listSellerReviews: vi.fn(),
+    publicListingImages: vi.fn(),
     reportListing: vi.fn(),
     auctionStatus: vi.fn(),
     raffleStatus: vi.fn(),
@@ -39,13 +40,14 @@ const identity: Identity = { customerId: 'CUST-1', userId: 'USER-1', roles: ['CU
 
 function renderDetail() {
   return render(
-    <EventDetail event={event} identity={identity} onClose={vi.fn()} notify={vi.fn()} />
+    <EventDetail event={event} identity={identity} onClose={vi.fn()} onRequireAuthentication={vi.fn()} notify={vi.fn()} />
   );
 }
 
 describe('EventDetail seller reputation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(api.publicListingImages).mockResolvedValue([] as never);
   });
 
   it('shows the seller rating so a buyer can judge before paying', async () => {
@@ -91,5 +93,19 @@ describe('EventDetail seller reputation', () => {
     fireEvent.click(await screen.findByRole('button', { name: /상품 신고/ }));
 
     await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
+  });
+
+  it('lets guests inspect the product and asks them to sign in only when purchasing', async () => {
+    vi.mocked(api.listSellerReviews).mockResolvedValue([] as never);
+    const requireAuthentication = vi.fn();
+    const notify = vi.fn();
+
+    render(<EventDetail event={event} onClose={vi.fn()}
+      onRequireAuthentication={requireAuthentication} notify={notify} />);
+
+    expect(await screen.findByRole('heading', { name: '한정판 스니커즈' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /로그인 후 구매/ }));
+    expect(requireAuthentication).toHaveBeenCalledOnce();
+    expect(notify).toHaveBeenCalledWith('거래를 계속하려면 로그인해 주세요.', 'info');
   });
 });

@@ -199,6 +199,13 @@ Invoke-Step "React marketplace quality gate" {
     }
 }
 
+Invoke-Step "Public bundle has no source maps" {
+    $maps = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot "src\main\resources\static\app") -Recurse -File -Filter *.map)
+    if ($maps.Count -gt 0) {
+        throw "Source maps would ship in the public /app/ bundle: $($maps.Name -join ', ')"
+    }
+}
+
 # The whole unit suite, not a hand-picked list. The previous 20 --tests filters
 # silently omitted 19 existing test classes and still referenced a test that had
 # been deleted. build.gradle already excludes the integration and toss-sandbox
@@ -293,8 +300,10 @@ Invoke-Step "Toss payment configuration scan" {
     Assert-LiteralMatch 'client-key: ${TOSS_CLIENT_KEY:}' $configPaths "Toss client key environment binding"
     Assert-LiteralMatch 'secret-key: ${TOSS_SECRET_KEY:}' $configPaths "Toss secret key environment binding"
     Assert-LiteralMatch "public-complete-enabled: false" $configPaths "direct complete reservation API disabled"
+    Assert-LiteralMatch "legacy-reservation-api-enabled: false" $configPaths "direct reservation mutation API disabled"
     Assert-LiteralMatch "enabled: false" $configPaths "disabled legacy/mock defaults"
     Assert-NoLiteralMatch '@PostMapping("/process")' @("src\main\java\com\example\payment\presentation\controller\PaymentController.java") "removed legacy payment process endpoint"
+    Assert-NoLiteralMatch '@PostMapping("/{orderId}/cancel")' @("src\main\java\com\example\payment\presentation\controller\OrderController.java") "removed direct order cancellation endpoint"
     Assert-NoLiteralMatch '@PostMapping("/events/{eventId}/checkout")' @("src\main\java\com\example\payment\presentation\controller\MarketplaceController.java") "removed non-Toss marketplace checkout endpoint"
     Assert-LiteralMatch "mode: live" @("src\main\resources\application-prod.yml") "production Toss live mode"
     Assert-NoLiteralMatch "/api/simulation" @("src\main\java", "frontend\src") "removed simulation API exposure"
@@ -313,7 +322,24 @@ Invoke-Step "Toss payment configuration scan" {
     Assert-LiteralMatch "auction-auto-close-enabled" @("src\main\java\com\example\payment\application\service\DistributionReadinessService.java") "auction auto-close readiness check"
     Assert-LiteralMatch "marketplace-realtime-broadcast-enabled" @("src\main\java\com\example\payment\application\service\DistributionReadinessService.java") "distributed marketplace realtime readiness check"
     Assert-LiteralMatch "MarketplaceConcurrencyIntegrationTest" @("README.md", "src\test\java\com\example\payment\MarketplaceConcurrencyIntegrationTest.java") "commercial concurrency integration gate"
+    Assert-LiteralMatch "CommerceLifecycleHttpIntegrationTest" @("README.md", "src\test\java\com\example\payment\CommerceLifecycleHttpIntegrationTest.java") "commercial HTTP lifecycle integration gate"
+    $commercialSmokePath = @("scripts\verify-c2c-commercial-smoke.ps1")
+    Assert-LiteralMatch "FIXED_PRICE" $commercialSmokePath "fixed-price commercial smoke coverage"
+    Assert-LiteralMatch "DROP" $commercialSmokePath "drop commercial smoke coverage"
+    Assert-LiteralMatch "AUCTION" $commercialSmokePath "auction commercial smoke coverage"
+    Assert-LiteralMatch "RAFFLE" $commercialSmokePath "raffle commercial smoke coverage"
+    Assert-LiteralMatch "CUST-BUYER-SMOKE" @("scripts\verify-c2c-commercial-smoke.ps1") "commercial smoke distinct buyer identity"
     Assert-LiteralMatch "redis-broadcast-enabled: true" @("src\main\resources\application-prod.yml") "production distributed marketplace realtime broadcast"
+    Assert-LiteralMatch "storage-provider: S3" @("src\main\resources\application-prod.yml") "production marketplace media object storage"
+    Assert-LiteralMatch "validate-on-startup: true" @("src\main\resources\application-prod.yml") "production media storage startup validation"
+    Assert-LiteralMatch 'bucket: ${MEDIA_S3_BUCKET}' @("src\main\resources\application-prod.yml") "production media bucket binding"
+    Assert-LiteralMatch "MEDIA_S3_BUCKET" @(".env.prod.example", "scripts\verify-production-env.ps1") "production media bucket inventory"
+    Assert-LiteralMatch "provider: CLAMAV" @("src\main\resources\application-prod.yml") "production media malware scanner"
+    Assert-LiteralMatch "MEDIA_CLAMAV_HOST" @(".env.prod.example", "scripts\verify-production-env.ps1") "production malware scanner inventory"
+    Assert-LiteralMatch "marketplace-media-malware-scan" @("src\main\java\com\example\payment\application\service\DistributionReadinessService.java") "media malware scanning readiness check"
+    Assert-LiteralMatch "external-auth-frontend" @("src\main\java\com\example\payment\application\service\DistributionReadinessService.java") "frontend OIDC readiness check"
+    Assert-LiteralMatch "OIDC_AUTHORIZATION_URI" @(".env.prod.example", "scripts\verify-production-env.ps1") "frontend OIDC authorization endpoint inventory"
+    Assert-LiteralMatch "completeOidcCallbackIfPresent" @("frontend\src\api.ts", "frontend\src\App.tsx") "frontend OIDC PKCE callback"
     Assert-LiteralMatch "seller-payout-transfer-provider" @("src\main\java\com\example\payment\application\service\DistributionReadinessService.java") "seller payout transfer readiness check"
     Assert-LiteralMatch "seller-payout-reconciliation-enabled" @("src\main\java\com\example\payment\application\service\DistributionReadinessService.java") "seller payout reconciliation readiness check"
     Assert-LiteralMatch 'provider: ${PAYOUT_TRANSFER_PROVIDER:}' @("src\main\resources\application-prod.yml") "production payout transfer provider binding"
@@ -323,6 +349,20 @@ Invoke-Step "Toss payment configuration scan" {
 }
 
 if (-not $SkipDesktopPackage) {
+    # The desktop app runs whatever jar sits next to main.js. Without rebuilding it,
+    # the package kept shipping a months-old backend while every check here passed.
+    $builtJar = Join-Path $repoRoot "build_sim_new\libs\payment-0.0.1-SNAPSHOT.jar"
+    $bundledJar = Join-Path $desktopApp "payment-0.0.1-SNAPSHOT.jar"
+
+    Invoke-Step "Backend jar for desktop package" {
+        Clear-GradleProblemsReport
+        Invoke-Native $gradle @("bootJar", "--no-daemon", "--no-problems-report")
+        if (-not (Test-Path $builtJar)) {
+            throw "bootJar did not produce the expected backend jar: $builtJar"
+        }
+        Copy-Item -LiteralPath $builtJar -Destination $bundledJar -Force
+    }
+
     Invoke-Step "Electron desktop package" {
         Push-Location $desktopApp
         try {
@@ -334,6 +374,13 @@ if (-not $SkipDesktopPackage) {
         $exe = Join-Path $desktopApp "dist\EverySale-win32-x64\EverySale.exe"
         if (-not (Test-Path $exe)) {
             throw "Expected packaged executable was not found: $exe"
+        }
+        $packagedJar = Join-Path $desktopApp "dist\EverySale-win32-x64\resources\app\payment-0.0.1-SNAPSHOT.jar"
+        if (-not (Test-Path $packagedJar)) {
+            throw "Packaged executable has no backend jar: $packagedJar"
+        }
+        if ((Get-FileHash -LiteralPath $packagedJar).Hash -ne (Get-FileHash -LiteralPath $builtJar).Hash) {
+            throw "Packaged backend jar does not match the jar built from this working tree."
         }
     }
 }

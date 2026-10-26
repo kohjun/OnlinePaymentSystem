@@ -35,16 +35,27 @@ class SellerPayoutTransferCoordinatorTest {
     private final SellerPayoutRepository payoutRepository = mock(SellerPayoutRepository.class);
     private final SellerPayoutTransferGateway gateway = mock(SellerPayoutTransferGateway.class);
     private final ObjectProvider<SellerPayoutTransferGateway> gatewayProvider = mock(ObjectProvider.class);
+    private final CommerceSettlementGuard guard = mock(CommerceSettlementGuard.class);
+    private final com.example.payment.domain.repository.MarketplaceOrderRepository orders = mock(com.example.payment.domain.repository.MarketplaceOrderRepository.class);
+    private final PayoutTransferClaimWriter writer = new PayoutTransferClaimWriter(payoutRepository, transferRepository, orders, guard);
     private final SellerPayoutTransferCoordinator coordinator = new SellerPayoutTransferCoordinator(
             transferRepository,
             accountRepository,
             payoutRepository,
-            gatewayProvider
+            gatewayProvider,
+            writer
     );
 
     @BeforeEach
     void setUp() {
         when(gateway.providerName()).thenReturn("BANK_TEST");
+        when(payoutRepository.findByPayoutIdForUpdate("PAYOUT-1")).thenReturn(Optional.of(payout()));
+        when(transferRepository.findPayoutId(any())).thenReturn(Optional.of("PAYOUT-1"));
+        when(transferRepository.saveAndFlush(any())).thenAnswer(call -> {
+            SellerPayoutTransfer value = call.getArgument(0);
+            when(transferRepository.findById(value.getTransferId())).thenReturn(Optional.of(value));
+            return value;
+        });
     }
 
     @Test
@@ -56,7 +67,7 @@ class SellerPayoutTransferCoordinatorTest {
                 .thenReturn(Optional.empty());
         when(transferRepository.save(any(SellerPayoutTransfer.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
-        when(gateway.transfer(any())).thenReturn(SellerPayoutTransferGateway.TransferResult.succeeded("BANK-TX-1"));
+        when(gateway.transfer(any())).thenReturn(receipt("BANK-TX-1"));
 
         SellerPayoutTransfer result = coordinator.transfer(payout());
 
@@ -95,7 +106,7 @@ class SellerPayoutTransferCoordinatorTest {
         IllegalStateException error = assertThrows(IllegalStateException.class, () -> coordinator.transfer(payout()));
 
         assertEquals("Payout transfer result is unknown: PAYOUT-1", error.getMessage());
-        verify(transferRepository, org.mockito.Mockito.atLeastOnce()).save(any(SellerPayoutTransfer.class));
+        verify(transferRepository, org.mockito.Mockito.atLeastOnce()).saveAndFlush(any(SellerPayoutTransfer.class));
     }
 
     @Test
@@ -104,12 +115,13 @@ class SellerPayoutTransferCoordinatorTest {
         when(gatewayProvider.getIfAvailable()).thenReturn(gateway);
         SellerPayoutTransfer unknown = transfer(PayoutTransferStatus.UNKNOWN);
         unknown.setProviderTransferId("BANK-TX-UNKNOWN");
+        when(transferRepository.findById("PTR-1")).thenReturn(Optional.of(unknown));
         when(transferRepository.findByPayoutIdAndIdempotencyKey("PAYOUT-1", "seller-payout:PAYOUT-1"))
                 .thenReturn(Optional.of(unknown));
         when(transferRepository.save(any(SellerPayoutTransfer.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         when(gateway.getStatus("BANK-TX-UNKNOWN", "seller-payout:PAYOUT-1"))
-                .thenReturn(SellerPayoutTransferGateway.TransferResult.succeeded("BANK-TX-UNKNOWN"));
+                .thenReturn(receipt("BANK-TX-UNKNOWN"));
 
         SellerPayoutTransfer result = coordinator.transfer(payout());
 
@@ -123,16 +135,18 @@ class SellerPayoutTransferCoordinatorTest {
         when(gatewayProvider.getIfAvailable()).thenReturn(gateway);
         SellerPayoutTransfer unknown = transfer(PayoutTransferStatus.UNKNOWN);
         unknown.setProviderTransferId("BANK-TX-UNKNOWN");
+        when(transferRepository.findById("PTR-1")).thenReturn(Optional.of(unknown));
         unknown.setUpdatedAt(LocalDateTime.now().minusMinutes(10));
         when(transferRepository.findByStatusInAndUpdatedAtBeforeOrderByUpdatedAtAsc(
                 any(), any(), any(Pageable.class))).thenReturn(List.of(unknown));
         when(transferRepository.save(any(SellerPayoutTransfer.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         when(gateway.getStatus("BANK-TX-UNKNOWN", "seller-payout:PAYOUT-1"))
-                .thenReturn(SellerPayoutTransferGateway.TransferResult.succeeded("BANK-TX-UNKNOWN"));
+                .thenReturn(receipt("BANK-TX-UNKNOWN"));
         SellerPayout payout = payout();
         payout.setStatus(com.example.payment.domain.model.marketplace.SellerPayoutStatus.READY_FOR_RELEASE);
         when(payoutRepository.findById("PAYOUT-1")).thenReturn(Optional.of(payout));
+        when(payoutRepository.findByPayoutIdForUpdate("PAYOUT-1")).thenReturn(Optional.of(payout));
         when(payoutRepository.save(any(SellerPayout.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         int reconciled = coordinator.reconcileStaleTransfers(Duration.ofMinutes(5), 50);
@@ -228,6 +242,11 @@ class SellerPayoutTransferCoordinatorTest {
                 () -> coordinator.reconcileStaleTransfers(Duration.ofMinutes(5), 0));
     }
 
+    private SellerPayoutTransferGateway.TransferResult receipt(String providerId) {
+        return new SellerPayoutTransferGateway.TransferResult(PayoutTransferStatus.SUCCEEDED, providerId, null,
+                "seller-payout:PAYOUT-1", new BigDecimal("90000"), "KRW");
+    }
+
     private void stubVerifiedAccount() {
         when(accountRepository.findBySellerId("SELLER-1")).thenReturn(Optional.of(SellerPayoutAccount.builder()
                 .payoutAccountId("PACCT-1")
@@ -239,6 +258,7 @@ class SellerPayoutTransferCoordinatorTest {
 
     private SellerPayout payout() {
         return SellerPayout.builder()
+                .status(com.example.payment.domain.model.marketplace.SellerPayoutStatus.READY_FOR_RELEASE)
                 .payoutId("PAYOUT-1")
                 .sellerId("SELLER-1")
                 .netAmount(new BigDecimal("90000.00"))

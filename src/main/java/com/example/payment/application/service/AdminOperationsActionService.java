@@ -27,6 +27,10 @@ public class AdminOperationsActionService {
     private final PaymentProcessingService paymentProcessingService;
     private final SellerPayoutService sellerPayoutService;
     private final SecurityAuditService securityAuditService;
+    private final RefundRecoveryService refundRecovery;
+    private final com.example.payment.domain.repository.PaymentRecordRepository payments;
+    private final com.example.payment.domain.repository.TossPaymentIntentRepository intents;
+    private final TossPaymentIntentService intentService;
 
     public AdminOperationActionResponse execute(String queue,
                                                 String itemId,
@@ -48,6 +52,7 @@ public class AdminOperationsActionService {
                 case "disputes", "partialRefundReviews" -> resolveDispute(normalizedItemId, normalizedAction, safeRequest, principal);
                 case "marketplaceRefundFailures" -> resolveDispute(normalizedItemId, "buyerRefund", safeRequest, principal);
                 case "paymentRefundFailures" -> retryPaymentRefund(normalizedItemId, normalizedQueue, normalizedAction, safeRequest);
+                case "paymentRecovery" -> recheck(normalizedItemId, normalizedAction);
                 case "payoutRelease" -> releasePayout(normalizedItemId, normalizedAction);
                 case "payoutRecovery" -> markPayoutRecovered(normalizedItemId, normalizedAction);
                 default -> throw new IllegalArgumentException("Unsupported operations queue: " + normalizedQueue);
@@ -157,15 +162,19 @@ public class AdminOperationsActionService {
         if (!"retryRefund".equals(action)) {
             throw unsupported(action, queue);
         }
-        PaymentProcessingService.RefundResult result = paymentProcessingService.refundPaymentWithResult(
-                paymentId,
-                defaultText(request.getIdempotencyKey(), "admin-retry-" + paymentId),
-                defaultText(request.getNote(), "Admin refund retry from operations queue.")
-        );
-        if (!result.success()) {
-            throw new IllegalArgumentException(result.code() + ": " + result.message());
+        return recheck(paymentId, "recheck");
+    }
+
+    private Object recheck(String paymentId, String action) {
+        if (!"recheck".equals(action)) throw unsupported(action, "paymentRecovery");
+        var payment = payments.findById(paymentId).orElseThrow();
+        if (payment.getStatus().startsWith("REFUND") || "PARTIALLY_REFUNDED".equals(payment.getStatus())) {
+            refundRecovery.recoverPayment(paymentId);
+        } else {
+            intents.findByOrderId(payment.getOrderId()).ifPresent(intent -> intentService.getIntentStatus(intent.getIntentId()));
         }
-        return result.payment();
+        var current = payments.findById(paymentId).orElseThrow();
+        return java.util.Map.of("paymentId", paymentId, "status", current.getStatus());
     }
 
     private Object markPayoutRecovered(String payoutId, String action) {

@@ -30,6 +30,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -91,16 +92,16 @@ class MarketplaceConcurrencyIntegrationTest extends TestcontainersIntegrationSup
 
         var auction = saleEventRepository.findById(AUCTION_EVENT_ID).orElseThrow();
         auction.setStatus(SaleEventStatus.LIVE);
-        auction.setStartsAt(LocalDateTime.now().minusMinutes(5));
-        auction.setEndsAt(LocalDateTime.now().plusMinutes(30));
+        auction.setStartsAt(LocalDateTime.now(ZoneOffset.UTC).minusMinutes(5));
+        auction.setEndsAt(LocalDateTime.now(ZoneOffset.UTC).plusMinutes(30));
         auction.setPrice(new BigDecimal("8500000.00"));
         auction.setMinBidIncrement(new BigDecimal("100000.00"));
         saleEventRepository.save(auction);
 
         var raffle = saleEventRepository.findById(RAFFLE_EVENT_ID).orElseThrow();
         raffle.setStatus(SaleEventStatus.LIVE);
-        raffle.setStartsAt(LocalDateTime.now().minusMinutes(5));
-        raffle.setEndsAt(LocalDateTime.now().plusMinutes(30));
+        raffle.setStartsAt(LocalDateTime.now(ZoneOffset.UTC).minusMinutes(5));
+        raffle.setEndsAt(LocalDateTime.now(ZoneOffset.UTC).plusMinutes(30));
         saleEventRepository.save(raffle);
 
         listingRepository.findById(auction.getListingId()).ifPresent(listing -> {
@@ -147,7 +148,11 @@ class MarketplaceConcurrencyIntegrationTest extends TestcontainersIntegrationSup
                         .add(new BigDecimal("100000.00").multiply(BigDecimal.valueOf(sequence))));
                 request.setIdempotencyKey("auction-load-" + sequence);
                 try {
-                    auctionService.placeBid(AUCTION_EVENT_ID, request);
+                    auctionService.placeBid(
+                            AUCTION_EVENT_ID,
+                            new com.example.payment.infrastructure.security.CommerceActor(
+                                    "USER-" + request.getCustomerId(), request.getCustomerId()),
+                            request);
                     return true;
                 } catch (MarketplaceCheckoutException expectedRaceRejection) {
                     return false;
@@ -192,7 +197,11 @@ class MarketplaceConcurrencyIntegrationTest extends TestcontainersIntegrationSup
                 RaffleEntryRequest request = new RaffleEntryRequest();
                 request.setCustomerId("RAFFLE-SAME-CUSTOMER");
                 request.setIdempotencyKey("raffle-duplicate-" + sequence);
-                return raffleService.enter(RAFFLE_EVENT_ID, request);
+                return raffleService.enter(
+                        RAFFLE_EVENT_ID,
+                        new com.example.payment.infrastructure.security.CommerceActor(
+                                "USER-" + request.getCustomerId(), request.getCustomerId()),
+                        request);
             }));
         }
 
@@ -225,7 +234,11 @@ class MarketplaceConcurrencyIntegrationTest extends TestcontainersIntegrationSup
                 RaffleEntryRequest request = new RaffleEntryRequest();
                 request.setCustomerId("RAFFLE-CUSTOMER-" + sequence);
                 request.setIdempotencyKey("raffle-load-" + sequence);
-                return raffleService.enter(RAFFLE_EVENT_ID, request);
+                return raffleService.enter(
+                        RAFFLE_EVENT_ID,
+                        new com.example.payment.infrastructure.security.CommerceActor(
+                                "USER-" + request.getCustomerId(), request.getCustomerId()),
+                        request);
             }));
         }
 

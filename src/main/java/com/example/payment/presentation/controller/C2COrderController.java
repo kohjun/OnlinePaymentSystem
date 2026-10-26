@@ -1,10 +1,14 @@
 package com.example.payment.presentation.controller;
 
 import com.example.payment.application.service.MarketplaceOrderService;
+import com.example.payment.application.service.OrderCancellationService;
+import com.example.payment.application.service.MarketplaceCheckoutException;
 import com.example.payment.infrastructure.security.AuthorizationGuard;
 import com.example.payment.infrastructure.security.EverySalePrincipal;
 import com.example.payment.presentation.dto.request.OpenMarketplaceDisputeRequest;
 import com.example.payment.presentation.dto.request.ResolveMarketplaceDisputeRequest;
+import com.example.payment.presentation.dto.request.CreateOrderCancellationRequest;
+import com.example.payment.domain.model.marketplace.OrderCancellationStatus;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +32,31 @@ public class C2COrderController {
 
     private final AuthorizationGuard authorizationGuard;
     private final MarketplaceOrderService marketplaceOrderService;
+    private final OrderCancellationService orderCancellationService;
+
+    @PostMapping("/{marketplaceOrderId}/cancellations")
+    public ResponseEntity<?> cancelOrder(
+            @PathVariable String marketplaceOrderId,
+            @Valid @RequestBody CreateOrderCancellationRequest request) {
+        try {
+            var response = orderCancellationService.cancel(
+                    marketplaceOrderId,
+                    authorizationGuard.currentCommerceActor(),
+                    request.getReason()
+            );
+            return ResponseEntity.status(response.getStatus() == OrderCancellationStatus.COMPLETED
+                    ? HttpStatus.OK
+                    : HttpStatus.ACCEPTED).body(response);
+        } catch (MarketplaceCheckoutException failure) {
+            log.warn("C2C cancellation rejected: code={}, reason={}",
+                    failure.getCode(), failure.getMessage());
+            return ResponseEntity.status(failure.getStatus()).body(Map.of(
+                    "status", "FAILED",
+                    "errorCode", failure.getCode(),
+                    "message", failure.getMessage()
+            ));
+        }
+    }
 
     @PostMapping("/{marketplaceOrderId}/confirm-delivery")
     public ResponseEntity<?> confirmDelivery(@PathVariable String marketplaceOrderId) {

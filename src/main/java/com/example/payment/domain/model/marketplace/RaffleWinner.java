@@ -38,6 +38,13 @@ public class RaffleWinner {
     @Column(name = "checkout_status", nullable = false)
     private RaffleCheckoutStatus checkoutStatus;
 
+    @Column(name = "offer_sequence", nullable = false)
+    @Builder.Default
+    private Integer offerSequence = 1;
+
+    @Column(name = "inventory_reservation_id")
+    private String inventoryReservationId;
+
     @Column(name = "draw_seed")
     private String drawSeed;
 

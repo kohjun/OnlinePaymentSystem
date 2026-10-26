@@ -19,5 +19,7 @@ public interface AuctionBidRepository extends JpaRepository<AuctionBid, String> 
 
     List<AuctionBid> findTop10BySaleEventIdOrderByBidAmountDescCreatedAtAsc(String saleEventId);
 
+    List<AuctionBid> findBySaleEventIdOrderByBidAmountDescCreatedAtAsc(String saleEventId);
+
     void deleteBySaleEventId(String saleEventId);
 }

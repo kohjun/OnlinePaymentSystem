@@ -32,6 +32,8 @@ class TossWebhookServiceTest {
     private final MarketplaceOrderService marketplaceOrderService = mock(MarketplaceOrderService.class);
     private final TossPaymentsGateway gateway = mock(TossPaymentsGateway.class);
     private final TossPaymentsProperties properties = new TossPaymentsProperties();
+    private final RefundLedgerWriter refunds = mock(RefundLedgerWriter.class);
+    private final RefundRecoveryService recovery = mock(RefundRecoveryService.class);
     private TossWebhookService service;
 
     @BeforeEach
@@ -39,6 +41,7 @@ class TossWebhookServiceTest {
         properties.getWebhook().setEnabled(true);
         properties.getWebhook().setPathToken("abcdefghijklmnopqrstuvwxyz123456");
         properties.getWebhook().setMaxRetry(7);
+        when(webhookRepository.claim(any(), any(), any())).thenReturn(1);
         service = new TossWebhookService(
                 webhookRepository,
                 paymentRepository,
@@ -47,7 +50,9 @@ class TossWebhookServiceTest {
                 gateway,
                 properties,
                 new ObjectMapper(),
-                new SimpleMeterRegistry()
+                new SimpleMeterRegistry(),
+                refunds,
+                recovery
         );
     }
 
@@ -81,6 +86,8 @@ class TossWebhookServiceTest {
     @Test
     void processDoneWebhookRecoversTossIntent() {
         TossWebhookEvent event = event("PAYMENT_STATUS_CHANGED", "DONE");
+        when(gateway.getPaymentStatus("pay_1")).thenReturn(com.example.payment.application.dto.PaymentGatewayResult.builder()
+                .success(true).gatewayStatus("APPROVED").transactionId("pay_1").orderId("ORD-1").build());
         when(intentService.recoverIntentByProviderReference("pay_1", "ORD-1"))
                 .thenReturn(CompleteReservationResponse.builder()
                         .status("SUCCESS")
@@ -89,13 +96,17 @@ class TossWebhookServiceTest {
 
         service.processEvent(event);
 
-        assertEquals("SUCCEEDED", event.getProcessingStatus());
+        verify(webhookRepository).finish(org.mockito.ArgumentMatchers.eq("TOSS-WH-1"), any(),
+                org.mockito.ArgumentMatchers.eq("SUCCEEDED"), org.mockito.ArgumentMatchers.isNull(), any());
         verify(intentService).recoverIntentByProviderReference("pay_1", "ORD-1");
     }
 
     @Test
     void processCancelWebhookUpdatesPaymentAsPartiallyRefunded() {
         TossWebhookEvent event = event("CANCEL_STATUS_CHANGED", "PARTIAL_CANCELED");
+        var observation = com.example.payment.application.dto.PaymentGatewayResult.builder()
+                .gatewayStatus("PARTIALLY_REFUNDED").transactionId("pay_1").orderId("ORD-1").build();
+        when(gateway.getPaymentStatus("pay_1")).thenReturn(observation);
         PaymentRecord payment = PaymentRecord.builder()
                 .paymentId("PAY-1")
                 .orderId("ORD-1")
@@ -112,11 +123,17 @@ class TossWebhookServiceTest {
 
         service.processEvent(event);
 
-        assertEquals("SUCCEEDED", event.getProcessingStatus());
-        assertEquals("PARTIALLY_REFUNDED", payment.getStatus());
-        verify(paymentRepository).save(payment);
-        verify(marketplaceOrderService).syncProviderRefundStatus("PAY-1", "PARTIALLY_REFUNDED");
-        verify(intentService).markProviderTerminalStatus("pay_1", "ORD-1", "PARTIAL_CANCELED");
+        verify(refunds).observe("PAY-1", observation, null, false);
+        verify(recovery).recoverPayment("PAY-1");
+        org.mockito.Mockito.verify(paymentRepository, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test void unverifiedCancelWebhookCannotInventRefund() {
+        when(gateway.getPaymentStatus("pay_1")).thenReturn(com.example.payment.application.dto.PaymentGatewayResult.unknown("timeout"));
+        service.processEvent(event("CANCEL_STATUS_CHANGED", "CANCELED"));
+        org.mockito.Mockito.verifyNoInteractions(refunds, recovery);
+        verify(webhookRepository).finish(org.mockito.ArgumentMatchers.eq("TOSS-WH-1"), any(),
+                org.mockito.ArgumentMatchers.eq("FAILED"), any(), any());
     }
 
     private TossWebhookEvent event(String eventType, String status) {

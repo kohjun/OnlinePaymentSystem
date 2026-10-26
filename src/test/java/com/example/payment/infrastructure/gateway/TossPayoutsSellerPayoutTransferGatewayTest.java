@@ -74,7 +74,8 @@ class TossPayoutsSellerPayoutTransferGatewayTest {
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Idempotency-Key", IDEMPOTENCY_KEY))
                 .andRespond(withSuccess("""
-                        { "payoutId": "PO-9001", "status": "COMPLETED" }
+                        { "payoutId": "PO-9001", "status": "COMPLETED",
+                          "refPayoutId": "seller-payout:PAYOUT-1", "amount": 90000, "currency": "KRW" }
                         """, org.springframework.http.MediaType.APPLICATION_JSON));
 
         TransferResult result = gateway.transfer(request());
@@ -82,6 +83,9 @@ class TossPayoutsSellerPayoutTransferGatewayTest {
         assertEquals(PayoutTransferStatus.SUCCEEDED, result.status());
         assertEquals("PO-9001", result.providerTransferId());
         assertNull(result.failureReason());
+        assertEquals(IDEMPOTENCY_KEY, result.referenceKey());
+        assertEquals(0, request().amount().compareTo(result.amount()));
+        assertEquals("KRW", result.currency());
         server.verify();
     }
 
@@ -90,7 +94,8 @@ class TossPayoutsSellerPayoutTransferGatewayTest {
     void inProgressTransferIsProcessing() {
         server.expect(requestTo(BASE_URL + "/v1/payouts"))
                 .andRespond(withSuccess("""
-                        { "payoutId": "PO-9002", "status": "IN_PROGRESS" }
+                        { "payoutId": "PO-9002", "status": "IN_PROGRESS",
+                          "refPayoutId": "seller-payout:PAYOUT-1", "amount": 90000, "currency": "KRW" }
                         """, org.springframework.http.MediaType.APPLICATION_JSON));
 
         TransferResult result = gateway.transfer(request());
@@ -166,7 +171,8 @@ class TossPayoutsSellerPayoutTransferGatewayTest {
         server.expect(requestTo(BASE_URL + "/v1/payouts/PO-9001"))
                 .andExpect(method(HttpMethod.GET))
                 .andRespond(withSuccess("""
-                        { "payoutId": "PO-9001", "status": "DONE" }
+                        { "payoutId": "PO-9001", "status": "DONE",
+                          "refPayoutId": "seller-payout:PAYOUT-1", "amount": 90000, "currency": "KRW" }
                         """, org.springframework.http.MediaType.APPLICATION_JSON));
 
         TransferResult result = gateway.getStatus("PO-9001", IDEMPOTENCY_KEY);
@@ -182,7 +188,9 @@ class TossPayoutsSellerPayoutTransferGatewayTest {
         server.expect(requestTo(BASE_URL + "/v1/payouts?refPayoutId=" + IDEMPOTENCY_KEY))
                 .andExpect(method(HttpMethod.GET))
                 .andRespond(withSuccess("""
-                        [ { "payoutId": "PO-9003", "status": "COMPLETED" } ]
+                        [ { "payoutId": "UNRELATED", "status": "DONE", "refPayoutId": "different" },
+                          { "payoutId": "PO-9003", "status": "COMPLETED",
+                            "refPayoutId": "seller-payout:PAYOUT-1", "amount": 90000, "currency": "KRW" } ]
                         """, org.springframework.http.MediaType.APPLICATION_JSON));
 
         TransferResult result = gateway.getStatus(null, IDEMPOTENCY_KEY);
@@ -202,6 +210,24 @@ class TossPayoutsSellerPayoutTransferGatewayTest {
 
         assertEquals(PayoutTransferStatus.UNKNOWN, result.status());
         assertEquals("PO-9004", result.providerTransferId());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {400, 401, 403, 409, 429, 503})
+    void lookupHttpErrorCannotTerminateRecovery(int status) {
+        server.expect(requestTo(BASE_URL + "/v1/payouts/PO-9004"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withStatus(org.springframework.http.HttpStatusCode.valueOf(status)));
+        server.expect(requestTo(BASE_URL + "/v1/payouts/PO-9004"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess(receipt("PO-9004"),
+                        org.springframework.http.MediaType.APPLICATION_JSON));
+
+        TransferResult uncertain = gateway.getStatus("PO-9004", IDEMPOTENCY_KEY);
+        assertEquals(PayoutTransferStatus.UNKNOWN, uncertain.status());
+        assertEquals("PO-9004", uncertain.providerTransferId());
+        assertEquals(PayoutTransferStatus.SUCCEEDED, gateway.getStatus("PO-9004", IDEMPOTENCY_KEY).status());
+        server.verify();
     }
 
     @Test
@@ -247,5 +273,49 @@ class TossPayoutsSellerPayoutTransferGatewayTest {
                 .andRespond(withSuccess("not-json", org.springframework.http.MediaType.APPLICATION_JSON));
 
         assertEquals(PayoutTransferStatus.UNKNOWN, gateway.transfer(request()).status());
+    }
+
+    private String receipt(String providerId) {
+        return """
+                {"payoutId":"%s","status":"DONE","refPayoutId":"seller-payout:PAYOUT-1",
+                 "amount":90000,"currency":"KRW"}
+                """.formatted(providerId);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            "null", "", "[]", "{}",
+            "{\"payoutId\":\"PO-9001\",\"status\":\"FAILED\"}",
+            "{\"payoutId\":\"PO-9001\",\"status\":\"DONE\",\"refPayoutId\":\"other\",\"amount\":90000,\"currency\":\"KRW\"}"
+    })
+    void incompleteOrUnrelatedReceiptCannotStopRecovery(String body) {
+        server.expect(requestTo(BASE_URL + "/v1/payouts/PO-9001"))
+                .andRespond(withSuccess(body, org.springframework.http.MediaType.APPLICATION_JSON));
+        var result = gateway.getStatus("PO-9001", IDEMPOTENCY_KEY);
+        assertEquals(PayoutTransferStatus.UNKNOWN, result.status());
+        assertEquals("PO-9001", result.providerTransferId());
+        server.verify();
+    }
+
+    @Test
+    void mismatchedProviderIdCannotReplaceLookupIdentity() {
+        server.expect(requestTo(BASE_URL + "/v1/payouts/PO-9001"))
+                .andRespond(withSuccess(receipt("OTHER"), org.springframework.http.MediaType.APPLICATION_JSON));
+        var result = gateway.getStatus("PO-9001", IDEMPOTENCY_KEY);
+        assertEquals(PayoutTransferStatus.UNKNOWN, result.status());
+        assertEquals("PO-9001", result.providerTransferId());
+        server.verify();
+    }
+
+    @Test
+    void multipleMatchingReceiptsAreAmbiguous() {
+        server.expect(requestTo(BASE_URL + "/v1/payouts?refPayoutId=" + IDEMPOTENCY_KEY))
+                .andRespond(withSuccess("[" + receipt("ONE") + "," + receipt("TWO") + "]",
+                        org.springframework.http.MediaType.APPLICATION_JSON));
+        var result = gateway.getStatus(null, IDEMPOTENCY_KEY);
+        assertEquals(PayoutTransferStatus.UNKNOWN, result.status());
+        assertEquals("PAYOUT_LOOKUP_AMBIGUOUS", result.failureReason());
+        assertNull(result.providerTransferId());
+        server.verify();
     }
 }

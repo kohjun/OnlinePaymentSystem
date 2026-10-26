@@ -4,6 +4,14 @@
 
 공식 웹 화면은 React 기반 `http://localhost:8080/app/`입니다. 루트 URL과 과거 `index.html`, `shared.html`, `seller.html` 진입점도 모두 `/app/`으로 이동합니다. 구매, 판매자 상품 등록·주문·배송·정산, 관리자 검수 기능은 같은 애플리케이션에서 권한에 따라 표시됩니다. 판매 방식에서 `DROP`은 선착순 한정 판매, `RAFFLE`은 중복 응모를 막은 무작위 추첨을 뜻합니다.
 
+### 거래 복구 원칙
+
+결제 또는 환불 응답이 유실되면 실패로 단정하지 않습니다. 제공자 상태가 확인될 때까지 재고를 유지하고, 환불 확인 중 배송·구매 확정·새 정산 지급을 차단합니다. `202 PENDING`은 결제 성공이 아닙니다. 클라이언트는 소유자 전용 `GET /api/payments/toss/intents/{intentId}`로 최종 상태를 확인합니다. 재접속용 저장소에는 `intentId`만 보관합니다.
+
+승인 재호출 대신 상태 조회, 제공자 취소 영수증별 중복 방지, 독립 트랜잭션 환불 원장, 재고 동기화 작업 원장을 사용합니다. 자동 검증은 로컬 HTTP stub과 Testcontainers만 사용하며 `.env`의 실제 Toss 키를 변경하지 않습니다.
+
+설계와 운영 절차는 [거래 복구 ADR](docs/adr/payment-recovery.md), 실행 증거와 남은 운영 검증은 [복구 검증 기록](docs/payment-recovery-verification.md)을 참고하세요. 로컬 테스트 통과는 상용 운영 승인과 별개입니다.
+
 The public checkout path is Toss Payments intent/confirm:
 
 ```text
@@ -24,7 +32,9 @@ Reserve inventory in Redis
 -> Publish outbox events to Kafka
 ```
 
-`/api/reservations/complete` remains an internal Saga test hook and is disabled by default with `app.checkout.public-complete-enabled=false`. The former public payment process/retry/refund, non-Toss marketplace checkout, simulation, and demo-auth APIs have been removed. The local mock-auth filter is development-only and is disabled by the `prod` profile.
+`POST /api/payments/toss/intents` rejects any product that belongs to a marketplace listing with `409`. Marketplace inventory is sold only through the sale-event checkout routes, which enforce listing review state, sale window, sale type, self-trade and purchase limits and record the marketplace order and seller payout.
+
+`/api/reservations/complete` remains an internal Saga test hook and is disabled by default with `app.checkout.public-complete-enabled=false`. Direct inventory reservation/cancellation is also disabled with `app.checkout.legacy-reservation-api-enabled=false`; customer cancellation must use `POST /api/c2c/orders/{orderId}/cancellations` so refund, inventory, payout, and cancellation ledgers stay consistent. The former public payment process/retry/refund, direct order cancel, non-Toss marketplace checkout, simulation, and demo-auth APIs have been removed. The local mock-auth filter is development-only and is disabled by the `prod` profile.
 
 ## Implementation Scope
 
@@ -154,6 +164,9 @@ KAFKA_BOOTSTRAP_SERVERS=kafka-1.example.com:9092,kafka-2.example.com:9092
 TEMPORAL_TARGET=temporal.example.com:7233
 OIDC_ISSUER_URI=https://idp.example.com/realms/everysale
 OIDC_AUDIENCE=everysale-api
+OIDC_AUTHORIZATION_URI=https://idp.example.com/realms/everysale/protocol/openid-connect/auth
+OIDC_TOKEN_URI=https://idp.example.com/realms/everysale/protocol/openid-connect/token
+OIDC_CLIENT_ID=everysale-web
 EVERYSALE_TENANT_ID=everysale
 TOSS_CLIENT_KEY=live_...
 TOSS_SECRET_KEY=live_...
@@ -162,11 +175,32 @@ CORS_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com
 PAYOUT_TRANSFER_PROVIDER=TOSS_PAYOUTS
 PAYOUT_TRANSFER_ADAPTER_ENABLED=true
 PAYOUT_TOSS_SECRET_KEY=live_...
+MEDIA_STORAGE_PROVIDER=S3
+MEDIA_S3_BUCKET=everysale-private-media
+MEDIA_S3_REGION=ap-northeast-2
+MEDIA_S3_ENCRYPTION=AES256
+MEDIA_MALWARE_SCAN_PROVIDER=CLAMAV
+MEDIA_CLAMAV_HOST=clamav.production.internal
+MEDIA_CLAMAV_PORT=3310
 ```
 
 Use `.env.prod.example` as the deployment-variable inventory. Do not load it as credentials. After injecting real values from the deployment secret manager, run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-production-env.ps1`; the preflight validates required values without printing secrets.
 
-`GET /api/system/readiness` blocks production when DB, Redis, Kafka, or Temporal still point at localhost, when CORS allows wildcard/local/insecure HTTP origins, when mock auth is enabled, when Toss live keys or webhook token are missing/mismatched, or when external auth/tenant isolation is not configured.
+`GET /api/system/readiness` blocks production when DB, Redis, Kafka, or Temporal still point at localhost, when CORS allows wildcard/local/insecure HTTP origins, when mock auth is enabled, when Toss live keys or webhook token are missing/mismatched, when encrypted S3 marketplace media storage or malware scanning is missing, or when external auth/tenant isolation is not configured. The web client uses OIDC Authorization Code with PKCE; register the exact `{public-origin}/app/` redirect URI and allow the public SPA client to call the configured token endpoint from that origin.
+
+Product images and authenticity evidence are stored in a private bucket. Evidence is served only through seller-authorized endpoints, while product images become public only after the listing reaches a public state. Production must not use local instance storage. Prefer workload identity or an instance role over long-lived `MEDIA_S3_ACCESS_KEY` credentials; use `MEDIA_S3_ENCRYPTION=AWS_KMS` with `MEDIA_S3_KMS_KEY_ID` when customer-managed keys are required. Production also requires ClamAV; uploads fail closed before object storage when the scanner is unavailable or reports malware.
+
+The marketplace UI includes a persistent transaction inbox backed by `marketplace_notifications`. Payment completion, new orders, fulfillment, buyer confirmation, disputes, cancellations, auction offers, raffle offers, and offer expiry use idempotency keys so retries do not create duplicate alerts.
+
+Seller listing lifecycle endpoints are:
+
+```text
+POST /api/c2c/listings/{listingId}/pause
+POST /api/c2c/listings/{listingId}/resume
+POST /api/c2c/listings/{listingId}/archive
+```
+
+Live auctions and raffles cannot be paused after participation begins. Fixed-price and drop sales can only be paused when no unexpired Toss checkout intent exists. Archiving is terminal and requires a draft, rejected, or paused listing.
 ## Toss Checkout API
 
 Create a Toss payment intent:
@@ -373,8 +407,10 @@ Unit test suite (excludes Docker-backed and Toss-sandbox tests by tag):
 Docker-backed integration suite:
 
 ```powershell
-.\gradlew.bat integrationTest --no-daemon
+.\gradlew.bat integrationTest --no-daemon --no-problems-report
 ```
+
+The integration gate starts PostgreSQL, Redis, Kafka, Temporal, and a Toss-compatible HTTP stub for the commercial checkout lifecycle. It fails when Docker is unavailable or when every integration test is skipped; a green task therefore means that at least one Docker scenario actually ran.
 
 Coverage report, merging unit and integration execution data:
 
@@ -382,7 +418,7 @@ Coverage report, merging unit and integration execution data:
 .\gradlew.bat test integrationTest jacocoTestReport --no-daemon
 ```
 
-The report is written to `build_sim_new/reports/jacoco/test/html/index.html`. Merging both execution files currently yields 57% instruction and 44% branch coverage; unit tests alone are 47% / 37%, so the Docker-backed suites carry a real share of it.
+The report is written to `build_sim_new/reports/jacoco/test/html/index.html`. Merging both execution files yields 68.8% instruction and 54.3% branch coverage; unit tests alone are 52.1% / 42.7%, so the Docker-backed suites carry a real share of it (measured 2026-10-25: 405 unit and 48 integration cases).
 
 CI enforces a ratchet below the measured figure:
 
@@ -431,7 +467,10 @@ C2C seller onboarding, review, listing publication, Toss intent creation, and op
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-c2c-commercial-smoke.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-c2c-commercial-smoke.ps1 -SaleType DROP
 ```
+
+The smoke script always uses distinct seller and buyer identities. `FIXED_PRICE` and `DROP` also create a Toss test payment intent; `AUCTION` and `RAFFLE` validate publication and operations readiness before their winner flow is exercised in the UI scenario.
 
 See [docs/c2c-commercial-e2e.md](docs/c2c-commercial-e2e.md) for the two-browser auction/raffle scenarios and final success criteria.
 
@@ -519,6 +558,7 @@ Not yet instrumented: Redis command spans. Inventory Lua scripts appear inside t
 
 ## Operational Notes
 
+- The application clock is UTC. `UtcTimeZoneInitializer` pins the JVM default time zone before the Spring context starts (main, SpringBootTest and test child processes alike), Gradle test JVMs run with `user.timezone=UTC`, and API responses write `LocalDateTime` values with a trailing `Z`. Notification text shows deadlines in KST.
 - `TOSS_PAYMENTS` is the default payment gateway; local mock beans are disabled unless explicitly enabled for tests.
 - Public direct complete and legacy payment APIs are disabled by default.
 - Security is deny-by-default for API routes that are not explicitly public; public routes are limited to static pages, health/readiness, and public marketplace/event reads.
@@ -531,7 +571,7 @@ Not yet instrumented: Redis command spans. Inventory Lua scripts appear inside t
 - `app.inventory.reconciliation.enabled=true` enables scheduled mismatch detection between Redis and Postgres.
 - `app.outbox.enabled=true` enables scheduled outbox publishing to Kafka.
 - Production enables Redis Pub/Sub broadcast for marketplace SSE so auction and raffle updates cross application instances.
-- Local payout transfer uses `LEDGER_ONLY` for workflow testing, which only writes the ledger and never moves money. Set `PAYOUT_TRANSFER_PROVIDER=TOSS_PAYOUTS` with `PAYOUT_TRANSFER_ADAPTER_ENABLED=true` and `PAYOUT_TOSS_SECRET_KEY` to activate the real transfer adapter; the two gateway beans are mutually exclusive by property value. Production readiness blocks while the stub is still active.
+- Local payout transfer uses `LEDGER_ONLY` for workflow testing, which only writes the ledger and never moves money. Set `PAYOUT_TRANSFER_PROVIDER=TOSS_PAYOUTS` with `PAYOUT_TRANSFER_ADAPTER_ENABLED=true` and `PAYOUT_TOSS_SECRET_KEY` to activate the real transfer adapter; the two gateway beans are mutually exclusive by property value. Production readiness blocks while the stub is still active, and also blocks `TOSS_PAYOUTS` until the adapter declares that it matches the provider's published contract — it currently does not; see [payout provider contract check](docs/payout-provider-contract.md).
 - The payout adapter classifies provider responses the same way the payment gateway does: `4xx` is a terminal `FAILED`, while `5xx`, `408`, `429`, and network timeouts are `UNKNOWN`. `UNKNOWN` never triggers a second transfer — the coordinator resolves it through a provider status lookup using the original idempotency key (`seller-payout:{payoutId}`). Misclassifying an indeterminate result as failed is what would send the money twice.
 - Payout transfers use a dedicated HTTP client with a longer read timeout than the shared one, because a timeout on a bank transfer means "result unknown" rather than "failed".
 - Production also requires the seller payout reconciliation worker. Stale `PROCESSING` or `UNKNOWN` transfers are resolved through provider status lookup with the original idempotency key; they are never submitted as a second transfer.

@@ -37,6 +37,9 @@ public class RaffleEntry {
     @Column(nullable = false)
     private RaffleEntryStatus status;
 
+    @Column(name = "draw_rank")
+    private Integer drawRank;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 

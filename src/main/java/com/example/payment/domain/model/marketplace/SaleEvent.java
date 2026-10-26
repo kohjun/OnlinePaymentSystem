@@ -15,6 +15,7 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
 @Entity
 @Table(name = "sale_events")
@@ -45,6 +46,16 @@ public class SaleEvent {
     @Column(nullable = false)
     private SaleEventStatus status;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "activation_mode", nullable = false)
+    private SaleEventActivationMode activationMode;
+
+    @Column(name = "activation_failure_reason", length = 1000)
+    private String activationFailureReason;
+
+    @Column(name = "active_schedule_slot", unique = true)
+    private String activeScheduleSlot;
+
     @Column(name = "starts_at", nullable = false)
     private LocalDateTime startsAt;
 
@@ -57,11 +68,19 @@ public class SaleEvent {
     @Column(name = "stock_quantity", nullable = false)
     private Integer stockQuantity;
 
+    @Column(name = "max_quantity_per_customer", nullable = false)
+    @Builder.Default
+    private Integer maxQuantityPerCustomer = 1;
+
     @Column(name = "min_bid_increment", precision = 19, scale = 2)
     private BigDecimal minBidIncrement;
 
     @Column(name = "reserve_price", precision = 19, scale = 2)
     private BigDecimal reservePrice;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "close_reason")
+    private AuctionCloseReason closeReason;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
@@ -71,7 +90,7 @@ public class SaleEvent {
 
     @PrePersist
     void onCreate() {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         if (createdAt == null) {
             createdAt = now;
         }
@@ -79,10 +98,26 @@ public class SaleEvent {
         if (status == null) {
             status = SaleEventStatus.SCHEDULED;
         }
+        if (activationMode == null) {
+            activationMode = status == SaleEventStatus.LIVE
+                    ? SaleEventActivationMode.IMMEDIATE
+                    : SaleEventActivationMode.SCHEDULED;
+        }
+        synchronizeActiveScheduleSlot();
+        if (maxQuantityPerCustomer == null) {
+            maxQuantityPerCustomer = saleType == SaleType.FIXED_PRICE ? stockQuantity : 1;
+        }
     }
 
     @PreUpdate
     void onUpdate() {
-        updatedAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now(ZoneOffset.UTC);
+        synchronizeActiveScheduleSlot();
+    }
+
+    private void synchronizeActiveScheduleSlot() {
+        activeScheduleSlot = status == SaleEventStatus.SCHEDULED || status == SaleEventStatus.LIVE
+                ? listingId
+                : null;
     }
 }

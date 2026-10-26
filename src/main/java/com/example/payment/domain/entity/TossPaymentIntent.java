@@ -80,6 +80,9 @@ public class TossPaymentIntent {
     @Column(name = "marketplace_source_id")
     private String marketplaceSourceId;
 
+    @Column(name = "inventory_reservation_id")
+    private String inventoryReservationId;
+
     @Column(name = "shipping_address_id")
     private String shippingAddressId;
 

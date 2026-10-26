@@ -13,6 +13,11 @@ import java.util.Optional;
 
 @Repository
 public interface TossPaymentIntentRepository extends JpaRepository<TossPaymentIntent, String> {
+    @Query("select i.inventoryReservationId from TossPaymentIntent i where i.intentId = :id")
+    Optional<String> findHoldId(@Param("id") String id);
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select i from TossPaymentIntent i where i.intentId = :id")
+    Optional<TossPaymentIntent> findByIdForUpdate(@Param("id") String id);
     Optional<TossPaymentIntent> findByIdempotencyKey(String idempotencyKey);
 
     Optional<TossPaymentIntent> findByOrderId(String orderId);
@@ -69,4 +74,34 @@ public interface TossPaymentIntentRepository extends JpaRepository<TossPaymentIn
             @Param("statuses") Collection<String> statuses,
             @Param("now") LocalDateTime now
     );
+
+    @Query("""
+            SELECT COALESCE(SUM(t.quantity), 0)
+            FROM TossPaymentIntent t
+            WHERE t.saleEventId = :saleEventId
+              AND t.customerId = :customerId
+              AND t.status IN :statuses
+              AND t.expiresAt > :now
+            """)
+    long sumActiveMarketplaceQuantityForCustomer(
+            @Param("saleEventId") String saleEventId,
+            @Param("customerId") String customerId,
+            @Param("statuses") Collection<String> statuses,
+            @Param("now") LocalDateTime now
+    );
+
+    long countBySaleEventIdAndCustomerIdAndStatusInAndExpiresAtAfter(
+            String saleEventId,
+            String customerId,
+            Collection<String> statuses,
+            LocalDateTime now
+    );
+
+    long countBySaleEventIdAndStatusInAndExpiresAtAfter(
+            String saleEventId,
+            Collection<String> statuses,
+            LocalDateTime now
+    );
+
+    List<TossPaymentIntent> findByStatusAndExpiresAtBefore(String status, LocalDateTime expiresAt);
 }

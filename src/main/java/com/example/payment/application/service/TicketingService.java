@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -248,7 +249,7 @@ public class TicketingService {
             throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "TICKETING_NOT_AVAILABLE_FOR_EVENT");
         }
         if (requireLive) {
-            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
             if (event.getStatus() != SaleEventStatus.LIVE
                     || event.getStartsAt() != null && event.getStartsAt().isAfter(now)
                     || event.getEndsAt() != null && !event.getEndsAt().isAfter(now)) {

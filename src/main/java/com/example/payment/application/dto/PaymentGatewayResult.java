@@ -25,6 +25,28 @@ public class PaymentGatewayResult {
     private String currency;
     private LocalDateTime processedAt;
     private String gatewayName; // "TOSS", "KAKAO_PAY", "NAVER_PAY" 등
+    private String orderId;
+    private BigDecimal balanceAmount;
+    private java.util.List<ProviderCancellation> cancellations;
+
+    public enum Observation { APPROVED, REJECTED, UNKNOWN, REFUNDED, PARTIALLY_REFUNDED }
+
+    public Observation observation() {
+        if (gatewayStatus == null) return Observation.UNKNOWN;
+        return switch (gatewayStatus) {
+            case "APPROVED", "COMPLETED" -> success ? Observation.APPROVED : Observation.UNKNOWN;
+            case "FAILED" -> Observation.REJECTED;
+            case "REFUNDED" -> Observation.REFUNDED;
+            case "PARTIALLY_REFUNDED" -> Observation.PARTIALLY_REFUNDED;
+            default -> Observation.UNKNOWN;
+        };
+    }
+
+    public record ProviderCancellation(String transactionKey, BigDecimal amount, String status) {}
+
+    public static PaymentGatewayResult unknown(String message) {
+        return PaymentGatewayResult.builder().gatewayStatus("UNKNOWN").errorMessage(message).build();
+    }
 
     /**
      * 성공 결과 생성

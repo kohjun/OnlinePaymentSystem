@@ -179,7 +179,8 @@ class AdminOperationsQueueServiceTest {
 
         assertNotNull(response.getGeneratedAt());
         assertEquals(12L, response.getTotalOpen());
-        assertEquals(10, response.getQueues().size());
+        assertEquals(11, response.getQueues().size());
+        assertEquals(0L, queue(response, "paymentRecovery").getCount());
         assertEquals(2L, queue(response, "listingReviews").getCount());
         assertEquals("검수 대기 상품", queue(response, "listingReviews").getItems().get(0).getTitle());
         assertEquals("SELLER-1", queue(response, "payoutAccounts").getItems().get(0).getId());
@@ -188,6 +189,10 @@ class AdminOperationsQueueServiceTest {
         assertEquals("PAYOUT-READY-1", queue(response, "payoutRelease").getItems().get(0).getId());
         assertEquals("releasePayout", queue(response, "payoutRelease").getItems().get(0).getActions().get(0).getAction());
         assertEquals(new BigDecimal("45000"), queue(response, "payoutRecovery").getItems().get(0).getAmount());
+        assertEquals(List.of("payoutCancelled", "buyerRefund"), queue(response, "partialRefundReviews")
+                .getItems().get(0).getActions().stream()
+                .map(AdminOperationsQueueResponse.QueueAction::getAction)
+                .toList());
     }
 
     private MarketplaceOrder order(String id, MarketplaceOrderStatus status, LocalDateTime createdAt) {

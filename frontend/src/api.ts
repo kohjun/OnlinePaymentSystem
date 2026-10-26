@@ -1,12 +1,17 @@
 import type {
   AdminOperationsAudit,
   AuthToken,
+  AuthRuntimeConfig,
   AdminOperationsQueues,
   DistributionReadiness,
   AuctionStatus,
   Identity,
   InventoryInspection,
+  ListingMedia,
+  ListingMediaType,
   MarketplaceEvent,
+  MarketplaceNotification,
+  NotificationInbox,
   MarketplaceOrder,
   Page,
   RaffleStatus,
@@ -39,6 +44,9 @@ export class ApiError extends Error {
 }
 
 const TOKEN_STORAGE_KEY = 'everysale.accessToken';
+const OIDC_STATE_KEY = 'everysale.oidc.state';
+const OIDC_VERIFIER_KEY = 'everysale.oidc.verifier';
+const OIDC_REDIRECT_KEY = 'everysale.oidc.redirectUri';
 
 /**
  * 로그인해서 받은 액세스 토큰.
@@ -47,9 +55,23 @@ const TOKEN_STORAGE_KEY = 'everysale.accessToken';
  * 그 계정으로 바뀐다. 운영에서는 목 인증이 꺼져 있어 토큰이 없으면 401이다.
  */
 export const authToken = {
-  get: () => localStorage.getItem(TOKEN_STORAGE_KEY) ?? undefined,
-  set: (token: string) => localStorage.setItem(TOKEN_STORAGE_KEY, token),
-  clear: () => localStorage.removeItem(TOKEN_STORAGE_KEY)
+  get: () => {
+    const current = sessionStorage.getItem(TOKEN_STORAGE_KEY);
+    if (current) return current;
+    const legacy = localStorage.getItem(TOKEN_STORAGE_KEY);
+    if (!legacy) return undefined;
+    sessionStorage.setItem(TOKEN_STORAGE_KEY, legacy);
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+    return legacy;
+  },
+  set: (token: string) => {
+    sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+  },
+  clear: () => {
+    sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+  }
 };
 
 function authHeaders(): Record<string, string> {
@@ -82,6 +104,44 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function uploadRequest<T>(path: string, body: FormData): Promise<T> {
+  const correlationId = crypto.randomUUID();
+  const response = await fetch(path, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'X-Correlation-Id': correlationId, ...authHeaders() },
+    body
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new ApiError(
+      payload.detail ?? payload.message ?? `파일을 업로드하지 못했습니다 (${response.status})`,
+      response.status,
+      payload.code ?? payload.errorCode,
+      payload.correlationId ?? response.headers.get('X-Correlation-Id') ?? correlationId
+    );
+  }
+  return response.json() as Promise<T>;
+}
+
+async function blobRequest(path: string): Promise<Blob> {
+  const correlationId = crypto.randomUUID();
+  const response = await fetch(path, {
+    credentials: 'same-origin',
+    headers: { 'X-Correlation-Id': correlationId, ...authHeaders() }
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new ApiError(
+      payload.detail ?? payload.message ?? `첨부 파일을 불러오지 못했습니다 (${response.status})`,
+      response.status,
+      payload.code ?? payload.errorCode,
+      payload.correlationId ?? response.headers.get('X-Correlation-Id') ?? correlationId
+    );
+  }
+  return response.blob();
+}
+
 async function optionalRequest<T>(path: string): Promise<T | undefined> {
   try { return await request<T>(path); }
   catch (error) {
@@ -108,7 +168,101 @@ async function requestAllowing<T>(path: string, allowedStatuses: number[]): Prom
   return body as T;
 }
 
+export async function prepareOidcAuthorizationUrl(config?: AuthRuntimeConfig): Promise<string> {
+  const runtime = config ?? await request<AuthRuntimeConfig>('/api/auth/config');
+  if (runtime.mode !== 'OIDC' || !runtime.authorizationUri || !runtime.tokenUri || !runtime.clientId) {
+    throw new Error('외부 로그인 설정이 완료되지 않았습니다.');
+  }
+  const authorization = safeOidcUrl(runtime.authorizationUri, '인증');
+  safeOidcUrl(runtime.tokenUri, '토큰');
+  const state = randomBase64Url(24);
+  const verifier = randomBase64Url(64);
+  const challenge = base64Url(new Uint8Array(await crypto.subtle.digest(
+    'SHA-256', new TextEncoder().encode(verifier))));
+  const redirectUri = new URL('/app/', window.location.origin).toString();
+  sessionStorage.setItem(OIDC_STATE_KEY, state);
+  sessionStorage.setItem(OIDC_VERIFIER_KEY, verifier);
+  sessionStorage.setItem(OIDC_REDIRECT_KEY, redirectUri);
+
+  authorization.searchParams.set('response_type', 'code');
+  authorization.searchParams.set('client_id', runtime.clientId);
+  authorization.searchParams.set('redirect_uri', redirectUri);
+  authorization.searchParams.set('scope', runtime.scopes.join(' '));
+  authorization.searchParams.set('state', state);
+  authorization.searchParams.set('code_challenge', challenge);
+  authorization.searchParams.set('code_challenge_method', 'S256');
+  return authorization.toString();
+}
+
+export async function completeOidcCallbackIfPresent(): Promise<boolean> {
+  const params = new URLSearchParams(window.location.search);
+  if (params.has('tossResult') || !params.get('state') || (!params.get('code') && !params.get('error'))) {
+    return false;
+  }
+  const expectedState = sessionStorage.getItem(OIDC_STATE_KEY);
+  const verifier = sessionStorage.getItem(OIDC_VERIFIER_KEY);
+  const redirectUri = sessionStorage.getItem(OIDC_REDIRECT_KEY);
+  try {
+    if (params.get('error')) {
+      throw new Error(params.get('error_description') ?? '로그인이 취소되었거나 승인되지 않았습니다.');
+    }
+    if (!expectedState || params.get('state') !== expectedState || !verifier || !redirectUri) {
+      throw new Error('로그인 요청 검증에 실패했습니다. 다시 로그인해 주세요.');
+    }
+    const runtime = await request<AuthRuntimeConfig>('/api/auth/config');
+    if (runtime.mode !== 'OIDC' || !runtime.tokenUri || !runtime.clientId) {
+      throw new Error('외부 로그인 설정이 완료되지 않았습니다.');
+    }
+    const body = new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: runtime.clientId,
+      code: params.get('code')!,
+      redirect_uri: redirectUri,
+      code_verifier: verifier
+    });
+    const response = await fetch(safeOidcUrl(runtime.tokenUri, '토큰').toString(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body
+    });
+    const token = await response.json().catch(() => ({}));
+    if (!response.ok || typeof token.access_token !== 'string' || !token.access_token) {
+      throw new Error(token.error_description ?? '외부 로그인 토큰을 발급받지 못했습니다.');
+    }
+    authToken.set(token.access_token);
+    return true;
+  } finally {
+    sessionStorage.removeItem(OIDC_STATE_KEY);
+    sessionStorage.removeItem(OIDC_VERIFIER_KEY);
+    sessionStorage.removeItem(OIDC_REDIRECT_KEY);
+    window.history.replaceState({}, '', '/app/');
+  }
+}
+
+function randomBase64Url(size: number): string {
+  const bytes = new Uint8Array(size);
+  crypto.getRandomValues(bytes);
+  return base64Url(bytes);
+}
+
+function base64Url(bytes: Uint8Array): string {
+  let binary = '';
+  bytes.forEach(byte => { binary += String.fromCharCode(byte); });
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+}
+
+function safeOidcUrl(value: string, label: string): URL {
+  const url = new URL(value);
+  const localDevelopment = url.protocol === 'http:'
+    && (url.hostname === 'localhost' || url.hostname === '127.0.0.1');
+  if (url.protocol !== 'https:' && !localDevelopment) {
+    throw new Error(`${label} 서버 주소는 HTTPS여야 합니다.`);
+  }
+  return url;
+}
+
 export const api = {
+  authConfig: () => request<AuthRuntimeConfig>('/api/auth/config'),
   me: () => request<Identity>('/api/me'),
   signUp: (email: string, password: string, displayName?: string) =>
     request<AuthToken>('/api/auth/signup', {
@@ -136,6 +290,34 @@ export const api = {
   ),
   submitSellerListing: (listingId: string) => request<SellerListing>(
     `/api/c2c/listings/${encodeURIComponent(listingId)}/submit`, { method: 'POST' }
+  ),
+  pauseSellerListing: (listingId: string) => request<SellerListing>(
+    `/api/c2c/listings/${encodeURIComponent(listingId)}/pause`, { method: 'POST' }
+  ),
+  resumeSellerListing: (listingId: string) => request<SellerListing>(
+    `/api/c2c/listings/${encodeURIComponent(listingId)}/resume`, { method: 'POST' }
+  ),
+  archiveSellerListing: (listingId: string) => request<SellerListing>(
+    `/api/c2c/listings/${encodeURIComponent(listingId)}/archive`, { method: 'POST' }
+  ),
+  listingMedia: (listingId: string) => request<ListingMedia[]>(
+    `/api/c2c/listings/${encodeURIComponent(listingId)}/media`
+  ),
+  listingMediaContent: (listingId: string, mediaId: string) => blobRequest(
+    `/api/c2c/listings/${encodeURIComponent(listingId)}/media/${encodeURIComponent(mediaId)}/content`
+  ),
+  publicListingImages: (listingId: string) => request<ListingMedia[]>(
+    `/api/media/listings/${encodeURIComponent(listingId)}/images`
+  ),
+  uploadListingMedia: (listingId: string, mediaType: ListingMediaType, files: File[]) => {
+    const body = new FormData();
+    body.append('mediaType', mediaType);
+    files.forEach(file => body.append('files', file));
+    return uploadRequest<ListingMedia[]>(`/api/c2c/listings/${encodeURIComponent(listingId)}/media`, body);
+  },
+  deleteListingMedia: (listingId: string, mediaId: string) => request<void>(
+    `/api/c2c/listings/${encodeURIComponent(listingId)}/media/${encodeURIComponent(mediaId)}`,
+    { method: 'DELETE' }
   ),
   createSaleEvent: (listingId: string, body: SaleEventInput) => request<SellerListing>(
     `/api/c2c/listings/${encodeURIComponent(listingId)}/sale-events`,
@@ -180,8 +362,8 @@ export const api = {
     method: 'POST',
     body: JSON.stringify({ bidAmount, idempotencyKey: crypto.randomUUID() })
   }),
-  raffleStatus: (eventId: string, customerId: string) => request<RaffleStatus>(
-    `/api/marketplace/events/${encodeURIComponent(eventId)}/raffle/status?customerId=${encodeURIComponent(customerId)}`
+  raffleStatus: (eventId: string, customerId?: string) => request<RaffleStatus>(
+    `/api/marketplace/events/${encodeURIComponent(eventId)}/raffle/status${customerId ? `?customerId=${encodeURIComponent(customerId)}` : ''}`
   ),
   enterRaffle: (eventId: string) => request(`/api/marketplace/events/${encodeURIComponent(eventId)}/raffle/entries`, {
     method: 'POST',
@@ -203,6 +385,13 @@ export const api = {
   orders: (customerId: string) => request<MarketplaceOrder[]>(
     `/api/marketplace/customers/${encodeURIComponent(customerId)}/orders?page=0&size=50`
   ),
+  notificationInbox: () => request<NotificationInbox>('/api/c2c/notifications?page=0&size=50'),
+  markNotificationRead: (notificationId: string) => request<MarketplaceNotification>(
+    `/api/c2c/notifications/${encodeURIComponent(notificationId)}/read`, { method: 'PATCH' }
+  ),
+  markAllNotificationsRead: () => request<{ updatedCount: number }>(
+    '/api/c2c/notifications/read-all', { method: 'PATCH' }
+  ),
   addresses: () => request<ShippingAddress[]>('/api/c2c/addresses'),
   createAddress: (body: Omit<ShippingAddress, 'addressId'>) => request<ShippingAddress>('/api/c2c/addresses', {
     method: 'POST', body: JSON.stringify(body)
@@ -210,6 +399,9 @@ export const api = {
   setDefaultAddress: (addressId: string) => request<ShippingAddress>(`/api/c2c/addresses/${encodeURIComponent(addressId)}/default`, { method: 'PATCH' }),
   deleteAddress: (addressId: string) => request<void>(`/api/c2c/addresses/${encodeURIComponent(addressId)}`, { method: 'DELETE' }),
   confirmDelivery: (orderId: string) => request(`/api/c2c/orders/${encodeURIComponent(orderId)}/confirm-delivery`, { method: 'POST' }),
+  cancelOrder: (orderId: string, reason: string) => request(`/api/c2c/orders/${encodeURIComponent(orderId)}/cancellations`, {
+    method: 'POST', body: JSON.stringify({ reason })
+  }),
   openDispute: (orderId: string, reason: string) => request(`/api/c2c/orders/${encodeURIComponent(orderId)}/dispute`, {
     method: 'POST', body: JSON.stringify({ reason })
   }),
@@ -237,7 +429,8 @@ export const api = {
       : checkoutType === 'RAFFLE_WINNER'
         ? 'raffle/winner-checkout/toss/intents'
         : 'auction/winner-checkout/toss/intents';
-    const baseUrl = `${window.location.origin}/app/`;
+    // 서버는 같은 사이트 경로와 허용된 출처만 받는다. 결제창에 넘길 때 현재 출처를 붙인다.
+    const basePath = '/app/';
     return request<TossIntent>(`/api/marketplace/events/${encodeURIComponent(eventId)}/${suffix}`, {
       method: 'POST',
       body: JSON.stringify({
@@ -250,20 +443,23 @@ export const api = {
           amount,
           currency: 'KRW',
           paymentMethod: 'CREDIT_CARD',
-          successUrl: `${baseUrl}?tossResult=success`,
-          failUrl: `${baseUrl}?tossResult=fail`
+          successUrl: `${basePath}?tossResult=success`,
+          failUrl: `${basePath}?tossResult=fail`
         }
       })
     });
   },
   confirmToss: (payload: { intentId: string; paymentKey: string; orderId: string; amount: number }) =>
-    request<{ status: string; message?: string; workflowId?: string }>('/api/payments/toss/confirm', {
+    request<import('./types').CheckoutStatus>('/api/payments/toss/confirm', {
       method: 'POST',
       body: JSON.stringify(payload)
     }),
   cancelToss: (intentId: string) => request<TossIntent>(
     `/api/payments/toss/intents/${encodeURIComponent(intentId)}/cancel`,
     { method: 'POST' }
+  ),
+  tossIntentStatus: (intentId: string) => request<import('./types').CheckoutStatus>(
+    `/api/payments/toss/intents/${encodeURIComponent(intentId)}`
   )
 };
 

@@ -2,6 +2,7 @@ package com.example.payment.scheduler;
 
 import com.example.payment.application.service.MarketplaceCheckoutException;
 import com.example.payment.application.service.RaffleService;
+import com.example.payment.application.service.SaleEventActivationService;
 import com.example.payment.domain.model.marketplace.SaleEvent;
 import com.example.payment.domain.model.marketplace.SaleEventStatus;
 import com.example.payment.domain.model.marketplace.SaleType;
@@ -13,6 +14,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 
 @Component
@@ -23,10 +25,19 @@ public class SaleEventLifecycleJob {
 
     private final SaleEventRepository saleEventRepository;
     private final RaffleService raffleService;
+    private final SaleEventActivationService activationService;
+
+    @Scheduled(fixedDelayString = "${app.marketplace.lifecycle.activation-delay-ms:5000}")
+    public void activateDueEvents() {
+        activationService.activateDueEvents(
+                LocalDateTime.now(ZoneOffset.UTC),
+                100
+        );
+    }
 
     @Scheduled(fixedDelayString = "${app.marketplace.lifecycle.fixed-delay-ms:5000}")
     public void closeDueEvents() {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         closeDueRaffles(now);
 
         int ended = saleEventRepository.endDueEvents(

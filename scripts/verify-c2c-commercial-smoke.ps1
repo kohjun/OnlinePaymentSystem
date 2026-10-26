@@ -3,7 +3,7 @@ param(
     [string] $BaseUrl = "http://localhost:8080",
     [string] $TenantId = "everysale-demo",
     [string] $PartnerId = "demo-partner",
-    [ValidateSet("FIXED_PRICE", "AUCTION", "RAFFLE")]
+    [ValidateSet("FIXED_PRICE", "DROP", "AUCTION", "RAFFLE")]
     [string] $SaleType = "FIXED_PRICE",
     [switch] $SkipPaymentIntent,
     [switch] $DryRun
@@ -14,7 +14,9 @@ $ErrorActionPreference = "Stop"
 
 $runId = ([guid]::NewGuid().ToString("N")).Substring(0, 10).ToUpperInvariant()
 $sellerUserId = "USER-SMOKE-$runId"
-$sellerCustomerId = "CUST-SMOKE-$runId"
+$sellerCustomerId = "CUST-SELLER-SMOKE-$runId"
+$buyerUserId = "USER-BUYER-SMOKE-$runId"
+$buyerCustomerId = "CUST-BUYER-SMOKE-$runId"
 $adminUserId = "ADMIN-SMOKE"
 
 function New-Headers {
@@ -115,6 +117,7 @@ function Invoke-Step {
 }
 
 $sellerHeaders = New-Headers $sellerUserId $sellerCustomerId "CUSTOMER,SELLER"
+$buyerHeaders = New-Headers $buyerUserId $buyerCustomerId "CUSTOMER"
 $adminHeaders = New-Headers $adminUserId "CUST-ADMIN-SMOKE" "ADMIN"
 
 Invoke-Step "Service health" {
@@ -189,9 +192,10 @@ $saleEventBody = @{
     saleType = $SaleType
     price = 25000
     stockQuantity = 1
+    activationMode = "IMMEDIATE"
     publishImmediately = $false
-    startsAt = (Get-Date).AddMinutes(-1).ToString("yyyy-MM-ddTHH:mm:ss")
-    endsAt = (Get-Date).AddHours(2).ToString("yyyy-MM-ddTHH:mm:ss")
+    startsAt = (Get-Date).AddMinutes(-1).ToString("o")
+    endsAt = (Get-Date).AddHours(2).ToString("o")
 }
 if ($SaleType -eq "AUCTION") {
     $saleEventBody.minBidIncrement = 1000
@@ -211,10 +215,10 @@ Invoke-Step "Verify public marketplace event" {
 } | Out-Null
 
 $intent = $null
-if (-not $SkipPaymentIntent -and $SaleType -eq "FIXED_PRICE") {
+if (-not $SkipPaymentIntent -and ($SaleType -eq "FIXED_PRICE" -or $SaleType -eq "DROP")) {
     $intent = Invoke-Step "Create Toss checkout intent" {
-        Invoke-EverySaleApi "POST" "/api/marketplace/events/$($saleEvent.saleEventId)/checkout/toss/intents" $sellerHeaders @{
-            customerId = $sellerCustomerId
+        Invoke-EverySaleApi "POST" "/api/marketplace/events/$($saleEvent.saleEventId)/checkout/toss/intents" $buyerHeaders @{
+            customerId = $buyerCustomerId
             quantity = 1
             idempotencyKey = "SMOKE-INTENT-$runId"
             correlationId = "SMOKE-COR-$runId"

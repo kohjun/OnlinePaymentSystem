@@ -1,6 +1,7 @@
 package com.example.payment;
 
 import com.example.payment.application.dto.PaymentGatewayResult;
+import com.example.payment.application.dto.PaymentRefundRequest;
 import com.example.payment.application.service.PaymentProcessingService;
 import com.example.payment.domain.service.PaymentGatewayService;
 import com.example.payment.infrastructure.gateway.MockPaymentGateway;
@@ -56,6 +57,8 @@ class SagaScenarioTest extends TestcontainersIntegrationSupport {
     @MockBean
     private MockPaymentGateway mockPaymentGateway;
 
+    @Autowired private com.example.payment.domain.repository.PaymentRecordRepository payments;
+
     private static final String PRODUCT_ID_SAGA = "SAGA-TEST-001";
     private static final int SAGA_STOCK = 5;
 
@@ -71,16 +74,21 @@ class SagaScenarioTest extends TestcontainersIntegrationSupport {
         // 2. MockGateway가 기본적으로 성공하도록 설정
         // (MockPaymentGateway의 10% 실패 확률을 제거하여 테스트 안정성 확보)
         when(mockPaymentGateway.processPayment(any()))
-                .thenReturn(PaymentGatewayResult.builder()
+                .thenAnswer(call -> PaymentGatewayResult.builder()
                         .success(true)
-                        .transactionId("MOCK_TX_SUCCESS")
+                        .transactionId("MOCK_TX_" + call.<com.example.payment.application.dto.PaymentGatewayRequest>getArgument(0).getPaymentId())
                         .approvalNumber("MOCK_APPROVAL_123")
                         .processedAmount(new BigDecimal("100.00"))
                         .build());
 
         // 3. MockGateway의 환불도 성공하도록 설정
-        when(mockPaymentGateway.refundPayment(any()))
-                .thenReturn(true);
+        when(mockPaymentGateway.getPaymentStatus(any())).thenAnswer(call -> providerObservation(call.getArgument(0), false));
+        when(mockPaymentGateway.refund(any())).thenAnswer(call -> {
+            PaymentRefundRequest refund = call.getArgument(0);
+            return new com.example.payment.application.dto.PaymentRefundResult(
+                    com.example.payment.application.dto.PaymentRefundResult.Status.SUCCEEDED,
+                    providerObservation(refund.getTransactionId(), true), null);
+        });
         when(mockPaymentGateway.getGatewayName()).thenReturn("MOCK_PAYMENT_GATEWAY");
     }
 
@@ -88,8 +96,8 @@ class SagaScenarioTest extends TestcontainersIntegrationSupport {
     @DisplayName("[실패 시나리오] 결제가 실패하면 Saga 보상 트랜잭션이 동작하여 재고가 롤백된다")
     void test_whenPaymentFails_thenSagaIsCompensated() {
         // 1. [Given] PG(결제)가 실패하도록 Mock을 설정
-        when(mockPaymentGateway.processPayment(any()))
-                .thenReturn(PaymentGatewayResult.failure("MOCK_FAILURE", "의도된 결제 실패"));
+        Mockito.doReturn(PaymentGatewayResult.failure("MOCK_FAILURE", "의도된 결제 실패"))
+                .when(mockPaymentGateway).processPayment(any());
 
         // 2. [When] 통합 예약을 시도
         String url = "http://localhost:" + port + "/api/reservations/complete";
@@ -146,7 +154,8 @@ class SagaScenarioTest extends TestcontainersIntegrationSupport {
         System.out.println("✅ [취소 테스트] 취소 API 호출 성공");
 
         // 4. [검증] PG 환불이 호출되었는지 Mockito로 검증
-        Mockito.verify(mockPaymentGateway, Mockito.times(1)).refundPayment(any());
+        Mockito.verify(mockPaymentGateway, Mockito.times(1))
+                .refund(any(PaymentRefundRequest.class));
         System.out.println("✅ [취소 테스트] PG 환불(refundPayment)이 호출되었습니다.");
 
         // 5. [검증] 재고가 롤백되었는지 확인 (가장 중요)
@@ -156,6 +165,16 @@ class SagaScenarioTest extends TestcontainersIntegrationSupport {
         System.out.println("✅ [취소 테스트] 재고가 정상적으로 롤백되었습니다.");
     }
 
+
+    private PaymentGatewayResult providerObservation(String key, boolean refunded) {
+        var payment = payments.findByTransactionId(key).orElseThrow();
+        return PaymentGatewayResult.builder().gatewayStatus(refunded ? "REFUNDED" : "APPROVED")
+                .gatewayName("MOCK_PAYMENT_GATEWAY").success(!refunded).transactionId(key)
+                .orderId(payment.getOrderId()).processedAmount(payment.getAmount()).currency(payment.getCurrency())
+                .balanceAmount(refunded ? BigDecimal.ZERO : payment.getAmount())
+                .cancellations(refunded ? java.util.List.of(new PaymentGatewayResult.ProviderCancellation(
+                        "CANCEL-" + key, payment.getAmount(), "DONE")) : java.util.List.of()).build();
+    }
 
     private CompleteReservationRequest createReservationRequest(String productId, String customerId) {
         return CompleteReservationRequest.builder()

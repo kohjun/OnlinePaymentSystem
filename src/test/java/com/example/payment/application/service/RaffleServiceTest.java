@@ -27,9 +27,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.RedisTemplate;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.test.util.ReflectionTestUtils;
+import com.example.payment.infrastructure.security.CommerceActor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
@@ -47,9 +50,12 @@ class RaffleServiceTest {
     private final InventoryRepository inventoryRepository = mock(InventoryRepository.class);
     private final RaffleEntryRepository entryRepository = mock(RaffleEntryRepository.class);
     private final RaffleWinnerRepository winnerRepository = mock(RaffleWinnerRepository.class);
+    private final InventoryHoldService inventoryHoldService = mock(InventoryHoldService.class);
+    private final CommercePolicyService commercePolicyService = mock(CommercePolicyService.class);
     private final MarketplaceRealtimeService marketplaceRealtimeService = mock(MarketplaceRealtimeService.class);
     private final RedisTemplate<String, Object> redisTemplate = mock(RedisTemplate.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final MarketplaceNotificationService notificationService = mock(MarketplaceNotificationService.class);
 
     private final RaffleService service = new RaffleService(
             saleEventRepository,
@@ -57,13 +63,17 @@ class RaffleServiceTest {
             inventoryRepository,
             entryRepository,
             winnerRepository,
+            inventoryHoldService,
+            commercePolicyService,
             marketplaceRealtimeService,
             redisTemplate,
-            objectMapper
+            objectMapper,
+            notificationService
     );
 
     @BeforeEach
     void setUp() {
+        ReflectionTestUtils.setField(service, "winnerCheckoutTtlMinutes", 30L);
         org.springframework.data.redis.core.ValueOperations valueOps = mock(org.springframework.data.redis.core.ValueOperations.class);
         org.springframework.data.redis.core.SetOperations setOps = mock(org.springframework.data.redis.core.SetOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
@@ -87,7 +97,8 @@ class RaffleServiceTest {
         RaffleEntryRequest request = new RaffleEntryRequest();
         request.setCustomerId("CUST-1");
 
-        RaffleEntryResponse response = service.enter("EVT-RAFFLE", request);
+        RaffleEntryResponse response = service.enter(
+                "EVT-RAFFLE", new CommerceActor("USER-CUST-1", "CUST-1"), request);
 
         assertEquals("EVT-RAFFLE", response.getSaleEventId());
         assertEquals("CUST-1", response.getCustomerId());
@@ -103,7 +114,8 @@ class RaffleServiceTest {
         RaffleEntryRequest request = new RaffleEntryRequest();
         request.setCustomerId("CUST-1");
 
-        RaffleEntryResponse response = service.enter("EVT-RAFFLE", request);
+        RaffleEntryResponse response = service.enter(
+                "EVT-RAFFLE", new CommerceActor("USER-CUST-1", "CUST-1"), request);
 
         assertEquals("ENTRY-1", response.getEntryId());
         assertEquals(RaffleEntryStatus.ENTERED, response.getStatus());
@@ -130,7 +142,7 @@ class RaffleServiceTest {
                         .entryId("ENTRY-1")
                         .customerId("CUST-1")
                         .checkoutStatus(RaffleCheckoutStatus.PENDING)
-                        .createdAt(LocalDateTime.now())
+                        .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                         .build(),
                 RaffleWinner.builder()
                         .winnerId("WIN-2")
@@ -138,7 +150,7 @@ class RaffleServiceTest {
                         .entryId("ENTRY-2")
                         .customerId("CUST-2")
                         .checkoutStatus(RaffleCheckoutStatus.PENDING)
-                        .createdAt(LocalDateTime.now())
+                        .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                         .build()
         ));
 
@@ -150,6 +162,16 @@ class RaffleServiceTest {
         service.draw("EVT-RAFFLE", request);
 
         verify(winnerRepository, times(2)).save(any(RaffleWinner.class));
+        verify(inventoryHoldService, times(2)).hold(
+                any(),
+                org.mockito.ArgumentMatchers.eq("PROD-RAFFLE"),
+                any(),
+                org.mockito.ArgumentMatchers.eq(1),
+                any(),
+                org.mockito.ArgumentMatchers.eq("RAFFLE_WINNER"),
+                org.mockito.ArgumentMatchers.eq("RAFFLE_WINNER"),
+                any()
+        );
     }
 
     @Test
@@ -161,8 +183,8 @@ class RaffleServiceTest {
                 .productId("PROD-RAFFLE")
                 .saleType(SaleType.RAFFLE)
                 .status(SaleEventStatus.LIVE)
-                .startsAt(LocalDateTime.now().minusHours(2))
-                .endsAt(LocalDateTime.now().minusMinutes(1))
+                .startsAt(LocalDateTime.now(ZoneOffset.UTC).minusHours(2))
+                .endsAt(LocalDateTime.now(ZoneOffset.UTC).minusMinutes(1))
                 .price(new BigDecimal("239000"))
                 .stockQuantity(10)
                 .build();
@@ -190,8 +212,8 @@ class RaffleServiceTest {
                 .productId("PROD-RAFFLE")
                 .saleType(SaleType.RAFFLE)
                 .status(SaleEventStatus.LIVE)
-                .startsAt(LocalDateTime.now().minusMinutes(5))
-                .endsAt(LocalDateTime.now().plusDays(1))
+                .startsAt(LocalDateTime.now(ZoneOffset.UTC).minusMinutes(5))
+                .endsAt(LocalDateTime.now(ZoneOffset.UTC).plusDays(1))
                 .price(new BigDecimal("239000"))
                 .stockQuantity(10)
                 .build();
@@ -212,7 +234,7 @@ class RaffleServiceTest {
                 .saleEventId("EVT-RAFFLE")
                 .customerId(customerId)
                 .status(RaffleEntryStatus.ENTERED)
-                .createdAt(LocalDateTime.now())
+                .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build();
     }
 }

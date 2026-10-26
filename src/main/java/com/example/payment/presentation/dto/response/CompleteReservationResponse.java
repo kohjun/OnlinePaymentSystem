@@ -19,6 +19,14 @@ import java.time.LocalDateTime;
 public class CompleteReservationResponse extends BaseResponse {
 
     private String workflowId;
+    private String phase;
+    private Integer retryAfterSeconds;
+
+    @com.fasterxml.jackson.annotation.JsonProperty(access = com.fasterxml.jackson.annotation.JsonProperty.Access.READ_ONLY)
+    public boolean isTerminal() {
+        return java.util.Set.of("SUCCESS", "FAILED", "CANCELLED", "CANCELED").contains(
+                getStatus() == null ? "" : getStatus());
+    }
     private ReservationInfo reservation;
     private OrderInfo order;
     private PaymentInfo payment;
@@ -32,7 +40,7 @@ public class CompleteReservationResponse extends BaseResponse {
         private String productId;
         private Integer quantity;
 
-        @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+        @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
         private LocalDateTime expiresAt;
     }
 
@@ -45,7 +53,7 @@ public class CompleteReservationResponse extends BaseResponse {
         private String customerId;
         private String status;
 
-        @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+        @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
         private LocalDateTime createdAt;
     }
 
@@ -61,7 +69,7 @@ public class CompleteReservationResponse extends BaseResponse {
         private String currency;
         private String status;
 
-        @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+        @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
         private LocalDateTime processedAt;
     }
 

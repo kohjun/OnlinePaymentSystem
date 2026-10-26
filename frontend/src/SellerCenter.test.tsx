@@ -14,6 +14,9 @@ vi.mock('./api', () => ({
     createSellerListing: vi.fn(),
     updateSellerListing: vi.fn(),
     submitSellerListing: vi.fn(),
+    listingMedia: vi.fn().mockResolvedValue([]),
+    uploadListingMedia: vi.fn(),
+    deleteListingMedia: vi.fn(),
     createSaleEvent: vi.fn(),
     publishSaleEvent: vi.fn(),
     sellerOrders: vi.fn().mockResolvedValue([]),
@@ -67,5 +70,32 @@ describe('SellerCenter', () => {
     expect(api.createSellerListing).toHaveBeenCalledWith(expect.objectContaining({
       name: '빈티지 재킷', price: 89000, quantity: 1
     }));
+  });
+
+  it('allows three attachments and locks commerce fields for an active listing', async () => {
+    vi.mocked(api.sellerListings).mockResolvedValueOnce([{
+      listingId: 'LIST-LIVE', sellerId: 'SELLER-1', productId: 'PROD-LIVE', name: '판매 중 상품',
+      category: 'FASHION', itemCondition: 'GOOD', status: 'ACTIVE', price: 120000,
+      totalQuantity: 1, availableQuantity: 1, saleEventId: 'EVT-LIVE', saleType: 'FIXED_PRICE', saleEventStatus: 'LIVE'
+    }]);
+    vi.mocked(api.listingMedia).mockResolvedValue([]);
+    const notify = vi.fn();
+    const { container } = render(
+      <SellerCenter identity={identity} close={vi.fn()} notify={notify} onIdentityChange={vi.fn()} />
+    );
+
+    expect(await screen.findByText('판매 중 상품')).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle('판매 상품 정보 수정'));
+    expect(await screen.findByRole('heading', { name: '판매 상품 정보 수정' })).toBeInTheDocument();
+    expect(screen.getByLabelText('판매 기준가')).toBeDisabled();
+    expect(screen.getByLabelText('수량')).toBeDisabled();
+    expect(screen.getByRole('button', { name: '변경사항 저장' })).toBeEnabled();
+
+    const imageInput = container.querySelectorAll<HTMLInputElement>('input[type="file"]')[0];
+    const files = [1, 2, 3, 4].map(index => new File([`image-${index}`], `image-${index}.png`, { type: 'image/png' }));
+    fireEvent.change(imageInput, { target: { files } });
+
+    expect(await screen.findByText('3/3')).toBeInTheDocument();
+    expect(notify).toHaveBeenCalledWith('각 첨부 영역에는 최대 3개까지 등록할 수 있습니다.', 'error');
   });
 });

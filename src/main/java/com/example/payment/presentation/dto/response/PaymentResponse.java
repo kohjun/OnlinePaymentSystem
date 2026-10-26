@@ -27,7 +27,7 @@ public class PaymentResponse extends BaseResponse {
     private String approvalNumber;
     private String gatewayName;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime processedAt;
 
     public static PaymentResponse success(String paymentId, String orderId, String reservationId,

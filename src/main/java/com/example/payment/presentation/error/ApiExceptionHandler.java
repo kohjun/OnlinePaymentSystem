@@ -27,6 +27,11 @@ import java.util.Map;
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
+    @ExceptionHandler(com.example.payment.application.service.CommerceSettlementBlockedException.class)
+    ProblemDetail settlementBlocked(com.example.payment.application.service.CommerceSettlementBlockedException exception) {
+        return problem(HttpStatus.CONFLICT, "REFUND_VERIFICATION_REQUIRED", exception.getMessage(), false);
+    }
+
     @ExceptionHandler(AmountMismatchException.class)
     ProblemDetail amountMismatch(AmountMismatchException exception) {
         return problem(HttpStatus.CONFLICT, "AMOUNT_MISMATCH", exception.getMessage(), false);

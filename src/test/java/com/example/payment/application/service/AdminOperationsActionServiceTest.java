@@ -41,7 +41,11 @@ class AdminOperationsActionServiceTest {
             marketplaceOrderService,
             paymentProcessingService,
             sellerPayoutService,
-            securityAuditService
+            securityAuditService,
+            mock(RefundRecoveryService.class),
+            mock(com.example.payment.domain.repository.PaymentRecordRepository.class),
+            mock(com.example.payment.domain.repository.TossPaymentIntentRepository.class),
+            mock(TossPaymentIntentService.class)
     );
 
     @Test

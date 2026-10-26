@@ -5,6 +5,7 @@ import com.example.payment.domain.model.inventory.Product;
 import com.example.payment.domain.model.marketplace.ListingStatus;
 import com.example.payment.domain.model.marketplace.MarketplaceListing;
 import com.example.payment.domain.model.marketplace.SaleEvent;
+import com.example.payment.domain.model.marketplace.SaleEventActivationMode;
 import com.example.payment.domain.model.marketplace.SaleEventStatus;
 import com.example.payment.domain.model.marketplace.SaleType;
 import com.example.payment.domain.model.marketplace.SellerProfile;
@@ -15,7 +16,9 @@ import com.example.payment.domain.repository.MarketplaceListingRepository;
 import com.example.payment.domain.repository.ProductRepository;
 import com.example.payment.domain.repository.SaleEventRepository;
 import com.example.payment.domain.repository.SellerProfileRepository;
+import com.example.payment.domain.repository.TossPaymentIntentRepository;
 import com.example.payment.infrastructure.util.ResourceReservationService;
+import com.example.payment.infrastructure.messaging.outbox.OutboxEventService;
 import com.example.payment.presentation.dto.request.CreateSaleEventRequest;
 import com.example.payment.presentation.dto.request.CreateSellerListingRequest;
 import com.example.payment.presentation.dto.request.ReviewListingRequest;
@@ -25,6 +28,7 @@ import com.example.payment.presentation.dto.request.UpdateC2CListingRequest;
 import com.example.payment.presentation.dto.response.SellerListingResponse;
 import com.example.payment.presentation.dto.response.SellerResponse;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
@@ -33,6 +37,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -47,6 +52,9 @@ class SellerMarketplaceServiceTest {
     private final MarketplaceListingRepository listingRepository = mock(MarketplaceListingRepository.class);
     private final SaleEventRepository saleEventRepository = mock(SaleEventRepository.class);
     private final ResourceReservationService resourceReservationService = mock(ResourceReservationService.class);
+    private final OutboxEventService outboxEventService = mock(OutboxEventService.class);
+    private final MarketplaceRealtimeService realtimeService = mock(MarketplaceRealtimeService.class);
+    private final TossPaymentIntentRepository tossPaymentIntentRepository = mock(TossPaymentIntentRepository.class);
 
     private final SellerMarketplaceService service = new SellerMarketplaceService(
             sellerRepository,
@@ -54,8 +62,19 @@ class SellerMarketplaceServiceTest {
             inventoryRepository,
             listingRepository,
             saleEventRepository,
-            resourceReservationService
+            resourceReservationService,
+            outboxEventService,
+            realtimeService,
+            tossPaymentIntentRepository
     );
+
+    @BeforeEach
+    void routeLockingLookupsThroughExistingTestStubs() {
+        when(listingRepository.findByIdForUpdate(any())).thenAnswer(invocation ->
+                listingRepository.findById(invocation.getArgument(0)));
+        when(saleEventRepository.findByIdForUpdate(any())).thenAnswer(invocation ->
+                saleEventRepository.findById(invocation.getArgument(0)));
+    }
 
     @Test
     void approvesSellerForC2CSaleEventCreation() {
@@ -268,6 +287,75 @@ class SellerMarketplaceServiceTest {
     }
 
     @Test
+    void updatesDescriptiveInformationWithoutChangingActiveSaleTerms() {
+        SellerProfile seller = SellerProfile.builder()
+                .sellerId("SELLER-C2C").ownerUserId("USER-1").ownerCustomerId("CUST-1")
+                .status(SellerStatus.ACTIVE).verificationStatus(SellerVerificationStatus.VERIFIED).build();
+        MarketplaceListing listing = MarketplaceListing.builder()
+                .listingId("LIST-C2C").sellerId("SELLER-C2C").productId("PROD-C2C")
+                .title("Original").description("Before").itemCondition("GOOD")
+                .status(ListingStatus.ACTIVE).reviewedBy("OPS-1").build();
+        Product product = Product.builder().id("PROD-C2C").name("Original").category("FASHION")
+                .price(new BigDecimal("10000")).build();
+        Inventory inventory = Inventory.builder().productId("PROD-C2C").totalQuantity(1)
+                .availableQuantity(1).reservedQuantity(0).build();
+        SaleEvent event = SaleEvent.builder().saleEventId("EVT-1").listingId("LIST-C2C")
+                .sellerId("SELLER-C2C").productId("PROD-C2C").saleType(SaleType.FIXED_PRICE)
+                .status(SaleEventStatus.LIVE).price(new BigDecimal("10000")).stockQuantity(1).build();
+        when(sellerRepository.findByOwnerUserId("USER-1")).thenReturn(Optional.of(seller));
+        when(listingRepository.findById("LIST-C2C")).thenReturn(Optional.of(listing));
+        when(productRepository.findById("PROD-C2C")).thenReturn(Optional.of(product));
+        when(inventoryRepository.findById("PROD-C2C")).thenReturn(Optional.of(inventory));
+        when(saleEventRepository.findByListingIdOrderByStartsAtDesc("LIST-C2C")).thenReturn(java.util.List.of(event));
+        when(productRepository.save(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(inventoryRepository.save(any(Inventory.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(listingRepository.save(any(MarketplaceListing.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UpdateC2CListingRequest request = new UpdateC2CListingRequest();
+        request.setName("Updated title");
+        request.setDescription("Updated description");
+        request.setBrand("EverySale Select");
+
+        SellerListingResponse response = service.updateDraftListingForOwner(
+                "USER-1", "CUST-1", "LIST-C2C", request);
+
+        assertEquals("Updated title", response.getName());
+        assertEquals("Updated description", response.getDescription());
+        assertEquals(new BigDecimal("10000"), response.getPrice());
+        assertEquals("OPS-1", response.getReviewedBy());
+        verify(resourceReservationService, never()).initializeResource(any(), anyInt(), anyInt());
+    }
+
+    @Test
+    void rejectsPriceChangesWhileListingIsActive() {
+        SellerProfile seller = SellerProfile.builder()
+                .sellerId("SELLER-C2C").ownerUserId("USER-1").ownerCustomerId("CUST-1")
+                .status(SellerStatus.ACTIVE).verificationStatus(SellerVerificationStatus.VERIFIED).build();
+        MarketplaceListing listing = MarketplaceListing.builder()
+                .listingId("LIST-C2C").sellerId("SELLER-C2C").productId("PROD-C2C")
+                .title("Original").itemCondition("GOOD").status(ListingStatus.ACTIVE).build();
+        Product product = Product.builder().id("PROD-C2C").name("Original").category("FASHION")
+                .price(new BigDecimal("10000")).build();
+        Inventory inventory = Inventory.builder().productId("PROD-C2C").totalQuantity(1)
+                .availableQuantity(1).reservedQuantity(0).build();
+        SaleEvent event = SaleEvent.builder().saleEventId("EVT-1").listingId("LIST-C2C")
+                .status(SaleEventStatus.LIVE).price(new BigDecimal("10000")).build();
+        when(sellerRepository.findByOwnerUserId("USER-1")).thenReturn(Optional.of(seller));
+        when(listingRepository.findById("LIST-C2C")).thenReturn(Optional.of(listing));
+        when(productRepository.findById("PROD-C2C")).thenReturn(Optional.of(product));
+        when(inventoryRepository.findById("PROD-C2C")).thenReturn(Optional.of(inventory));
+        when(saleEventRepository.findByListingIdOrderByStartsAtDesc("LIST-C2C")).thenReturn(java.util.List.of(event));
+        UpdateC2CListingRequest request = new UpdateC2CListingRequest();
+        request.setPrice(new BigDecimal("9000"));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> service.updateDraftListingForOwner("USER-1", "CUST-1", "LIST-C2C", request));
+
+        org.junit.jupiter.api.Assertions.assertTrue(exception.getMessage().contains("ACTIVE_LISTING_COMMERCE_FIELDS_LOCKED"));
+        verify(productRepository, never()).save(any(Product.class));
+    }
+
+    @Test
     void submitsOwnedDraftListingForReview() {
         SellerProfile seller = SellerProfile.builder()
                 .sellerId("SELLER-C2C")
@@ -404,6 +492,7 @@ class SellerMarketplaceServiceTest {
         request.setStockQuantity(1);
         request.setPublishImmediately(true);
         request.setMinBidIncrement(new BigDecimal("10000"));
+        request.setEndsAt(java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC).plusHours(6));
 
         SellerListingResponse response = service.createSaleEventForOwner("USER-1", "CUST-1", "LIST-C2C", request);
 
@@ -456,6 +545,98 @@ class SellerMarketplaceServiceTest {
     }
 
     @Test
+    void rejectsAuctionReserveBelowStartingPrice() {
+        CreateSaleEventRequest request = new CreateSaleEventRequest();
+        request.setSaleType(SaleType.AUCTION);
+        request.setPrice(new BigDecimal("210000"));
+        request.setStockQuantity(1);
+        request.setMinBidIncrement(new BigDecimal("10000"));
+        request.setReservePrice(new BigDecimal("200000"));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> service.createSaleEvent("SELLER-C2C", "LIST-C2C", request));
+
+        assertEquals("Auction reserve price cannot be lower than the starting price.", exception.getMessage());
+        verify(saleEventRepository, never()).save(any(SaleEvent.class));
+    }
+
+    @Test
+    void rejectsTimedSaleWithoutExplicitEndTime() {
+        SellerProfile seller = SellerProfile.builder()
+                .sellerId("SELLER-C2C")
+                .status(SellerStatus.ACTIVE)
+                .verificationStatus(SellerVerificationStatus.VERIFIED)
+                .build();
+        when(sellerRepository.findById("SELLER-C2C")).thenReturn(Optional.of(seller));
+        when(listingRepository.findById("LIST-C2C")).thenReturn(Optional.of(MarketplaceListing.builder()
+                .listingId("LIST-C2C")
+                .sellerId("SELLER-C2C")
+                .productId("PROD-C2C")
+                .status(ListingStatus.ACTIVE)
+                .build()));
+        when(inventoryRepository.findById("PROD-C2C")).thenReturn(Optional.of(Inventory.builder()
+                .productId("PROD-C2C")
+                .totalQuantity(1)
+                .availableQuantity(1)
+                .reservedQuantity(0)
+                .build()));
+
+        CreateSaleEventRequest request = new CreateSaleEventRequest();
+        request.setSaleType(SaleType.DROP);
+        request.setPrice(new BigDecimal("210000"));
+        request.setStockQuantity(1);
+
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> service.createSaleEvent("SELLER-C2C", "LIST-C2C", request));
+
+        assertEquals("Auction, raffle, and drop sales require an end time.", failure.getMessage());
+        verify(saleEventRepository, never()).save(any(SaleEvent.class));
+    }
+
+    @Test
+    void publishingFutureSchedulePreservesItsStartTime() {
+        java.time.LocalDateTime scheduledStart = java.time.LocalDateTime.now(java.time.ZoneOffset.UTC).plusHours(2);
+        SellerProfile seller = SellerProfile.builder()
+                .sellerId("SELLER-C2C")
+                .status(SellerStatus.ACTIVE)
+                .verificationStatus(SellerVerificationStatus.VERIFIED)
+                .build();
+        SaleEvent event = SaleEvent.builder()
+                .saleEventId("EVT-FUTURE")
+                .listingId("LIST-C2C")
+                .sellerId("SELLER-C2C")
+                .productId("PROD-C2C")
+                .saleType(SaleType.DROP)
+                .status(SaleEventStatus.SCHEDULED)
+                .activationMode(SaleEventActivationMode.SCHEDULED)
+                .startsAt(scheduledStart)
+                .endsAt(scheduledStart.plusHours(1))
+                .price(new BigDecimal("210000"))
+                .stockQuantity(1)
+                .build();
+        MarketplaceListing listing = MarketplaceListing.builder()
+                .listingId("LIST-C2C")
+                .sellerId("SELLER-C2C")
+                .productId("PROD-C2C")
+                .status(ListingStatus.ACTIVE)
+                .build();
+        when(sellerRepository.findById("SELLER-C2C")).thenReturn(Optional.of(seller));
+        when(saleEventRepository.findById("EVT-FUTURE")).thenReturn(Optional.of(event));
+        when(listingRepository.findById("LIST-C2C")).thenReturn(Optional.of(listing));
+        when(saleEventRepository.save(any(SaleEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(productRepository.findById("PROD-C2C")).thenReturn(Optional.of(Product.builder()
+                .id("PROD-C2C").price(new BigDecimal("210000")).build()));
+        when(inventoryRepository.findById("PROD-C2C")).thenReturn(Optional.of(Inventory.builder()
+                .productId("PROD-C2C").totalQuantity(1).availableQuantity(1).reservedQuantity(0).build()));
+
+        SellerListingResponse response = service.publishSaleEvent("SELLER-C2C", "EVT-FUTURE");
+
+        assertEquals(SaleEventStatus.SCHEDULED, response.getSaleEventStatus());
+        assertEquals(SaleEventActivationMode.SCHEDULED, response.getActivationMode());
+        assertEquals(scheduledStart, response.getStartsAt());
+    }
+
+    @Test
     void createsRaffleListingAsPendingReviewBeforePublicPublish() {
         when(sellerRepository.findById("SELLER-1")).thenReturn(Optional.of(SellerProfile.builder()
                 .sellerId("SELLER-1")
@@ -475,6 +656,7 @@ class SellerMarketplaceServiceTest {
         request.setPrice(new BigDecimal("89000"));
         request.setQuantity(25);
         request.setPublishImmediately(true);
+        request.setEndsAt(java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC).plusDays(7));
 
         SellerListingResponse response = service.createListing("SELLER-1", request);
 
@@ -508,7 +690,7 @@ class SellerMarketplaceServiceTest {
                 .productId("PROD-1")
                 .saleType(SaleType.DROP)
                 .status(SaleEventStatus.SCHEDULED)
-                .startsAt(java.time.LocalDateTime.now().minusMinutes(1))
+                .startsAt(java.time.LocalDateTime.now(java.time.ZoneOffset.UTC).minusMinutes(1))
                 .price(new BigDecimal("59000"))
                 .stockQuantity(10)
                 .build();
@@ -556,7 +738,7 @@ class SellerMarketplaceServiceTest {
                 .productId("PROD-2")
                 .saleType(SaleType.FIXED_PRICE)
                 .status(SaleEventStatus.SCHEDULED)
-                .startsAt(java.time.LocalDateTime.now())
+                .startsAt(java.time.LocalDateTime.now(java.time.ZoneOffset.UTC))
                 .price(new BigDecimal("49000"))
                 .stockQuantity(5)
                 .build();
@@ -603,5 +785,75 @@ class SellerMarketplaceServiceTest {
         request.setQuantity(1);
 
         assertThrows(IllegalArgumentException.class, () -> service.createListing("SELLER-2", request));
+    }
+
+    @Test
+    void sellerPausesFixedPriceListingWhenNoCheckoutIsActive() {
+        SellerProfile seller = SellerProfile.builder()
+                .sellerId("SELLER-C2C")
+                .ownerUserId("USER-1")
+                .ownerCustomerId("CUST-1")
+                .status(SellerStatus.ACTIVE)
+                .build();
+        MarketplaceListing listing = MarketplaceListing.builder()
+                .listingId("LIST-PAUSE")
+                .sellerId("SELLER-C2C")
+                .productId("PROD-PAUSE")
+                .title("판매 중 상품")
+                .status(ListingStatus.ACTIVE)
+                .build();
+        SaleEvent event = SaleEvent.builder()
+                .saleEventId("EVT-PAUSE")
+                .listingId("LIST-PAUSE")
+                .sellerId("SELLER-C2C")
+                .productId("PROD-PAUSE")
+                .saleType(SaleType.FIXED_PRICE)
+                .status(SaleEventStatus.LIVE)
+                .startsAt(java.time.LocalDateTime.now(java.time.ZoneOffset.UTC).minusHours(1))
+                .price(new BigDecimal("10000"))
+                .stockQuantity(2)
+                .build();
+        when(sellerRepository.findByOwnerUserId("USER-1")).thenReturn(Optional.of(seller));
+        when(listingRepository.findByIdForUpdate("LIST-PAUSE")).thenReturn(Optional.of(listing));
+        when(saleEventRepository.findByListingIdOrderByStartsAtDesc("LIST-PAUSE")).thenReturn(java.util.List.of(event));
+        when(tossPaymentIntentRepository.countBySaleEventIdAndStatusInAndExpiresAtAfter(eq("EVT-PAUSE"), any(), any()))
+                .thenReturn(0L);
+        when(listingRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(saleEventRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(productRepository.findById("PROD-PAUSE")).thenReturn(Optional.of(Product.builder()
+                .id("PROD-PAUSE").name("판매 중 상품").price(new BigDecimal("10000")).category("GENERAL").build()));
+        when(inventoryRepository.findById("PROD-PAUSE")).thenReturn(Optional.of(Inventory.builder()
+                .productId("PROD-PAUSE").totalQuantity(2).availableQuantity(2).reservedQuantity(0).build()));
+
+        SellerListingResponse response = service.pauseListingForOwner("USER-1", "CUST-1", "LIST-PAUSE");
+
+        assertEquals(ListingStatus.PAUSED, response.getStatus());
+        assertEquals(SaleEventStatus.CANCELLED, response.getSaleEventStatus());
+        verify(outboxEventService).record(eq("SALE_EVENT"), eq("EVT-PAUSE"), eq("SALE_STOPPED"),
+                eq("marketplace-sale-events"), eq("EVT-PAUSE"), any());
+    }
+
+    @Test
+    void sellerCannotPauseLiveAuctionAfterBiddingHasStarted() {
+        SellerProfile seller = SellerProfile.builder()
+                .sellerId("SELLER-C2C").ownerUserId("USER-1").ownerCustomerId("CUST-1")
+                .status(SellerStatus.ACTIVE).build();
+        MarketplaceListing listing = MarketplaceListing.builder()
+                .listingId("LIST-AUCTION").sellerId("SELLER-C2C").productId("PROD-AUCTION")
+                .title("경매 상품").status(ListingStatus.ACTIVE).build();
+        SaleEvent event = SaleEvent.builder()
+                .saleEventId("EVT-AUCTION").listingId("LIST-AUCTION").sellerId("SELLER-C2C")
+                .productId("PROD-AUCTION").saleType(SaleType.AUCTION).status(SaleEventStatus.LIVE)
+                .startsAt(java.time.LocalDateTime.now(java.time.ZoneOffset.UTC).minusHours(1))
+                .price(new BigDecimal("10000")).stockQuantity(1).build();
+        when(sellerRepository.findByOwnerUserId("USER-1")).thenReturn(Optional.of(seller));
+        when(listingRepository.findByIdForUpdate("LIST-AUCTION")).thenReturn(Optional.of(listing));
+        when(saleEventRepository.findByListingIdOrderByStartsAtDesc("LIST-AUCTION")).thenReturn(java.util.List.of(event));
+
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> service.pauseListingForOwner("USER-1", "CUST-1", "LIST-AUCTION"));
+
+        assertEquals("INTERACTIVE_SALE_CANNOT_BE_PAUSED_AFTER_START", failure.getMessage());
+        verify(listingRepository, never()).save(listing);
     }
 }

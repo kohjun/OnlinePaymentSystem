@@ -61,6 +61,7 @@ export function formatMoney(value: number) {
 
 function timeLabel(event: MarketplaceEvent) {
   if (event.status === 'ENDED') return '판매 종료';
+  if (event.status === 'ACTIVATION_FAILED') return '판매 시작 실패';
   const target = event.status === 'SCHEDULED' ? event.startsAt : event.endsAt;
   if (!target) return event.status === 'LIVE' ? '진행 중' : '일정 확인 중';
   const date = new Date(target);

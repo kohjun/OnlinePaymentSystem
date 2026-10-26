@@ -2,6 +2,7 @@ package com.example.payment.application.service;
 
 import com.example.payment.domain.model.marketplace.AuctionBid;
 import com.example.payment.domain.model.marketplace.AuctionBidStatus;
+import com.example.payment.domain.model.marketplace.AuctionCloseReason;
 import com.example.payment.domain.model.marketplace.AuctionSettlement;
 import com.example.payment.domain.model.marketplace.AuctionSettlementStatus;
 import com.example.payment.domain.model.marketplace.ListingStatus;
@@ -14,6 +15,7 @@ import com.example.payment.domain.repository.AuctionSettlementRepository;
 import com.example.payment.domain.repository.MarketplaceListingRepository;
 import com.example.payment.domain.repository.SaleEventRepository;
 import com.example.payment.infrastructure.util.AfterCommitExecutor;
+import com.example.payment.infrastructure.security.CommerceActor;
 import com.example.payment.presentation.dto.request.AuctionBidRequest;
 import com.example.payment.presentation.dto.response.AuctionBidResponse;
 import com.example.payment.presentation.dto.response.AuctionStatusResponse;
@@ -30,7 +32,11 @@ import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -41,9 +47,12 @@ public class AuctionService {
     private final MarketplaceListingRepository marketplaceListingRepository;
     private final AuctionBidRepository auctionBidRepository;
     private final AuctionSettlementRepository auctionSettlementRepository;
+    private final InventoryHoldService inventoryHoldService;
+    private final CommercePolicyService commercePolicyService;
     private final MarketplaceRealtimeService marketplaceRealtimeService;
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
+    private final MarketplaceNotificationService notificationService;
 
     @Value("${app.auction.anti-sniping-extension-seconds:30}")
     private long antiSnipingExtensionSeconds;
@@ -52,11 +61,13 @@ public class AuctionService {
     private long winnerCheckoutTtlMinutes;
 
     @Transactional
-    public AuctionBidResponse placeBid(String eventId, AuctionBidRequest request) {
+    public AuctionBidResponse placeBid(String eventId, CommerceActor actor, AuctionBidRequest request) {
+        request.setCustomerId(actor.customerId());
         SaleEvent event = requireAuctionEventForUpdate(eventId);
         requireLiveAuction(event);
         requireActiveListing(event);
-        if (auctionSettlementRepository.findBySaleEventId(eventId).isPresent()) {
+        commercePolicyService.requireTradeAllowed(event, actor, "AUCTION_BID");
+        if (auctionSettlementRepository.findFirstBySaleEventIdOrderByOfferSequenceDesc(eventId).isPresent()) {
             throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "The auction has already closed.");
         }
 
@@ -99,10 +110,10 @@ public class AuctionService {
                 .idempotencyKey(idempotencyKey)
                 .bidAmount(request.getBidAmount())
                 .status(AuctionBidStatus.WINNING)
-                .createdAt(LocalDateTime.now())
+                .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build());
 
-        LocalDateTime extensionBoundary = LocalDateTime.now().plusSeconds(antiSnipingExtensionSeconds);
+        LocalDateTime extensionBoundary = LocalDateTime.now(ZoneOffset.UTC).plusSeconds(antiSnipingExtensionSeconds);
         if (event.getEndsAt() != null && event.getEndsAt().isBefore(extensionBoundary)) {
             event.setEndsAt(extensionBoundary);
             saleEventRepository.save(event);
@@ -152,7 +163,7 @@ public class AuctionService {
         event = requireAuctionEventForUpdate(eventId);
         requireLiveAuction(event);
         requireActiveListing(event);
-        if (auctionSettlementRepository.findBySaleEventId(eventId).isPresent()) {
+        if (auctionSettlementRepository.findFirstBySaleEventIdOrderByOfferSequenceDesc(eventId).isPresent()) {
             throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "이미 마감된 경매입니다.");
         }
 
@@ -180,13 +191,13 @@ public class AuctionService {
                 .customerId(request.getCustomerId())
                 .bidAmount(request.getBidAmount())
                 .status(AuctionBidStatus.WINNING)
-                .createdAt(LocalDateTime.now())
+                .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build());
 
         // Redis 캐시 동기화
         redisTemplate.opsForValue().set("auction:highest_bid:" + eventId, saved.getBidAmount().toString(), Duration.ofHours(24));
 
-        LocalDateTime extensionBoundary = LocalDateTime.now().plusSeconds(antiSnipingExtensionSeconds);
+        LocalDateTime extensionBoundary = LocalDateTime.now(ZoneOffset.UTC).plusSeconds(antiSnipingExtensionSeconds);
         if (event.getEndsAt() != null && event.getEndsAt().isBefore(extensionBoundary)) {
             event.setEndsAt(extensionBoundary);
             saleEventRepository.save(event);
@@ -238,7 +249,13 @@ public class AuctionService {
                 .orElse(null);
         BigDecimal highestBid = highest != null ? highest.getBidAmount() : event.getPrice();
         BigDecimal increment = event.getMinBidIncrement() != null ? event.getMinBidIncrement() : new BigDecimal("1000");
-        AuctionSettlement settlement = auctionSettlementRepository.findBySaleEventId(eventId).orElse(null);
+        AuctionSettlement settlement = auctionSettlementRepository.findFirstBySaleEventIdOrderByOfferSequenceDesc(eventId).orElse(null);
+        boolean reserveMet = highest != null && (event.getReservePrice() == null
+                || highest.getBidAmount().compareTo(event.getReservePrice()) >= 0);
+        boolean checkoutAvailable = settlement != null
+                && settlement.getStatus() == AuctionSettlementStatus.AWAITING_PAYMENT
+                && (settlement.getCheckoutExpiresAt() == null
+                || settlement.getCheckoutExpiresAt().isAfter(LocalDateTime.now(ZoneOffset.UTC)));
 
         return AuctionStatusResponse.builder()
                 .saleEventId(eventId)
@@ -248,6 +265,11 @@ public class AuctionService {
                 .minNextBid(highestBid.add(increment))
                 .settlementStatus(settlement != null ? settlement.getStatus() : null)
                 .closed(isClosed(event, settlement))
+                .reserveMet(reserveMet)
+                .closeReason(event.getCloseReason())
+                .checkoutAvailable(checkoutAvailable)
+                .offerSequence(settlement != null ? settlement.getOfferSequence() : null)
+                .allocationStatus(settlement != null ? settlement.getStatus().name() : null)
                 .winnerCustomerId(settlement != null ? publicAlias(settlement.getCustomerId()) : null)
                 .secondsRemaining(secondsRemaining(event))
                 .streamVersion(streamVersion(event))
@@ -263,16 +285,22 @@ public class AuctionService {
     @Transactional(readOnly = true)
     public AuctionStatusResponse statusForCustomer(String eventId, String customerId) {
         AuctionStatusResponse response = status(eventId);
-        AuctionSettlement settlement = auctionSettlementRepository.findBySaleEventId(eventId).orElse(null);
+        AuctionSettlement settlement = auctionSettlementRepository
+                .findFirstBySaleEventIdAndCustomerIdOrderByOfferSequenceDesc(eventId, customerId)
+                .orElse(null);
         response.setCurrentUserWinning(settlement != null
-                && settlement.getCustomerId().equals(customerId)
                 && settlement.getStatus() == AuctionSettlementStatus.AWAITING_PAYMENT);
+        if (settlement != null) {
+            response.setOfferSequence(settlement.getOfferSequence());
+            response.setAllocationStatus(settlement.getStatus().name());
+            response.setCheckoutExpiresAt(settlement.getCheckoutExpiresAt());
+        }
         return response;
     }
 
     @Transactional
     public AuctionStatusResponse close(String eventId) {
-        AuctionStatusResponse response = closeInternal(eventId, false);
+        AuctionStatusResponse response = closeInternal(eventId, true);
         AfterCommitExecutor.run(() -> {
             marketplaceRealtimeService.publishAuction(eventId, "auction-status", response);
             marketplaceRealtimeService.publishAuction(eventId, "auction-closed", response);
@@ -294,10 +322,82 @@ public class AuctionService {
         return marketplaceRealtimeService.streamAuction(eventId, () -> status(eventId));
     }
 
+    @Transactional
+    public boolean expireWinnerOffer(String settlementId, LocalDateTime now) {
+        AuctionSettlement expired = auctionSettlementRepository.findById(settlementId).orElse(null);
+        if (expired == null || expired.getStatus() != AuctionSettlementStatus.AWAITING_PAYMENT
+                || expired.getCheckoutExpiresAt() == null || expired.getCheckoutExpiresAt().isAfter(now)) {
+            return false;
+        }
+
+        SaleEvent event = requireAuctionEventForUpdate(expired.getSaleEventId());
+        expired = auctionSettlementRepository.findById(settlementId).orElse(null);
+        if (expired == null || expired.getStatus() != AuctionSettlementStatus.AWAITING_PAYMENT
+                || expired.getCheckoutExpiresAt() == null || expired.getCheckoutExpiresAt().isAfter(now)) {
+            return false;
+        }
+        if (!inventoryHoldService.releaseForOfferExpiry(expired.getInventoryReservationId())) {
+            return false;
+        }
+
+        expired.setStatus(AuctionSettlementStatus.EXPIRED);
+        auctionSettlementRepository.save(expired);
+        notificationService.notifyCustomer(
+                expired.getCustomerId(),
+                "AUCTION_WINNER_OFFER_EXPIRED",
+                "경매 결제 기한이 만료되었습니다",
+                "경매 " + event.getSaleEventId() + "의 결제 기회가 다음 순위 입찰자에게 넘어갑니다.",
+                "AUCTION_SETTLEMENT",
+                expired.getSettlementId(),
+                "auction:" + event.getSaleEventId() + ":offer-expired:" + expired.getOfferSequence()
+        );
+        auctionBidRepository.findById(expired.getWinningBidId()).ifPresent(bid -> {
+            bid.setStatus(AuctionBidStatus.OFFER_EXPIRED);
+            auctionBidRepository.save(bid);
+        });
+
+        List<AuctionSettlement> priorOffers = auctionSettlementRepository
+                .findBySaleEventIdOrderByOfferSequenceAsc(event.getSaleEventId());
+        Set<String> offeredCustomers = new HashSet<>();
+        Set<String> offeredBids = new HashSet<>();
+        for (AuctionSettlement offer : priorOffers) {
+            offeredCustomers.add(offer.getCustomerId());
+            offeredBids.add(offer.getWinningBidId());
+        }
+        AuctionBid successor = auctionBidRepository
+                .findBySaleEventIdOrderByBidAmountDescCreatedAtAsc(event.getSaleEventId())
+                .stream()
+                .filter(bid -> !offeredCustomers.contains(bid.getCustomerId()))
+                .filter(bid -> !offeredBids.contains(bid.getBidId()))
+                .filter(bid -> event.getReservePrice() == null
+                        || bid.getBidAmount().compareTo(event.getReservePrice()) >= 0)
+                .findFirst()
+                .orElse(null);
+
+        if (successor != null) {
+            int nextSequence = priorOffers.stream()
+                    .map(AuctionSettlement::getOfferSequence)
+                    .filter(sequence -> sequence != null)
+                    .max(Integer::compareTo)
+                    .orElse(0) + 1;
+            createWinnerOffer(event, successor, nextSequence, now);
+        }
+
+        AuctionStatusResponse snapshot = status(event.getSaleEventId());
+        boolean hasSuccessor = successor != null;
+        AfterCommitExecutor.run(() -> {
+            marketplaceRealtimeService.publishAuction(event.getSaleEventId(), "winner-offer-expired", snapshot);
+            if (hasSuccessor) {
+                marketplaceRealtimeService.publishAuction(event.getSaleEventId(), "winner-offered", snapshot);
+            }
+        });
+        return true;
+    }
+
     private AuctionStatusResponse closeInternal(String eventId, boolean allowNoBidClose) {
         SaleEvent event = requireAuctionEventForUpdate(eventId);
-        AuctionSettlement existingSettlement = auctionSettlementRepository.findBySaleEventId(eventId).orElse(null);
-        if (event.getStatus() == SaleEventStatus.ENDED && existingSettlement != null) {
+        AuctionSettlement existingSettlement = auctionSettlementRepository.findFirstBySaleEventIdOrderByOfferSequenceDesc(eventId).orElse(null);
+        if (event.getStatus() == SaleEventStatus.ENDED || event.getStatus() == SaleEventStatus.CANCELLED) {
             return status(eventId);
         }
 
@@ -308,29 +408,85 @@ public class AuctionService {
                 throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "입찰 이력이 없어 경매를 마감할 수 없습니다.");
             }
             event.setStatus(SaleEventStatus.ENDED);
-            event.setEndsAt(LocalDateTime.now());
+            event.setEndsAt(LocalDateTime.now(ZoneOffset.UTC));
+            event.setCloseReason(AuctionCloseReason.NO_BIDS);
+            saleEventRepository.save(event);
+            return status(eventId);
+        }
+
+        if (event.getReservePrice() != null
+                && highest.getBidAmount().compareTo(event.getReservePrice()) < 0) {
+            highest.setStatus(AuctionBidStatus.RESERVE_NOT_MET);
+            auctionBidRepository.save(highest);
+            event.setStatus(SaleEventStatus.ENDED);
+            event.setEndsAt(LocalDateTime.now(ZoneOffset.UTC));
+            event.setCloseReason(AuctionCloseReason.RESERVE_NOT_MET);
             saleEventRepository.save(event);
             return status(eventId);
         }
 
         if (existingSettlement == null) {
-            auctionSettlementRepository.save(AuctionSettlement.builder()
-                    .settlementId("AUCTSET-" + shortId())
-                    .saleEventId(eventId)
-                    .winningBidId(highest.getBidId())
-                    .customerId(highest.getCustomerId())
-                    .sellerId(event.getSellerId())
-                    .amount(highest.getBidAmount())
-                    .status(AuctionSettlementStatus.AWAITING_PAYMENT)
-                    .createdAt(LocalDateTime.now())
-                    .checkoutExpiresAt(LocalDateTime.now().plusMinutes(winnerCheckoutTtlMinutes))
-                    .build());
+            try {
+                createWinnerOffer(event, highest, 1, LocalDateTime.now(ZoneOffset.UTC));
+            } catch (InventoryHoldService.InsufficientInventoryException unavailable) {
+                highest.setStatus(AuctionBidStatus.CANCELLED);
+                auctionBidRepository.save(highest);
+                event.setStatus(SaleEventStatus.ENDED);
+                event.setEndsAt(LocalDateTime.now(ZoneOffset.UTC));
+                event.setCloseReason(AuctionCloseReason.INVENTORY_UNAVAILABLE);
+                saleEventRepository.save(event);
+                return status(eventId);
+            }
         }
 
         event.setStatus(SaleEventStatus.ENDED);
-        event.setEndsAt(LocalDateTime.now());
+        event.setEndsAt(LocalDateTime.now(ZoneOffset.UTC));
+        event.setCloseReason(AuctionCloseReason.SOLD);
         saleEventRepository.save(event);
         return status(eventId);
+    }
+
+    private AuctionSettlement createWinnerOffer(SaleEvent event, AuctionBid bid,
+                                                 int offerSequence, LocalDateTime now) {
+        String settlementId = "AUCTSET-" + shortId();
+        String reservationId = "WINRES-AUCT-" + settlementId;
+        LocalDateTime expiresAt = now.plusMinutes(winnerCheckoutTtlMinutes);
+        inventoryHoldService.hold(
+                reservationId,
+                event.getProductId(),
+                bid.getCustomerId(),
+                1,
+                expiresAt,
+                "AUCTION_WINNER",
+                "AUCTION_SETTLEMENT",
+                settlementId
+        );
+        bid.setStatus(AuctionBidStatus.WINNING);
+        auctionBidRepository.save(bid);
+        AuctionSettlement settlement = auctionSettlementRepository.save(AuctionSettlement.builder()
+                .settlementId(settlementId)
+                .saleEventId(event.getSaleEventId())
+                .winningBidId(bid.getBidId())
+                .customerId(bid.getCustomerId())
+                .sellerId(event.getSellerId())
+                .amount(bid.getBidAmount())
+                .status(AuctionSettlementStatus.AWAITING_PAYMENT)
+                .offerSequence(offerSequence)
+                .inventoryReservationId(reservationId)
+                .createdAt(now)
+                .checkoutExpiresAt(expiresAt)
+                .build());
+        notificationService.notifyCustomer(
+                bid.getCustomerId(),
+                "AUCTION_WINNER_OFFERED",
+                offerSequence == 1 ? "경매에 낙찰되었습니다" : "경매 결제 기회가 승계되었습니다",
+                "경매 " + event.getSaleEventId() + "의 결제 가능 시각은 "
+                        + MarketplaceNotificationService.displayTime(expiresAt) + "까지입니다.",
+                "AUCTION_SETTLEMENT",
+                settlementId,
+                "auction:" + event.getSaleEventId() + ":offer:" + offerSequence + ":" + bid.getCustomerId()
+        );
+        return settlement;
     }
 
     private SaleEvent requireAuctionEvent(String eventId) {
@@ -352,7 +508,7 @@ public class AuctionService {
     }
 
     private void requireLiveAuction(SaleEvent event) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         if (event.getStatus() != SaleEventStatus.LIVE) {
             throw new MarketplaceCheckoutException(HttpStatus.CONFLICT, "경매가 진행 중이 아닙니다.");
         }
@@ -417,7 +573,7 @@ public class AuctionService {
         if (event.getEndsAt() == null) {
             return null;
         }
-        long seconds = Duration.between(LocalDateTime.now(), event.getEndsAt()).getSeconds();
+        long seconds = Duration.between(LocalDateTime.now(ZoneOffset.UTC), event.getEndsAt()).getSeconds();
         return Math.max(0L, seconds);
     }
 

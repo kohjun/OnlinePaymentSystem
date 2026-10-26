@@ -20,7 +20,7 @@ public abstract class BaseResponse {
     protected String message;
     protected String errorCode;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     protected LocalDateTime timestamp;
 
     protected String correlationId;

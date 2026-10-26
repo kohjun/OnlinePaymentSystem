@@ -31,6 +31,9 @@ public interface RaffleEntryRepository extends JpaRepository<RaffleEntry, String
 
     List<RaffleEntry> findBySaleEventIdAndStatusOrderByCreatedAtAsc(String saleEventId, RaffleEntryStatus status);
 
+    Optional<RaffleEntry> findFirstBySaleEventIdAndStatusOrderByDrawRankAsc(
+            String saleEventId, RaffleEntryStatus status);
+
     long countBySaleEventId(String saleEventId);
 
     long countBySaleEventIdAndStatus(String saleEventId, RaffleEntryStatus status);

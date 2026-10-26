@@ -59,6 +59,7 @@ public class AdminOperationsQueueService {
                 marketplaceReportReviews(pageable, limit),
                 openDisputes(pageable),
                 paymentRefundFailures(pageable),
+                paymentRecovery(pageable),
                 marketplaceRefundFailures(pageable),
                 partialRefundReviews(pageable),
                 payoutRelease(pageable),
@@ -137,6 +138,21 @@ public class AdminOperationsQueueService {
                 .map(this::paymentRefundFailureItem)
                 .toList();
         return queue("paymentRefundFailures", "PG 환불 실패", count, items);
+    }
+
+    private AdminOperationsQueueResponse.QueueSummary paymentRecovery(Pageable pageable) {
+        var statuses = List.of("PROCESSING", "UNKNOWN", "REFUND_UNKNOWN");
+        long count = statuses.stream().mapToLong(paymentRecordRepository::countByStatus).sum();
+        var items = statuses.stream().flatMap(status -> paymentRecordRepository
+                .findByStatusOrderByCreatedAtAsc(status, pageable).stream())
+                .sorted(Comparator.comparing(payment -> defaultTime(payment.getCreatedAt())))
+                .limit(pageable.getPageSize()).map(payment -> {
+                    var item = paymentRefundFailureItem(payment);
+                    item.setTitle("거래 결과 확인 · " + payment.getPaymentId());
+                    item.setActions(actions(action("recheck", "상태 재확인", "neutral", false)));
+                    return item;
+                }).toList();
+        return queue("paymentRecovery", "결제·환불 확인 중", count, items);
     }
 
     private AdminOperationsQueueResponse.QueueSummary marketplaceRefundFailures(Pageable pageable) {
@@ -384,8 +400,10 @@ public class AdminOperationsQueueService {
             return actions(action("retryRefund", "환불 재시도", "danger", true));
         }
         if ("MARKETPLACE_PARTIAL_REFUND".equals(type)) {
+            // 부분 환불 주문은 판매자 정산으로 전환할 수 없다. 환불이 성공한 결제는
+            // CommerceSettlementGuard가 막고, 정산액도 환불 전 금액 그대로라 풀면
+            // 과지급이 된다. 실패할 수밖에 없는 버튼을 내보내지 않는다.
             return actions(
-                    action("payoutReady", "판매자 정산", "success", true),
                     action("payoutCancelled", "정산 취소", "danger", true),
                     action("buyerRefund", "추가 환불", "danger", true)
             );

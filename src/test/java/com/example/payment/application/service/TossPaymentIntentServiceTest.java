@@ -30,9 +30,11 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpStatus;
+import com.example.payment.infrastructure.security.CommerceActor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -40,11 +42,13 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 class TossPaymentIntentServiceTest {
 
@@ -54,18 +58,33 @@ class TossPaymentIntentServiceTest {
     private final SaleEventRepository saleEventRepository = mock(SaleEventRepository.class);
     private final MarketplaceListingRepository listingRepository = mock(MarketplaceListingRepository.class);
     private final InventoryRepository inventoryRepository = mock(InventoryRepository.class);
+    private final InventoryHoldService inventoryHoldService = mock(InventoryHoldService.class);
+    private final CommercePolicyService commercePolicyService = mock(CommercePolicyService.class);
     private final RaffleWinnerRepository raffleWinnerRepository = mock(RaffleWinnerRepository.class);
     private final AuctionSettlementRepository auctionSettlementRepository = mock(AuctionSettlementRepository.class);
     private final MarketplaceOrderService marketplaceOrderService = mock(MarketplaceOrderService.class);
     private final ShippingAddressService shippingAddressService = mock(ShippingAddressService.class);
     private final TicketingService ticketingService = mock(TicketingService.class);
     private final TossPaymentsProperties tossProperties = new TossPaymentsProperties();
+    private final TossIntentStateWriter stateWriter = mock(TossIntentStateWriter.class);
     private final RedisTemplate<String, Object> redisTemplate = mock(RedisTemplate.class);
     private TossPaymentIntentService service;
 
     @BeforeEach
     void setUp() {
         tossProperties.setClientKey("test_ck_client");
+        when(stateWriter.cancelReady(any())).thenAnswer(call -> {
+            TossPaymentIntent intent = repository.findById(call.getArgument(0)).orElseThrow();
+            intent.setStatus("CANCELLED");
+            return intent;
+        });
+        when(stateWriter.authenticate(any())).thenAnswer(call -> {
+            TossPaymentConfirmRequest request = call.getArgument(0);
+            TossPaymentIntent intent = repository.findById(request.getIntentId()).orElseThrow();
+            intent.setPaymentKey(request.getPaymentKey());
+            intent.setStatus("AUTHENTICATED");
+            return intent;
+        });
         org.springframework.data.redis.core.ValueOperations valueOps = mock(org.springframework.data.redis.core.ValueOperations.class);
         org.springframework.data.redis.core.SetOperations setOps = mock(org.springframework.data.redis.core.SetOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
@@ -79,6 +98,8 @@ class TossPaymentIntentServiceTest {
                 saleEventRepository,
                 listingRepository,
                 inventoryRepository,
+                inventoryHoldService,
+                commercePolicyService,
                 raffleWinnerRepository,
                 auctionSettlementRepository,
                 marketplaceOrderService,
@@ -86,7 +107,9 @@ class TossPaymentIntentServiceTest {
                 ticketingService,
                 tossProperties,
                 new ObjectMapper(),
-                redisTemplate
+                stateWriter,
+                redisTemplate,
+                new CheckoutRedirectPolicy("http://localhost:8080")
         );
     }
 
@@ -99,6 +122,7 @@ class TossPaymentIntentServiceTest {
         TossPaymentIntentResponse response = service.createMarketplaceIntent(
                 "EVT-DROP",
                 MarketplaceCheckoutType.DIRECT,
+                actor(),
                 marketplaceRequest(new BigDecimal("150000"))
         );
 
@@ -112,8 +136,21 @@ class TossPaymentIntentServiceTest {
         assertEquals("LIST-DROP", saved.getListingId());
         assertEquals("DIRECT", saved.getMarketplaceCheckoutType());
         assertEquals("EVT-DROP", saved.getMarketplaceSourceId());
+        assertNotNull(saved.getInventoryReservationId());
         assertEquals("SELLER-1", saved.getMerchantId());
         assertEquals("Limited Drop", saved.getOrderName());
+        verify(inventoryHoldService).hold(
+                eq(saved.getInventoryReservationId()),
+                eq("PROD-DROP"),
+                eq("CUST-1"),
+                eq(1),
+                any(),
+                eq("DIRECT_INTENT"),
+                eq("TOSS_INTENT"),
+                eq(saved.getIntentId())
+        );
+        verify(inventoryHoldService).claim(
+                saved.getInventoryReservationId(), saved.getIntentId(), "PROD-DROP", "CUST-1", 1);
     }
 
     @Test
@@ -139,12 +176,30 @@ class TossPaymentIntentServiceTest {
     }
 
     @Test
+    void cancellingReadyDirectIntentReturnsInventoryHold() {
+        TossPaymentIntent intent = TossPaymentIntent.builder()
+                .intentId("INTENT-DIRECT")
+                .customerId("CUST-1")
+                .status("READY")
+                .inventoryReservationId("INTENT-HOLD-1")
+                .build();
+        when(repository.findById("INTENT-DIRECT")).thenReturn(Optional.of(intent));
+        when(repository.save(any(TossPaymentIntent.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.cancelReadyIntent("INTENT-DIRECT");
+
+        verify(inventoryHoldService).release("INTENT-HOLD-1", "CANCELLED");
+        assertEquals("CANCELLED", intent.getStatus());
+    }
+
+    @Test
     void rejectsMarketplaceIntentWhenClientAmountDoesNotMatchEventPrice() {
         stubDirectDrop();
 
         assertThrows(AmountMismatchException.class, () -> service.createMarketplaceIntent(
                 "EVT-DROP",
                 MarketplaceCheckoutType.DIRECT,
+                actor(),
                 marketplaceRequest(new BigDecimal("1"))
         ));
 
@@ -152,18 +207,22 @@ class TossPaymentIntentServiceTest {
     }
 
     @Test
-    void rejectsDirectIntentWhenActivePaymentWindowsExhaustInventory() {
+    void rejectsDirectIntentWhenCustomerPurchaseLimitIsExhausted() {
         stubDirectDrop();
-        when(repository.sumActiveMarketplaceQuantity(eq("EVT-DROP"), eq("DIRECT"), any(), any())).thenReturn(5L);
+        doThrow(new MarketplaceCheckoutException(
+                HttpStatus.CONFLICT, "PURCHASE_LIMIT_EXCEEDED", "limit exceeded"))
+                .when(commercePolicyService)
+                .requireDirectPurchaseCapacity(any(), any(), eq(1));
 
         MarketplaceCheckoutException ex = assertThrows(MarketplaceCheckoutException.class, () -> service.createMarketplaceIntent(
                 "EVT-DROP",
                 MarketplaceCheckoutType.DIRECT,
+                actor(),
                 marketplaceRequest(new BigDecimal("150000"))
         ));
 
         assertEquals(HttpStatus.CONFLICT, ex.getStatus());
-        assertEquals("SOLD_OUT", ex.getMessage());
+        assertEquals("PURCHASE_LIMIT_EXCEEDED", ex.getCode());
         verify(repository, never()).save(any());
     }
 
@@ -171,7 +230,7 @@ class TossPaymentIntentServiceTest {
     void createsAuctionWinnerIntentWithSettlementAmountAndSourceId() {
         when(saleEventRepository.findByIdForUpdate("EVT-AUCTION")).thenReturn(Optional.of(auctionEvent()));
         when(listingRepository.findById("LIST-AUCTION")).thenReturn(Optional.of(auctionListing()));
-        when(auctionSettlementRepository.findBySaleEventIdAndCustomerIdAndStatus(
+        when(auctionSettlementRepository.findFirstBySaleEventIdAndCustomerIdAndStatusOrderByOfferSequenceDesc(
                 "EVT-AUCTION",
                 "CUST-1",
                 AuctionSettlementStatus.AWAITING_PAYMENT
@@ -183,8 +242,9 @@ class TossPaymentIntentServiceTest {
                 .sellerId("SELLER-1")
                 .amount(new BigDecimal("9000000"))
                 .status(AuctionSettlementStatus.AWAITING_PAYMENT)
+                .inventoryReservationId("WINRES-AUCTION-1")
                 .createdAt(LocalDateTime.now())
-                .checkoutExpiresAt(LocalDateTime.now().plusMinutes(30))
+                .checkoutExpiresAt(LocalDateTime.now(ZoneOffset.UTC).plusMinutes(30))
                 .build()));
         when(repository.countActiveMarketplaceSource(eq("SET-1"), any(), any())).thenReturn(0L);
         when(inventoryRepository.findByIdForUpdate("PROD-AUCTION")).thenReturn(Optional.of(Inventory.builder()
@@ -199,6 +259,7 @@ class TossPaymentIntentServiceTest {
         TossPaymentIntentResponse response = service.createMarketplaceIntent(
                 "EVT-AUCTION",
                 MarketplaceCheckoutType.AUCTION_WINNER,
+                actor(),
                 marketplaceRequest(new BigDecimal("9000000"))
         );
 
@@ -209,8 +270,16 @@ class TossPaymentIntentServiceTest {
         TossPaymentIntent saved = captor.getValue();
         assertEquals("AUCTION_WINNER", saved.getMarketplaceCheckoutType());
         assertEquals("SET-1", saved.getMarketplaceSourceId());
+        assertEquals("WINRES-AUCTION-1", saved.getInventoryReservationId());
         assertEquals(new BigDecimal("9000000.00"), saved.getAmount());
         assertEquals("Auction winner checkout", saved.getOrderName());
+        verify(inventoryHoldService).claim(
+                "WINRES-AUCTION-1",
+                saved.getIntentId(),
+                "PROD-AUCTION",
+                "CUST-1",
+                1
+        );
     }
 
     @Test
@@ -333,6 +402,96 @@ class TossPaymentIntentServiceTest {
         verify(completeReservationGateway, never()).processCompleteReservation(any());
     }
 
+    @Test
+    void rejectsGenericIntentForMarketplaceListingProduct() {
+        when(listingRepository.existsByProductId("PROD-DROP")).thenReturn(true);
+
+        MarketplaceCheckoutException rejected = assertThrows(MarketplaceCheckoutException.class,
+                () -> service.createIntent(genericRequest("PROD-DROP")));
+
+        assertEquals(HttpStatus.CONFLICT, rejected.getStatus());
+        assertEquals("MARKETPLACE_CHECKOUT_REQUIRED", rejected.getCode());
+        verify(checkoutPricingService, never()).applyProductPrice(any(), anyBoolean());
+        verify(repository, never()).save(any(TossPaymentIntent.class));
+    }
+
+    @Test
+    void createsGenericIntentForProductOutsideMarketplace() {
+        when(listingRepository.existsByProductId("PROD-1")).thenReturn(false);
+        when(repository.findByIdempotencyKey("IDEMP-GENERIC")).thenReturn(Optional.empty());
+        when(repository.save(any(TossPaymentIntent.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        TossPaymentIntentResponse response = service.createIntent(genericRequest("PROD-1"));
+
+        assertNotNull(response.getIntentId());
+        verify(checkoutPricingService).applyProductPrice(any(), eq(true));
+        verify(repository).save(any(TossPaymentIntent.class));
+    }
+
+    @Test
+    void rejectsRedirectToForeignOriginBeforeHoldingInventory() {
+        stubDirectDrop();
+        when(repository.findByIdempotencyKey("IDEMP-1")).thenReturn(Optional.empty());
+        MarketplaceCheckoutRequest request = marketplaceRequest(new BigDecimal("150000"));
+        request.getPaymentInfo().setSuccessUrl("https://attacker.example/collect");
+
+        MarketplaceCheckoutException rejected = assertThrows(MarketplaceCheckoutException.class,
+                () -> service.createMarketplaceIntent("EVT-DROP", MarketplaceCheckoutType.DIRECT, actor(), request));
+
+        assertEquals(HttpStatus.BAD_REQUEST, rejected.getStatus());
+        assertEquals("INVALID_REDIRECT_URL", rejected.getCode());
+        verify(inventoryHoldService, never()).hold(any(), any(), any(), any(Integer.class), any(), any(), any(), any());
+        verify(repository, never()).save(any(TossPaymentIntent.class));
+    }
+
+    @Test
+    void keepsSameSitePathRedirectAndAppendsIntentId() {
+        stubDirectDrop();
+        when(repository.findByIdempotencyKey("IDEMP-1")).thenReturn(Optional.empty());
+        when(repository.save(any(TossPaymentIntent.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        MarketplaceCheckoutRequest request = marketplaceRequest(new BigDecimal("150000"));
+        request.getPaymentInfo().setSuccessUrl("/app/?tossResult=success");
+
+        TossPaymentIntentResponse response = service.createMarketplaceIntent(
+                "EVT-DROP", MarketplaceCheckoutType.DIRECT, actor(), request);
+
+        assertEquals("/app/?tossResult=success&intentId=" + response.getIntentId(), response.getSuccessUrl());
+    }
+
+    @Test
+    void confirmRejectsGenericIntentCreatedForMarketplaceProductBeforeAuthorization() {
+        TossPaymentIntent intent = baseIntent();
+        when(repository.findById("TOSS-INTENT-1")).thenReturn(Optional.of(intent));
+        when(listingRepository.existsByProductId("PROD-1")).thenReturn(true);
+
+        MarketplaceCheckoutException rejected = assertThrows(MarketplaceCheckoutException.class,
+                () -> service.confirm(TossPaymentConfirmRequest.builder()
+                        .intentId("TOSS-INTENT-1")
+                        .paymentKey("paykey_1")
+                        .orderId("ORD-TOSS-1")
+                        .amount(new BigDecimal("10000.00"))
+                        .build()));
+
+        assertEquals("MARKETPLACE_CHECKOUT_REQUIRED", rejected.getCode());
+        verify(stateWriter, never()).authenticate(any());
+        verify(completeReservationGateway, never()).processCompleteReservation(any());
+    }
+
+    private CompleteReservationRequest genericRequest(String productId) {
+        return CompleteReservationRequest.builder()
+                .productId(productId)
+                .customerId("CUST-1")
+                .quantity(1)
+                .clientId("web")
+                .idempotencyKey("IDEMP-GENERIC")
+                .paymentInfo(CompleteReservationRequest.PaymentInfo.builder()
+                        .amount(new BigDecimal("10000"))
+                        .currency("KRW")
+                        .paymentMethod("CREDIT_CARD")
+                        .build())
+                .build();
+    }
+
     private void stubDirectDrop() {
         SaleEvent event = SaleEvent.builder()
                 .saleEventId("EVT-DROP")
@@ -341,8 +500,8 @@ class TossPaymentIntentServiceTest {
                 .productId("PROD-DROP")
                 .saleType(SaleType.DROP)
                 .status(SaleEventStatus.LIVE)
-                .startsAt(LocalDateTime.now().minusMinutes(5))
-                .endsAt(LocalDateTime.now().plusHours(1))
+                .startsAt(LocalDateTime.now(ZoneOffset.UTC).minusMinutes(5))
+                .endsAt(LocalDateTime.now(ZoneOffset.UTC).plusHours(1))
                 .price(new BigDecimal("150000"))
                 .stockQuantity(10)
                 .build();
@@ -377,6 +536,10 @@ class TossPaymentIntentServiceTest {
                 .paymentMethod("CREDIT_CARD")
                 .build());
         return request;
+    }
+
+    private CommerceActor actor() {
+        return new CommerceActor("USER-1", "CUST-1");
     }
 
     private TossPaymentIntent baseIntent() {

@@ -8,9 +8,18 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Collection;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.data.jpa.repository.Lock;
+import jakarta.persistence.LockModeType;
 
 @Repository
 public interface MarketplaceOrderRepository extends JpaRepository<MarketplaceOrder, String> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select order from MarketplaceOrder order where order.marketplaceOrderId = :orderId")
+    Optional<MarketplaceOrder> findByIdForUpdate(@Param("orderId") String orderId);
 
     List<MarketplaceOrder> findByCustomerIdOrderByCreatedAtDesc(String customerId);
 
@@ -35,4 +44,17 @@ public interface MarketplaceOrderRepository extends JpaRepository<MarketplaceOrd
     long countByStatus(MarketplaceOrderStatus status);
 
     List<MarketplaceOrder> findByStatusOrderByUpdatedAtAsc(MarketplaceOrderStatus status, Pageable pageable);
+
+    @Query("""
+            SELECT COALESCE(SUM(order.quantity), 0)
+            FROM MarketplaceOrder order
+            WHERE order.saleEventId = :saleEventId
+              AND order.customerId = :customerId
+              AND order.status IN :statuses
+            """)
+    long sumCompletedQuantityForCustomer(
+            @Param("saleEventId") String saleEventId,
+            @Param("customerId") String customerId,
+            @Param("statuses") Collection<MarketplaceOrderStatus> statuses
+    );
 }

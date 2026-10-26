@@ -27,6 +27,7 @@ class InventoryReconciliationJobTest {
     private final RedisTemplate<String, Object> redisTemplate = mock(RedisTemplate.class);
     private final InventorySyncIssueRepository inventorySyncIssueRepository = mock(InventorySyncIssueRepository.class);
     private final InventorySyncIssueService inventorySyncIssueService = mock(InventorySyncIssueService.class);
+    private final com.example.payment.application.service.InventoryHoldService holds = mock(com.example.payment.application.service.InventoryHoldService.class);
     private final InventoryReconciliationJob job = new InventoryReconciliationJob(
             inventoryRepository,
             resourceReservationService,
@@ -34,8 +35,44 @@ class InventoryReconciliationJobTest {
             transactionManager,
             redisTemplate,
             inventorySyncIssueRepository,
-            inventorySyncIssueService
+            inventorySyncIssueService,
+            holds,
+            mock(com.example.payment.application.service.InventoryReleasePolicy.class)
     );
+
+    @Test
+    void legacyReleaseRepairDelegatesToFencedReleaseWithoutWritingCountersAgain() {
+        var issue = com.example.payment.domain.entity.InventorySyncIssue.builder()
+                .issueId("ISSUE-1").reservationId("HOLD-1").productId("PROD-001")
+                .quantity(1).issueType("RELEASE_DB_APPLY_REQUIRED").status("PENDING").build();
+        when(inventorySyncIssueRepository.findById("ISSUE-1")).thenReturn(java.util.Optional.of(issue));
+        when(inventoryReservationRecordRepository.findByIdForUpdate("HOLD-1"))
+                .thenReturn(java.util.Optional.of(com.example.payment.domain.entity.InventoryReservationRecord.builder().build()));
+        when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new org.springframework.transaction.support.SimpleTransactionStatus());
+        when(holds.compensate("HOLD-1")).thenReturn(false);
+        org.springframework.test.util.ReflectionTestUtils.invokeMethod(job, "applyDatabaseRepair", issue);
+        assertEquals("RESOLVED", issue.getStatus());
+        org.mockito.Mockito.verify(holds).compensate("HOLD-1");
+        org.mockito.Mockito.verifyNoInteractions(inventoryRepository, resourceReservationService);
+    }
+
+    @Test
+    void legacyRepairDoesNotResolveAnUncertainPayment() {
+        var issue = com.example.payment.domain.entity.InventorySyncIssue.builder()
+                .issueId("ISSUE-2").reservationId("HOLD-2").issueType("RELEASE_DB_APPLY_REQUIRED")
+                .status("PENDING").build();
+        when(inventorySyncIssueRepository.findById("ISSUE-2")).thenReturn(java.util.Optional.of(issue));
+        when(inventoryReservationRecordRepository.findByIdForUpdate("HOLD-2"))
+                .thenReturn(java.util.Optional.of(com.example.payment.domain.entity.InventoryReservationRecord.builder().build()));
+        when(transactionManager.getTransaction(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new org.springframework.transaction.support.SimpleTransactionStatus());
+        when(holds.compensate("HOLD-2")).thenThrow(new IllegalStateException("Payment verification blocks release"));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () ->
+                org.springframework.test.util.ReflectionTestUtils.invokeMethod(job, "applyDatabaseRepair", issue));
+        assertEquals("PENDING", issue.getStatus());
+        org.mockito.Mockito.verify(inventorySyncIssueRepository, org.mockito.Mockito.never()).save(org.mockito.ArgumentMatchers.any());
+    }
 
     @Test
     void findMismatches_detectsCounterMismatch() {

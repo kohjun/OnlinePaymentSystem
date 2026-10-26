@@ -20,16 +20,22 @@ import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.RedisTemplate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
+import org.springframework.test.util.ReflectionTestUtils;
+import com.example.payment.infrastructure.security.CommerceActor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Optional;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 
 class AuctionServiceTest {
 
@@ -37,22 +43,29 @@ class AuctionServiceTest {
     private final MarketplaceListingRepository listingRepository = mock(MarketplaceListingRepository.class);
     private final AuctionBidRepository bidRepository = mock(AuctionBidRepository.class);
     private final AuctionSettlementRepository settlementRepository = mock(AuctionSettlementRepository.class);
+    private final InventoryHoldService inventoryHoldService = mock(InventoryHoldService.class);
+    private final CommercePolicyService commercePolicyService = mock(CommercePolicyService.class);
     private final MarketplaceRealtimeService marketplaceRealtimeService = mock(MarketplaceRealtimeService.class);
     private final RedisTemplate<String, Object> redisTemplate = mock(RedisTemplate.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final MarketplaceNotificationService notificationService = mock(MarketplaceNotificationService.class);
 
     private final AuctionService service = new AuctionService(
             saleEventRepository,
             listingRepository,
             bidRepository,
             settlementRepository,
+            inventoryHoldService,
+            commercePolicyService,
             marketplaceRealtimeService,
             redisTemplate,
-            objectMapper
+            objectMapper,
+            notificationService
     );
 
     @BeforeEach
     void setUp() {
+        ReflectionTestUtils.setField(service, "winnerCheckoutTtlMinutes", 30L);
         org.springframework.data.redis.core.ValueOperations valueOps = mock(org.springframework.data.redis.core.ValueOperations.class);
         org.springframework.data.redis.core.SetOperations setOps = mock(org.springframework.data.redis.core.SetOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
@@ -70,7 +83,7 @@ class AuctionServiceTest {
         request.setBidAmount(new BigDecimal("8550000"));
 
         MarketplaceCheckoutException ex = assertThrows(MarketplaceCheckoutException.class,
-                () -> service.placeBid("EVT-AUCTION", request));
+                () -> service.placeBid("EVT-AUCTION", actor("CUST-2"), request));
 
         assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, ex.getStatus());
     }
@@ -86,14 +99,82 @@ class AuctionServiceTest {
         request.setCustomerId("CUST-2");
         request.setBidAmount(new BigDecimal("8600000"));
 
-        AuctionBidResponse response = service.placeBid("EVT-AUCTION", request);
+        AuctionBidResponse response = service.placeBid("EVT-AUCTION", actor("CUST-2"), request);
 
         assertEquals("CUST-2", response.getCustomerId());
         assertEquals(AuctionBidStatus.WINNING, response.getStatus());
         assertEquals(new BigDecimal("8600000"), response.getBidAmount());
     }
 
-    private void stubLiveAuction() {
+    @Test
+    void closeAboveReserveAllocatesInventoryBeforeCreatingSettlement() {
+        SaleEvent event = stubLiveAuction();
+        event.setReservePrice(new BigDecimal("9000000"));
+        AuctionBid highest = existingBid(new BigDecimal("9500000"));
+        when(bidRepository.findFirstBySaleEventIdOrderByBidAmountDescCreatedAtAsc("EVT-AUCTION"))
+                .thenReturn(Optional.of(highest));
+        when(bidRepository.findTop10BySaleEventIdOrderByBidAmountDescCreatedAtAsc("EVT-AUCTION"))
+                .thenReturn(List.of(highest));
+        when(settlementRepository.findFirstBySaleEventIdOrderByOfferSequenceDesc("EVT-AUCTION"))
+                .thenReturn(Optional.empty());
+        when(settlementRepository.save(any(AuctionSettlement.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.close("EVT-AUCTION");
+
+        verify(inventoryHoldService).hold(
+                any(),
+                org.mockito.ArgumentMatchers.eq("PROD-AUCTION"),
+                org.mockito.ArgumentMatchers.eq("CUST-1"),
+                org.mockito.ArgumentMatchers.eq(1),
+                any(),
+                org.mockito.ArgumentMatchers.eq("AUCTION_WINNER"),
+                org.mockito.ArgumentMatchers.eq("AUCTION_SETTLEMENT"),
+                any()
+        );
+        verify(settlementRepository).save(any(AuctionSettlement.class));
+        assertEquals(com.example.payment.domain.model.marketplace.AuctionCloseReason.SOLD, event.getCloseReason());
+    }
+
+    @Test
+    void closeBelowReserveEndsWithoutSettlement() {
+        SaleEvent event = stubLiveAuction();
+        event.setReservePrice(new BigDecimal("9000000"));
+        AuctionBid highest = existingBid(new BigDecimal("8800000"));
+        when(bidRepository.findFirstBySaleEventIdOrderByBidAmountDescCreatedAtAsc("EVT-AUCTION"))
+                .thenReturn(Optional.of(highest));
+        when(bidRepository.findTop10BySaleEventIdOrderByBidAmountDescCreatedAtAsc("EVT-AUCTION"))
+                .thenReturn(List.of(highest));
+        when(settlementRepository.findFirstBySaleEventIdOrderByOfferSequenceDesc("EVT-AUCTION")).thenReturn(Optional.empty());
+
+        var response = service.close("EVT-AUCTION");
+
+        assertEquals(com.example.payment.domain.model.marketplace.AuctionCloseReason.RESERVE_NOT_MET,
+                response.getCloseReason());
+        assertEquals(false, response.getReserveMet());
+        assertEquals(AuctionBidStatus.RESERVE_NOT_MET, highest.getStatus());
+        verify(settlementRepository, never()).save(any(AuctionSettlement.class));
+    }
+
+    @Test
+    void repeatedCloseOfEndedAuctionNeverCreatesSettlement() {
+        SaleEvent event = stubLiveAuction();
+        event.setStatus(SaleEventStatus.ENDED);
+        event.setCloseReason(com.example.payment.domain.model.marketplace.AuctionCloseReason.NO_BIDS);
+        when(bidRepository.findFirstBySaleEventIdOrderByBidAmountDescCreatedAtAsc("EVT-AUCTION"))
+                .thenReturn(Optional.of(existingBid(new BigDecimal("9500000"))));
+        when(bidRepository.findTop10BySaleEventIdOrderByBidAmountDescCreatedAtAsc("EVT-AUCTION"))
+                .thenReturn(List.of());
+        when(settlementRepository.findFirstBySaleEventIdOrderByOfferSequenceDesc("EVT-AUCTION")).thenReturn(Optional.empty());
+
+        var response = service.close("EVT-AUCTION");
+
+        assertEquals(com.example.payment.domain.model.marketplace.AuctionCloseReason.NO_BIDS,
+                response.getCloseReason());
+        verify(settlementRepository, never()).save(any(AuctionSettlement.class));
+    }
+
+    private SaleEvent stubLiveAuction() {
         SaleEvent event = SaleEvent.builder()
                 .saleEventId("EVT-AUCTION")
                 .listingId("LIST-AUCTION")
@@ -101,8 +182,8 @@ class AuctionServiceTest {
                 .productId("PROD-AUCTION")
                 .saleType(SaleType.AUCTION)
                 .status(SaleEventStatus.LIVE)
-                .startsAt(LocalDateTime.now().minusMinutes(5))
-                .endsAt(LocalDateTime.now().plusHours(1))
+                .startsAt(LocalDateTime.now(ZoneOffset.UTC).minusMinutes(5))
+                .endsAt(LocalDateTime.now(ZoneOffset.UTC).plusHours(1))
                 .price(new BigDecimal("8500000"))
                 .minBidIncrement(new BigDecimal("100000"))
                 .stockQuantity(1)
@@ -116,6 +197,7 @@ class AuctionServiceTest {
                 .title("Vintage Watch")
                 .status(ListingStatus.ACTIVE)
                 .build()));
+        return event;
     }
 
     private AuctionBid existingBid(BigDecimal amount) {
@@ -125,7 +207,11 @@ class AuctionServiceTest {
                 .customerId("CUST-1")
                 .bidAmount(amount)
                 .status(AuctionBidStatus.WINNING)
-                .createdAt(LocalDateTime.now())
+                .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build();
+    }
+
+    private CommerceActor actor(String customerId) {
+        return new CommerceActor("USER-" + customerId, customerId);
     }
 }

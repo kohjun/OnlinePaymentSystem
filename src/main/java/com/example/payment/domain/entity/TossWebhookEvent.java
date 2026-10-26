@@ -60,6 +60,8 @@ public class TossWebhookEvent {
 
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
+    private String leaseToken;
+    private LocalDateTime leaseUntil;
 
     @PrePersist
     void onCreate() {

@@ -162,11 +162,13 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/", "/index.html", "/shared.html", "/seller.html", "/app", "/app/**", "/*.css", "/*.js", "/*.png", "/*.ico", "/error").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/system/health", "/api/system/health/**", "/api/system/readiness", "/api/payments/health").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/media/product-images/**", "/api/media/listings/*/images").permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/payments/toss/webhooks/**").permitAll()
                         // 회원가입과 로그인은 토큰을 받기 전에 호출하는 경로다.
                         .requestMatchers(HttpMethod.POST, "/api/auth/signup", "/api/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/auth/config").permitAll()
                         .requestMatchers(HttpMethod.GET,
                                 "/api/marketplace/events",
                                 "/api/marketplace/events/page",

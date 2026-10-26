@@ -4,6 +4,10 @@ import com.example.payment.domain.entity.InventoryReservationRecord;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import jakarta.persistence.LockModeType;
 
 import java.util.Collection;
 import java.util.List;
@@ -12,6 +16,12 @@ import java.util.Optional;
 @Repository
 public interface InventoryReservationRecordRepository extends JpaRepository<InventoryReservationRecord, String> {
     Optional<InventoryReservationRecord> findByReservationId(String reservationId);
+
+    Optional<InventoryReservationRecord> findBySourceTypeAndSourceId(String sourceType, String sourceId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select reservation from InventoryReservationRecord reservation where reservation.reservationId = :reservationId")
+    Optional<InventoryReservationRecord> findByIdForUpdate(@Param("reservationId") String reservationId);
 
     List<InventoryReservationRecord> findByCustomerIdOrderByCreatedAtDesc(String customerId, Pageable pageable);
 

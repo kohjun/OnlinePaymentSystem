@@ -36,6 +36,7 @@ public interface SaleEventRepository extends JpaRepository<SaleEvent, String> {
     @Query("""
             update SaleEvent event
                set event.status = :endedStatus,
+                   event.activeScheduleSlot = null,
                    event.updatedAt = :closedAt
              where event.status = :liveStatus
                and event.saleType in :saleTypes
@@ -48,6 +49,20 @@ public interface SaleEventRepository extends JpaRepository<SaleEvent, String> {
                      @Param("closedAt") LocalDateTime closedAt);
 
     List<SaleEvent> findByListingIdOrderByStartsAtDesc(String listingId);
+
+    boolean existsByListingIdAndStatusIn(String listingId, Collection<SaleEventStatus> statuses);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select event
+              from SaleEvent event
+             where event.status = :status
+               and event.startsAt <= :startsAt
+             order by event.startsAt, event.saleEventId
+            """)
+    List<SaleEvent> findDueScheduledForUpdate(@Param("status") SaleEventStatus status,
+                                               @Param("startsAt") LocalDateTime startsAt,
+                                               Pageable pageable);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select e from SaleEvent e where e.saleEventId = :eventId")

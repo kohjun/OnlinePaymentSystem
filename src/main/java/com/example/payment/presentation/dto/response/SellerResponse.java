@@ -20,14 +20,14 @@ public class SellerResponse {
     private String verificationEvidenceRef;
     private String verificationNote;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime verificationSubmittedAt;
 
     private String verificationReviewedBy;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime verificationReviewedAt;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime createdAt;
 }

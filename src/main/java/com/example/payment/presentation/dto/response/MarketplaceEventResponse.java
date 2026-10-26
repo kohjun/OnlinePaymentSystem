@@ -1,6 +1,7 @@
 package com.example.payment.presentation.dto.response;
 
 import com.example.payment.domain.model.marketplace.SaleEventStatus;
+import com.example.payment.domain.model.marketplace.SaleEventActivationMode;
 import com.example.payment.domain.model.marketplace.SaleType;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.Builder;
@@ -25,16 +26,19 @@ public class MarketplaceEventResponse {
     private boolean digitalTicket;
     private SaleType saleType;
     private SaleEventStatus status;
+    private SaleEventActivationMode activationMode;
+    private String activationFailureReason;
     private BigDecimal price;
     private String currency;
     private Integer totalQuantity;
     private Integer availableQuantity;
+    private Integer maxQuantityPerCustomer;
     private BigDecimal minBidIncrement;
     private BigDecimal reservePrice;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime startsAt;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime endsAt;
 }

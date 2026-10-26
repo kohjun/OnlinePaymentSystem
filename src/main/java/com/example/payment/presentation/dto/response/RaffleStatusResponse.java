@@ -23,14 +23,16 @@ public class RaffleStatusResponse {
     private Boolean drawn;
     private RaffleEntryStatus entryStatus;
     private RaffleCheckoutStatus checkoutStatus;
+    private Integer offerSequence;
+    private String allocationStatus;
     private List<String> winnerCustomerIds;
     private List<String> winnerAliases;
     private String drawSeedCommitment;
     private String entrySnapshotHash;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime endsAt;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime checkoutExpiresAt;
 }

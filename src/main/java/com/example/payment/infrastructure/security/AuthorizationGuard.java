@@ -165,6 +165,12 @@ public class AuthorizationGuard {
         return principal.customerId();
     }
 
+    public CommerceActor currentCommerceActor() {
+        EverySalePrincipal principal = currentPrincipal();
+        String customerId = currentCustomerId();
+        return new CommerceActor(principal.userId(), customerId);
+    }
+
     private Authentication authentication() {
         return SecurityContextHolder.getContext().getAuthentication();
     }

@@ -52,6 +52,8 @@ public class DistributionReadinessService {
         ));
         checks.add(javaVersionCheck());
         checks.add(gatewayCheck());
+        checks.add(mediaStorageCheck(productionMode));
+        checks.add(mediaMalwareScanCheck(productionMode));
         checks.add(payoutTransferCheck(productionMode));
         checks.add(operationalWorkerCheck(
                 productionMode,
@@ -113,11 +115,13 @@ public class DistributionReadinessService {
         checks.add(flywayMigrationCheck(productionMode));
         checks.add(schemaValidationCheck(productionMode));
         checks.add(publicCompleteApiCheck(productionMode));
+        checks.add(legacyReservationApiCheck(productionMode));
         checks.add(mockAuthenticationCheck(productionMode));
         checks.add(auditTrailCheck(productionMode));
         checks.add(gatewayFallbackCheck(productionMode));
         checks.add(externalAuthCheck());
         checks.add(externalAuthProviderCheck());
+        checks.add(externalAuthFrontendCheck());
         checks.add(corsAllowlistCheck(productionMode));
         checks.add(tenantIsolationCheck());
         checks.add(databaseEndpointCheck(productionMode));
@@ -251,6 +255,78 @@ public class DistributionReadinessService {
         );
     }
 
+    private ReadinessCheck legacyReservationApiCheck(boolean productionMode) {
+        boolean enabled = boolProperty("app.checkout.legacy-reservation-api-enabled", false);
+        boolean pass = !enabled;
+        return new ReadinessCheck(
+                "legacy-reservation-api-disabled",
+                "Direct reservation mutation API",
+                pass ? "PASS" : (productionMode ? "FAIL" : "WARN"),
+                productionMode && !pass,
+                pass
+                        ? "Direct inventory reservation and reservation cancellation APIs are disabled."
+                        : "Direct reservation mutation APIs can bypass the marketplace checkout and cancellation ledgers."
+        );
+    }
+
+    private ReadinessCheck mediaStorageCheck(boolean productionMode) {
+        String provider = property("app.media.storage-provider", "LOCAL").trim().toUpperCase(Locale.ROOT);
+        boolean startupValidation = boolProperty("app.media.validate-on-startup", false);
+        String bucket = property("app.media.s3.bucket", "");
+        String endpoint = property("app.media.s3.endpoint", "");
+        String encryption = property("app.media.s3.server-side-encryption", "AES256");
+        String kmsKeyId = property("app.media.s3.kms-key-id", "");
+
+        boolean s3Provider = "S3".equals(provider);
+        boolean bucketConfigured = hasText(bucket) && !looksUnresolved(bucket);
+        boolean supportedEncryption = "AES256".equalsIgnoreCase(encryption)
+                || "AWS_KMS".equalsIgnoreCase(encryption)
+                || "aws:kms".equalsIgnoreCase(encryption);
+        boolean kmsConfigured = !("AWS_KMS".equalsIgnoreCase(encryption) || "aws:kms".equalsIgnoreCase(encryption))
+                || (hasText(kmsKeyId) && !looksUnresolved(kmsKeyId));
+        boolean secureEndpoint = !hasText(endpoint)
+                || (endpoint.toLowerCase(Locale.ROOT).startsWith("https://") && !isLocalEndpoint(endpoint));
+        boolean pass = !productionMode
+                || (s3Provider && bucketConfigured && startupValidation && supportedEncryption && kmsConfigured && secureEndpoint);
+
+        return new ReadinessCheck(
+                "marketplace-media-storage",
+                "Marketplace media storage",
+                pass ? "PASS" : "FAIL",
+                productionMode && !pass,
+                pass
+                        ? (s3Provider
+                        ? "S3 marketplace media storage is configured with encrypted object storage."
+                        : "Local marketplace media storage is enabled for this non-production environment.")
+                        : "Production requires S3 media storage, a bucket, startup validation, supported encryption, and an HTTPS non-local endpoint when overridden."
+        );
+    }
+
+    private ReadinessCheck mediaMalwareScanCheck(boolean productionMode) {
+        String provider = property("app.media.malware-scan.provider", "NONE").trim().toUpperCase(Locale.ROOT);
+        boolean startupValidation = boolProperty("app.media.malware-scan.validate-on-startup", false);
+        String host = property("app.media.malware-scan.clamav.host", "");
+        int port = intProperty("app.media.malware-scan.clamav.port", 3310);
+        boolean configured = "CLAMAV".equals(provider)
+                && startupValidation
+                && hasText(host)
+                && !looksUnresolved(host)
+                && port > 0
+                && port <= 65535;
+        boolean pass = !productionMode || configured;
+        return new ReadinessCheck(
+                "marketplace-media-malware-scan",
+                "Marketplace media malware scan",
+                pass ? "PASS" : "FAIL",
+                productionMode && !pass,
+                pass
+                        ? (configured
+                        ? "ClamAV scanning is configured and validated before production uploads are accepted."
+                        : "Malware scanning is optional in this non-production environment.")
+                        : "Production requires a startup-validated ClamAV scanner and a valid scanner endpoint."
+        );
+    }
+
     private ReadinessCheck payoutTransferCheck(boolean productionMode) {
         String provider = property("app.payout.transfer.provider", "LEDGER_ONLY").trim();
         boolean ledgerOnly = provider.isEmpty() || "LEDGER_ONLY".equalsIgnoreCase(provider);
@@ -265,7 +341,11 @@ public class DistributionReadinessService {
         boolean matchingGatewayBean = registeredProvider != null
                 && !registeredProvider.isBlank()
                 && provider.equalsIgnoreCase(registeredProvider);
-        boolean pass = !ledgerOnly && externalAdapterEnabled && matchingGatewayBean;
+        boolean contractVerified = matchingGatewayBean && gateway.providerContractVerified();
+        boolean pass = !ledgerOnly && externalAdapterEnabled && contractVerified;
+        String failure = matchingGatewayBean && !ledgerOnly
+                ? "Payout adapter " + provider + " is not verified against the provider's contract and sandbox evidence."
+                : "Configure an external payout gateway bean whose providerName matches app.payout.transfer.provider before production.";
         return new ReadinessCheck(
                 "seller-payout-transfer-provider",
                 "Seller payout transfer provider",
@@ -273,7 +353,7 @@ public class DistributionReadinessService {
                 productionMode && !pass,
                 pass
                         ? "External seller payout transfer adapter is configured: " + provider
-                        : "Configure an external payout gateway bean whose providerName matches app.payout.transfer.provider before production."
+                        : failure
         );
     }
 
@@ -477,6 +557,45 @@ public class DistributionReadinessService {
         );
     }
 
+    private ReadinessCheck externalAuthFrontendCheck() {
+        boolean externalAuthEnabled = boolProperty("app.security.external-auth.enabled", false);
+        boolean requireExternalAuth = boolProperty("app.distribution.require-external-auth", false);
+        if (!externalAuthEnabled) {
+            return new ReadinessCheck(
+                    "external-auth-frontend",
+                    "External authentication frontend",
+                    "PASS",
+                    false,
+                    "External frontend authentication is not required while external auth is disabled."
+            );
+        }
+        String authorizationUri = property("app.security.external-auth.frontend.authorization-uri", "");
+        String tokenUri = property("app.security.external-auth.frontend.token-uri", "");
+        String clientId = property("app.security.external-auth.frontend.client-id", "");
+        List<String> scopes = csvProperty("app.security.external-auth.frontend.scopes");
+        boolean configured = secureExternalUri(authorizationUri)
+                && secureExternalUri(tokenUri)
+                && hasText(clientId)
+                && !looksUnresolved(clientId)
+                && scopes.contains("openid");
+        return new ReadinessCheck(
+                "external-auth-frontend",
+                "External authentication frontend",
+                configured ? "PASS" : (requireExternalAuth ? "FAIL" : "WARN"),
+                requireExternalAuth && !configured,
+                configured
+                        ? "OIDC Authorization Code with PKCE frontend settings are configured."
+                        : "External auth requires HTTPS authorization/token endpoints, a public SPA client id, and the openid scope."
+        );
+    }
+
+    private boolean secureExternalUri(String value) {
+        return hasText(value)
+                && !looksUnresolved(value)
+                && value.toLowerCase(Locale.ROOT).startsWith("https://")
+                && !isLocalEndpoint(value);
+    }
+
     private ReadinessCheck databaseEndpointCheck(boolean productionMode) {
         return endpointCheck(
                 productionMode,
@@ -563,6 +682,10 @@ public class DistributionReadinessService {
 
     private boolean boolProperty(String key, boolean defaultValue) {
         return environment.getProperty(key, Boolean.class, defaultValue);
+    }
+
+    private int intProperty(String key, int defaultValue) {
+        return environment.getProperty(key, Integer.class, defaultValue);
     }
 
     private List<String> csvProperty(String key) {

@@ -2,6 +2,7 @@ package com.example.payment.presentation.dto.response;
 
 import com.example.payment.domain.model.marketplace.ListingStatus;
 import com.example.payment.domain.model.marketplace.SaleEventStatus;
+import com.example.payment.domain.model.marketplace.SaleEventActivationMode;
 import com.example.payment.domain.model.marketplace.SaleType;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.Builder;
@@ -29,19 +30,22 @@ public class SellerListingResponse {
     private BigDecimal price;
     private Integer totalQuantity;
     private Integer availableQuantity;
+    private Integer maxQuantityPerCustomer;
     private String saleEventId;
     private SaleType saleType;
     private SaleEventStatus saleEventStatus;
+    private SaleEventActivationMode activationMode;
+    private String activationFailureReason;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime startsAt;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime endsAt;
 
     private String reviewedBy;
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime reviewedAt;
 
     private String reviewNote;

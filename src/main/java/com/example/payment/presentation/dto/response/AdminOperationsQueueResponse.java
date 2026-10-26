@@ -17,7 +17,7 @@ import java.util.Map;
 @AllArgsConstructor
 public class AdminOperationsQueueResponse {
 
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
     private LocalDateTime generatedAt;
 
     private long totalOpen;
@@ -46,7 +46,7 @@ public class AdminOperationsQueueResponse {
         private String ownerId;
         private BigDecimal amount;
 
-        @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+        @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss['Z']")
         private LocalDateTime createdAt;
 
         private Map<String, Object> metadata;

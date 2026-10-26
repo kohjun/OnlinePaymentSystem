@@ -3,6 +3,7 @@ import {
   Banknote,
   Check,
   CircleAlert,
+  CircleX,
   Clock3,
   Loader2,
   PackageCheck,
@@ -12,6 +13,7 @@ import {
   WalletCards
 } from 'lucide-react';
 import { api } from './api';
+import { cancellationLabel } from './cancellationStatus';
 import { formatMoney } from './EventCard';
 import type {
   FulfillmentStatus,
@@ -61,7 +63,7 @@ export function SellerOrders({ sellerId, notify }: { sellerId: string; notify: N
 
   const visibleOrders = useMemo(() => orders.filter(order => {
     if (filter === 'DISPUTED') return Boolean(order.disputedAt);
-    if (filter === 'ACTION') return !order.disputedAt && (order.fulfillmentStatus === 'READY_TO_FULFILL' || order.fulfillmentStatus === 'PROCESSING');
+    if (filter === 'ACTION') return order.status === 'PAID' && !order.cancellationStatus && !order.disputedAt && (order.fulfillmentStatus === 'READY_TO_FULFILL' || order.fulfillmentStatus === 'PROCESSING');
     return true;
   }), [filter, orders]);
 
@@ -71,6 +73,16 @@ export function SellerOrders({ sellerId, notify }: { sellerId: string; notify: N
       await api.updateFulfillment(sellerId, orderId, status, carrier, trackingNumber);
       notify(status === 'PROCESSING' ? '주문 포장을 시작했습니다.' : '송장 정보를 등록했습니다.', 'success');
       setShipping(undefined);
+      await load();
+    } catch (error) { notify((error as Error).message, 'error'); }
+    finally { setBusyOrderId(undefined); }
+  }
+
+  async function cancel(orderId: string) {
+    setBusyOrderId(orderId);
+    try {
+      await api.cancelOrder(orderId, '판매자 배송 전 취소');
+      notify('취소 요청을 접수했습니다. 주문에서 환불 상태를 확인해 주세요.', 'info');
       await load();
     } catch (error) { notify((error as Error).message, 'error'); }
     finally { setBusyOrderId(undefined); }
@@ -95,9 +107,11 @@ export function SellerOrders({ sellerId, notify }: { sellerId: string; notify: N
             <div><span>배송 상태</span><strong className={`status-text status-text--${order.fulfillmentStatus.toLowerCase()}`}>{fulfillmentLabels[order.fulfillmentStatus as FulfillmentStatus] ?? order.fulfillmentStatus}</strong>{order.trackingNumber && <small>{order.trackingCarrier} {order.trackingNumber}</small>}</div>
             <div className="seller-order-address"><span>배송지</span><strong>{order.shippingRecipientName || (order.seatId ? '디지털 티켓' : '-')}</strong><small>{order.seatId || [order.shippingPostalCode, order.shippingAddress].filter(Boolean).join(' ') || '-'}</small></div>
             <div className="seller-list__actions">
-              {order.disputedAt ? <span className="seller-order-alert"><CircleAlert />분쟁 처리 중</span>
-                : order.fulfillmentStatus === 'READY_TO_FULFILL' ? <button className="secondary-button" disabled={busyOrderId === order.marketplaceOrderId} onClick={() => void update(order.marketplaceOrderId, 'PROCESSING')}><PackageCheck />포장 시작</button>
-                  : order.fulfillmentStatus === 'PROCESSING' ? <button className="secondary-button" onClick={() => setShipping({ orderId: order.marketplaceOrderId, carrier: '', trackingNumber: '' })}><Truck />송장 등록</button>
+              {order.cancellationStatus ? <span className="seller-order-alert"><CircleAlert />{cancellationLabel(order.cancellationStatus)}</span>
+                : order.status !== 'PAID' ? <span>{order.status}</span>
+                : order.disputedAt ? <span className="seller-order-alert"><CircleAlert />분쟁 처리 중</span>
+                : order.fulfillmentStatus === 'READY_TO_FULFILL' ? <><button className="secondary-button" disabled={busyOrderId === order.marketplaceOrderId} onClick={() => void update(order.marketplaceOrderId, 'PROCESSING')}><PackageCheck />포장 시작</button><button className="secondary-button" disabled={busyOrderId === order.marketplaceOrderId} onClick={() => void cancel(order.marketplaceOrderId)}><CircleX />판매 취소</button></>
+                  : order.fulfillmentStatus === 'PROCESSING' ? <><button className="secondary-button" onClick={() => setShipping({ orderId: order.marketplaceOrderId, carrier: '', trackingNumber: '' })}><Truck />송장 등록</button><button className="secondary-button" disabled={busyOrderId === order.marketplaceOrderId} onClick={() => void cancel(order.marketplaceOrderId)}><CircleX />판매 취소</button></>
                     : null}
             </div>
             {shipping?.orderId === order.marketplaceOrderId && <div className="shipping-editor">

@@ -13,13 +13,24 @@ $requiredVariables = @(
     "TEMPORAL_TARGET",
     "OIDC_ISSUER_URI",
     "OIDC_AUDIENCE",
+    "OIDC_AUTHORIZATION_URI",
+    "OIDC_TOKEN_URI",
+    "OIDC_CLIENT_ID",
     "EVERYSALE_TENANT_ID",
     "CORS_ALLOWED_ORIGINS",
     "TOSS_CLIENT_KEY",
     "TOSS_SECRET_KEY",
     "TOSS_WEBHOOK_PATH_TOKEN",
     "PAYOUT_TRANSFER_PROVIDER",
-    "PAYOUT_TRANSFER_ADAPTER_ENABLED"
+    "PAYOUT_TRANSFER_ADAPTER_ENABLED",
+    "MEDIA_STORAGE_PROVIDER",
+    "MEDIA_S3_BUCKET",
+    "MEDIA_S3_REGION",
+    "MEDIA_S3_ENCRYPTION",
+    "MEDIA_MALWARE_SCAN_PROVIDER",
+    "MEDIA_MALWARE_SCAN_VALIDATE_ON_STARTUP",
+    "MEDIA_CLAMAV_HOST",
+    "MEDIA_CLAMAV_PORT"
 )
 
 $errors = [System.Collections.Generic.List[string]]::new()
@@ -51,9 +62,14 @@ foreach ($name in $requiredVariables) {
     $values[$name] = Get-RequiredEnvironmentValue -Name $name
 }
 
-foreach ($name in @("DATABASE_URL", "REDIS_HOST", "KAFKA_BOOTSTRAP_SERVERS", "TEMPORAL_TARGET", "OIDC_ISSUER_URI", "CORS_ALLOWED_ORIGINS")) {
+foreach ($name in @("DATABASE_URL", "REDIS_HOST", "KAFKA_BOOTSTRAP_SERVERS", "TEMPORAL_TARGET", "OIDC_ISSUER_URI", "OIDC_AUTHORIZATION_URI", "OIDC_TOKEN_URI", "CORS_ALLOWED_ORIGINS")) {
     if ($values[$name]) {
         Assert-ExternalEndpoint -Name $name -Value $values[$name]
+    }
+}
+foreach ($name in @("OIDC_AUTHORIZATION_URI", "OIDC_TOKEN_URI")) {
+    if ($values[$name] -and $values[$name] -notmatch '^https://') {
+        $errors.Add("$name must use HTTPS.")
     }
 }
 
@@ -77,6 +93,44 @@ if ($values["PAYOUT_TRANSFER_ADAPTER_ENABLED"] -and $values["PAYOUT_TRANSFER_ADA
 }
 if ($values["PAYOUT_TRANSFER_PROVIDER"] -match '(?i)(LEDGER_ONLY|IMPLEMENTED_PROVIDER_NAME|replace)') {
     $errors.Add("PAYOUT_TRANSFER_PROVIDER must name an implemented external gateway bean.")
+}
+if ($values["MEDIA_STORAGE_PROVIDER"] -ne "S3") {
+    $errors.Add("MEDIA_STORAGE_PROVIDER must be S3 in production.")
+}
+if ($values["MEDIA_S3_BUCKET"] -match '(?i)(replace|example|localhost)') {
+    $errors.Add("MEDIA_S3_BUCKET must name the production private media bucket.")
+}
+if ($values["MEDIA_S3_ENCRYPTION"] -notin @("AES256", "AWS_KMS", "aws:kms")) {
+    $errors.Add("MEDIA_S3_ENCRYPTION must be AES256 or AWS_KMS.")
+}
+if ($values["MEDIA_S3_ENCRYPTION"] -in @("AWS_KMS", "aws:kms")) {
+    $kmsKeyId = [Environment]::GetEnvironmentVariable("MEDIA_S3_KMS_KEY_ID", "Process")
+    if ([string]::IsNullOrWhiteSpace($kmsKeyId)) {
+        $errors.Add("MEDIA_S3_KMS_KEY_ID is required when MEDIA_S3_ENCRYPTION is AWS_KMS.")
+    }
+}
+if ($values["MEDIA_MALWARE_SCAN_PROVIDER"] -ne "CLAMAV") {
+    $errors.Add("MEDIA_MALWARE_SCAN_PROVIDER must be CLAMAV in production.")
+}
+if ($values["MEDIA_MALWARE_SCAN_VALIDATE_ON_STARTUP"] -ne "true") {
+    $errors.Add("MEDIA_MALWARE_SCAN_VALIDATE_ON_STARTUP must be true in production.")
+}
+if ($values["MEDIA_CLAMAV_HOST"]) {
+    Assert-ExternalEndpoint -Name "MEDIA_CLAMAV_HOST" -Value $values["MEDIA_CLAMAV_HOST"]
+}
+$clamAvPort = 0
+if ($values["MEDIA_CLAMAV_PORT"] -and
+    (-not [int]::TryParse($values["MEDIA_CLAMAV_PORT"], [ref]$clamAvPort) -or
+     $clamAvPort -lt 1 -or $clamAvPort -gt 65535)) {
+    $errors.Add("MEDIA_CLAMAV_PORT must be a valid TCP port.")
+}
+
+$mediaEndpoint = [Environment]::GetEnvironmentVariable("MEDIA_S3_ENDPOINT", "Process")
+if (-not [string]::IsNullOrWhiteSpace($mediaEndpoint)) {
+    if ($mediaEndpoint -notmatch '^https://') {
+        $errors.Add("MEDIA_S3_ENDPOINT must use HTTPS when explicitly configured.")
+    }
+    Assert-ExternalEndpoint -Name "MEDIA_S3_ENDPOINT" -Value $mediaEndpoint
 }
 
 if ($values["CORS_ALLOWED_ORIGINS"]) {

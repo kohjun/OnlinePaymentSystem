@@ -32,6 +32,8 @@ public class CompleteReservationRequest extends BaseReservationDto {
 
     private String seatId;
 
+    private String inventoryReservationId;
+
     @Data
     @SuperBuilder
     @NoArgsConstructor

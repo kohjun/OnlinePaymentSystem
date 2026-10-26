@@ -11,6 +11,8 @@ import java.util.Optional;
 
 @Repository
 public interface RefundRecordRepository extends JpaRepository<RefundRecord, String> {
+    java.util.List<RefundRecord> findByPaymentIdAndStatusInOrderByCreatedAtAsc(String paymentId, java.util.Collection<String> statuses);
+    java.util.List<RefundRecord> findByStatusInOrderByUpdatedAtAsc(java.util.Collection<String> statuses, org.springframework.data.domain.Pageable pageable);
 
     Optional<RefundRecord> findByPaymentIdAndIdempotencyKey(String paymentId, String idempotencyKey);
 

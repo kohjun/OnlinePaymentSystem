@@ -11,6 +11,8 @@ import com.example.payment.application.service.TicketingService;
 import com.example.payment.domain.model.marketplace.MarketplaceCheckoutType;
 import com.example.payment.infrastructure.security.AuthorizationGuard;
 import com.example.payment.infrastructure.security.SecurityAuditService;
+import com.example.payment.infrastructure.security.CommerceActor;
+import com.example.payment.infrastructure.util.RateLimiter;
 import com.example.payment.presentation.dto.request.AuctionBidRequest;
 import com.example.payment.presentation.dto.request.MarketplaceCheckoutRequest;
 import com.example.payment.presentation.dto.request.RaffleDrawRequest;
@@ -55,6 +57,7 @@ public class MarketplaceController {
     private final TicketingService ticketingService;
     private final AuthorizationGuard authorizationGuard;
     private final SecurityAuditService securityAuditService;
+    private final RateLimiter rateLimiter;
 
     @GetMapping("/events")
     public ResponseEntity<?> getEvents(
@@ -102,8 +105,9 @@ public class MarketplaceController {
             @PathVariable String eventId,
             @Valid @RequestBody RaffleEntryRequest request) {
         try {
-            request.setCustomerId(authorizationGuard.currentCustomerId());
-            RaffleEntryResponse response = raffleService.enter(eventId, request);
+            CommerceActor actor = authorizationGuard.currentCommerceActor();
+            requireActionRate("raffle-entry", eventId, actor.customerId());
+            RaffleEntryResponse response = raffleService.enter(eventId, actor, request);
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
         } catch (MarketplaceCheckoutException e) {
             return marketplaceError(e);
@@ -206,8 +210,9 @@ public class MarketplaceController {
             @PathVariable String eventId,
             @Valid @RequestBody AuctionBidRequest request) {
         try {
-            request.setCustomerId(authorizationGuard.currentCustomerId());
-            return ResponseEntity.status(HttpStatus.CREATED).body(auctionService.placeBid(eventId, request));
+            CommerceActor actor = authorizationGuard.currentCommerceActor();
+            requireActionRate("auction-bid", eventId, actor.customerId());
+            return ResponseEntity.status(HttpStatus.CREATED).body(auctionService.placeBid(eventId, actor, request));
         } catch (MarketplaceCheckoutException e) {
             return marketplaceError(e);
         }
@@ -259,8 +264,10 @@ public class MarketplaceController {
                                                           MarketplaceCheckoutType checkoutType,
                                                           MarketplaceCheckoutRequest request) {
         try {
-            request.setCustomerId(authorizationGuard.currentCustomerId());
-            TossPaymentIntentResponse response = tossPaymentIntentService.createMarketplaceIntent(eventId, checkoutType, request);
+            CommerceActor actor = authorizationGuard.currentCommerceActor();
+            requireActionRate("checkout-intent", eventId, actor.customerId());
+            TossPaymentIntentResponse response = tossPaymentIntentService.createMarketplaceIntent(
+                    eventId, checkoutType, actor, request);
             return ResponseEntity.ok(response);
         } catch (MarketplaceCheckoutException e) {
             return marketplaceError(e);
@@ -279,10 +286,21 @@ public class MarketplaceController {
         }
     }
 
+    private void requireActionRate(String action, String eventId, String customerId) {
+        if (!rateLimiter.allowRequest(action + ":" + eventId + ":" + customerId)) {
+            throw new MarketplaceCheckoutException(
+                    HttpStatus.TOO_MANY_REQUESTS,
+                    "RATE_LIMIT_EXCEEDED",
+                    "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."
+            );
+        }
+    }
+
     private ResponseEntity<Map<String, Object>> marketplaceError(MarketplaceCheckoutException e) {
         log.warn("Marketplace request rejected: {}", e.getMessage());
         return ResponseEntity.status(e.getStatus()).body(Map.of(
                 "status", "FAILED",
+                "errorCode", e.getCode(),
                 "message", e.getMessage()
         ));
     }

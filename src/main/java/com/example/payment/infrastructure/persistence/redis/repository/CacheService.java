@@ -2,6 +2,7 @@ package com.example.payment.infrastructure.persistence.redis.repository;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Qualifier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -18,6 +19,7 @@ import java.util.stream.Collectors;
 public class CacheService {
 
     private final RedisTemplate<String, Object> redisTemplate;
+    @Qualifier("redisObjectMapper")
     private final ObjectMapper objectMapper;
 
     // [수정] 2. 로컬 캐시 필드 제거 (분산 환경에서 데이터 불일치 유발)

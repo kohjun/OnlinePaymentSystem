@@ -45,6 +45,8 @@ public class TossWebhookService {
     private final TossPaymentsProperties tossProperties;
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
+    private final RefundLedgerWriter refunds;
+    private final RefundRecoveryService refundRecovery;
 
     @Transactional
     public WebhookReceipt receive(String token, String rawPayload) {
@@ -85,6 +87,7 @@ public class TossWebhookService {
     }
 
     public int processPendingEvents() {
+        webhookEventRepository.recoverStale(LocalDateTime.now());
         List<TossWebhookEvent> events = webhookEventRepository
                 .findByProcessingStatusInAndAttemptCountLessThanOrderByReceivedAtAsc(
                         List.of("PENDING", "FAILED"),
@@ -100,89 +103,37 @@ public class TossWebhookService {
     }
 
     public void processEvent(TossWebhookEvent event) {
-        event.setAttemptCount(event.getAttemptCount() + 1);
-        event.setProcessingStatus("PROCESSING");
-        event.setFailureReason(null);
-        webhookEventRepository.save(event);
-
+        String token = java.util.UUID.randomUUID().toString();
+        if (webhookEventRepository.claim(event.getEventId(), token, LocalDateTime.now().plusMinutes(2)) != 1) return;
         try {
-            if (!SUPPORTED_EVENTS.contains(event.getEventType())) {
-                markSucceeded(event, "Unsupported event ignored: " + event.getEventType());
-                return;
+            if (SUPPORTED_EVENTS.contains(event.getEventType())) {
+                PaymentGatewayResult observed = hasText(event.getPaymentKey())
+                        ? tossPaymentsGateway.getPaymentStatus(event.getPaymentKey())
+                        : tossPaymentsGateway.getPaymentStatusByPaymentId(event.getOrderId());
+                if (observed == null || observed.observation() == PaymentGatewayResult.Observation.UNKNOWN) {
+                    throw new IllegalStateException("Provider status is not confirmed");
+                }
+                if ((hasText(event.getPaymentKey()) && !event.getPaymentKey().equals(observed.getTransactionId()))
+                        || (hasText(event.getOrderId()) && !event.getOrderId().equals(observed.getOrderId()))) {
+                    throw new IllegalStateException("Provider webhook reference mismatch");
+                }
+                if (observed.observation() == PaymentGatewayResult.Observation.REFUNDED
+                        || observed.observation() == PaymentGatewayResult.Observation.PARTIALLY_REFUNDED) {
+                    PaymentRecord payment = paymentRecordRepository.findByTransactionId(observed.getTransactionId())
+                            .orElseThrow(() -> new IllegalStateException("Local payment recovery required"));
+                    refunds.observe(payment.getPaymentId(), observed, null, false);
+                    refundRecovery.recoverPayment(payment.getPaymentId());
+                } else {
+                    tossPaymentIntentService.recoverIntentByProviderReference(observed.getTransactionId(), observed.getOrderId());
+                }
             }
-
-            JsonNode root = parse(event.getRawPayload());
-            JsonNode data = root.has("data") && root.get("data").isObject() ? root.get("data") : root;
-            String paymentKey = defaultText(event.getPaymentKey(), firstText(data, "paymentKey"));
-            String orderId = defaultText(event.getOrderId(), firstText(data, "orderId"));
-            String status = defaultText(event.getPaymentStatus(), firstText(data, "status", "paymentStatus"));
-
-            if (!hasText(status) && hasText(paymentKey)) {
-                PaymentGatewayResult gatewayResult = tossPaymentsGateway.getPaymentStatus(paymentKey);
-                status = gatewayResult.getGatewayStatus();
-            }
-            event.setPaymentKey(paymentKey);
-            event.setOrderId(orderId);
-            event.setPaymentStatus(status);
-
-            if ("PAYMENT_STATUS_CHANGED".equals(event.getEventType())) {
-                handlePaymentStatusChanged(paymentKey, orderId, status);
-                markSucceeded(event, null);
-                return;
-            }
-            if ("CANCEL_STATUS_CHANGED".equals(event.getEventType())) {
-                handleCancelStatusChanged(paymentKey, orderId, status);
-                markSucceeded(event, null);
-                return;
-            }
-        } catch (Exception e) {
-            event.setProcessingStatus("FAILED");
-            event.setFailureReason(e.getMessage());
-            webhookEventRepository.save(event);
+            webhookEventRepository.finish(event.getEventId(), token, "SUCCEEDED", null, LocalDateTime.now());
+            increment("everysale.toss.webhook.processed", event.getEventType());
+        } catch (Exception failure) {
+            webhookEventRepository.finish(event.getEventId(), token, "FAILED", "Provider recovery requires verification", LocalDateTime.now());
             increment("everysale.toss.webhook.failed", event.getEventType());
-            log.warn("Toss webhook processing failed: eventId={}, eventType={}, reason={}",
-                    event.getEventId(), event.getEventType(), e.getMessage());
+            log.warn("Webhook recovery deferred: eventId={}", event.getEventId());
         }
-    }
-
-    private void handlePaymentStatusChanged(String paymentKey, String orderId, String status) {
-        if ("DONE".equals(status) || "APPROVED".equals(status)) {
-            CompleteReservationResponse response = tossPaymentIntentService
-                    .recoverIntentByProviderReference(paymentKey, orderId);
-            if ("FAILED".equals(response.getStatus())) {
-                throw new IllegalStateException("Toss payment recovery failed: " + response.getMessage());
-            }
-            return;
-        }
-        if ("ABORTED".equals(status) || "EXPIRED".equals(status) || "FAILED".equals(status)) {
-            tossPaymentIntentService.markProviderTerminalStatus(paymentKey, orderId, status);
-        }
-    }
-
-    private void handleCancelStatusChanged(String paymentKey, String orderId, String status) {
-        String mappedStatus = "PARTIAL_CANCELED".equals(status)
-                ? "PARTIALLY_REFUNDED"
-                : "REFUNDED";
-        paymentRecordRepository.findByTransactionId(paymentKey).ifPresent(payment -> {
-            updatePaymentStatus(payment, mappedStatus);
-            marketplaceOrderService.syncProviderRefundStatus(payment.getPaymentId(), mappedStatus);
-        });
-        tossPaymentIntentService.markProviderTerminalStatus(paymentKey, orderId, status);
-    }
-
-    private void updatePaymentStatus(PaymentRecord payment, String status) {
-        payment.setStatus(status);
-        payment.setFailureReason(null);
-        payment.setProcessedAt(LocalDateTime.now());
-        paymentRecordRepository.save(payment);
-    }
-
-    private void markSucceeded(TossWebhookEvent event, String message) {
-        event.setProcessingStatus("SUCCEEDED");
-        event.setFailureReason(message);
-        event.setProcessedAt(LocalDateTime.now());
-        webhookEventRepository.save(event);
-        increment("everysale.toss.webhook.processed", event.getEventType());
     }
 
     private JsonNode parse(String rawPayload) {

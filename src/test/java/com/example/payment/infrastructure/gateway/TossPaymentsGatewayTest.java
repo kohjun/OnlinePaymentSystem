@@ -76,6 +76,8 @@ class TossPaymentsGatewayTest {
         assertEquals("APPROVED", result.getGatewayStatus());
         assertEquals("pay_test_key", result.getTransactionId());
         assertEquals("12345678", result.getApprovalNumber());
+        // approvedAt +09:00 10시는 UTC 01시로 저장해야 다른 UTC 시각과 비교된다.
+        assertEquals(java.time.LocalDateTime.of(2026, 6, 22, 1, 0), result.getProcessedAt());
         server.verify();
     }
 
@@ -109,7 +111,7 @@ class TossPaymentsGatewayTest {
         server.expect(requestTo("https://api.tosspayments.com/v1/payments/pay_test_key/cancel"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Idempotency-Key", "refund-pay_test_key"))
-                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+                .andRespond(withSuccess("{\"status\":\"CANCELED\",\"paymentKey\":\"pay_test_key\"}", MediaType.APPLICATION_JSON));
 
         assertTrue(gateway.refundPayment("pay_test_key"));
         server.verify();
@@ -189,5 +191,33 @@ class TossPaymentsGatewayTest {
                 .tossPaymentKey("pay_test_key")
                 .tossOrderId("ORD-" + paymentId)
                 .build();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {401, 404, 409, 429, 500})
+    void lookupErrorsAreNeverEvidenceOfPaymentRejection(int status) {
+        server.expect(requestTo("https://api.tosspayments.com/v1/payments/pay_test_key"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withStatus(
+                        org.springframework.http.HttpStatus.valueOf(status)));
+        assertEquals("UNKNOWN", gateway.getPaymentStatus("pay_test_key").getGatewayStatus());
+        server.verify();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"ALREADY_PROCESSED_PAYMENT", "ALREADY_PROCESSING_REQUEST", "PROVIDER_ERROR", "INVALID_API_KEY"})
+    void ambiguous400ApprovalIsNotRejection(String code) {
+        server.expect(requestTo("https://api.tosspayments.com/v1/payments/confirm"))
+                .andRespond(withBadRequest().body("{\"code\":\"" + code + "\"}").contentType(MediaType.APPLICATION_JSON));
+        assertEquals("UNKNOWN", gateway.authorize(paymentRequest("P")).getGatewayStatus());
+        server.verify();
+    }
+
+    @Test void refundServerErrorIsUnknownNotFailed() {
+        server.expect(requestTo("https://api.tosspayments.com/v1/payments/pay_test_key/cancel"))
+                .andRespond(withServerError());
+        var result = gateway.refund(com.example.payment.application.dto.PaymentRefundRequest.builder()
+                .transactionId("pay_test_key").idempotencyKey("refund-1").amount(new BigDecimal("10000")).reason("cancel").build());
+        assertEquals(com.example.payment.application.dto.PaymentRefundResult.Status.UNKNOWN, result.status());
+        server.verify();
     }
 }

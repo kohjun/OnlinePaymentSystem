@@ -7,6 +7,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import java.time.LocalDateTime;
 
 @Repository
 public interface RaffleWinnerRepository extends JpaRepository<RaffleWinner, String> {
@@ -17,6 +18,11 @@ public interface RaffleWinnerRepository extends JpaRepository<RaffleWinner, Stri
     long countBySaleEventId(String saleEventId);
 
     long countBySaleEventIdAndCheckoutStatus(String saleEventId, RaffleCheckoutStatus checkoutStatus);
+
+    List<RaffleWinner> findByCheckoutStatusAndCheckoutExpiresAtBefore(
+            RaffleCheckoutStatus checkoutStatus, LocalDateTime expiresAt);
+
+    Optional<RaffleWinner> findFirstBySaleEventIdOrderByOfferSequenceDesc(String saleEventId);
 
     void deleteBySaleEventId(String saleEventId);
 }
