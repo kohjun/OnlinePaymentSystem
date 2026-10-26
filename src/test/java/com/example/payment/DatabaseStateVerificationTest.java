@@ -93,7 +93,6 @@ class DatabaseStateVerificationTest extends TestcontainersIntegrationSupport {
                     .totalQuantity(INITIAL_STOCK)
                     .availableQuantity(INITIAL_STOCK)
                     .reservedQuantity(0)
-                    .version(0L)
                     .build();
             inventoryRepository.save(inventory);
             System.out.println("✅ DB Inventory initialized: " + TEST_PRODUCT_ID);

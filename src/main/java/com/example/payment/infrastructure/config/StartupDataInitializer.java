@@ -112,7 +112,6 @@ public class StartupDataInitializer implements ApplicationRunner {
                 .totalQuantity(quantity)
                 .availableQuantity(quantity)
                 .reservedQuantity(0)
-                .version(0L)
                 .lastUpdatedAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build()));
 

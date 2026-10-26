@@ -177,7 +177,6 @@ public class SellerMarketplaceService {
                 .totalQuantity(request.getQuantity())
                 .availableQuantity(request.getQuantity())
                 .reservedQuantity(0)
-                .version(0L)
                 .lastUpdatedAt(LocalDateTime.now())
                 .build());
         resourceReservationService.initializeResource("inventory:" + productId, request.getQuantity(), request.getQuantity());
@@ -448,7 +447,6 @@ public class SellerMarketplaceService {
                 .totalQuantity(request.getQuantity())
                 .availableQuantity(request.getQuantity())
                 .reservedQuantity(0)
-                .version(0L)
                 .lastUpdatedAt(LocalDateTime.now())
                 .build());
 
