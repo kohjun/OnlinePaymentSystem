@@ -1,8 +1,8 @@
 plugins {
     id 'java'
     id 'jacoco'
-    id 'org.springframework.boot' version '3.2.3'
-    id 'io.spring.dependency-management' version '1.1.4'
+    id 'org.springframework.boot' version '3.5.16'
+    id 'io.spring.dependency-management' version '1.1.7'
 }
 
 group = 'com.example'
@@ -24,10 +24,6 @@ configurations {
 repositories {
     mavenCentral()
 }
-
-// Boot 3.2 BOM이 Testcontainers 코어를 1.19.5로 고정한다. 1.21.4 미만은 Docker 29
-// (최소 API 1.44)에 접속하지 못해 통합 테스트가 전부 스킵되므로 BOM 버전을 올린다.
-ext['testcontainers.version'] = '1.21.4'
 
 dependencies {
     // Spring Boot 기본 의존성
@@ -76,6 +72,8 @@ dependencies {
 
     // Database and migrations
     implementation 'org.flywaydb:flyway-core'
+    // Flyway 10부터 PostgreSQL 지원이 별도 모듈로 분리되었다.
+    runtimeOnly 'org.flywaydb:flyway-database-postgresql'
     runtimeOnly 'org.postgresql:postgresql'
 
     // Temporal workflow orchestration
@@ -83,11 +81,12 @@ dependencies {
     // Saga 워크플로와 액티비티를 호출자 추적에 잇는다. Temporal SDK는
     // OpenTracing API로 계측을 노출하므로 OTel과 잇는 shim이 함께 필요하다.
     implementation 'io.temporal:temporal-opentracing:1.35.0'
-    implementation 'io.opentelemetry:opentelemetry-opentracing-shim:1.31.0'
+    implementation 'io.opentelemetry:opentelemetry-opentracing-shim'
 
-    // H2 Database (테스트용 인메모리 DB)
-    runtimeOnly 'com.h2database:h2'
-    testImplementation 'com.h2database:h2'
+    // H2 Database (테스트용 인메모리 DB). 운영 런타임은 PostgreSQL만 쓴다.
+    // H2 2.3은 V19의 WITH ... DELETE 구문을 거부한다. 이미 적용된 마이그레이션은
+    // 체크섬 때문에 고칠 수 없으므로, 이 테스트들을 PostgreSQL로 옮기기 전까지 2.2에 둔다.
+    testImplementation 'com.h2database:h2:2.2.224'
 
     // Lombok
     compileOnly 'org.projectlombok:lombok'

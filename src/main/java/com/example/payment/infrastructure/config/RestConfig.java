@@ -26,8 +26,8 @@ public class RestConfig {
     public RestTemplate restTemplate(RestTemplateBuilder builder) {
         return builder
                 .requestFactory(SimpleClientHttpRequestFactory.class)
-                .setConnectTimeout(Duration.ofSeconds(5))
-                .setReadTimeout(Duration.ofSeconds(10))
+                .connectTimeout(Duration.ofSeconds(5))
+                .readTimeout(Duration.ofSeconds(10))
                 .build();
     }
 
@@ -43,8 +43,8 @@ public class RestConfig {
     public RestTemplate payoutsRestTemplate(RestTemplateBuilder builder, TossPayoutsProperties properties) {
         return builder
                 .requestFactory(SimpleClientHttpRequestFactory.class)
-                .setConnectTimeout(Duration.ofMillis(properties.getConnectTimeoutMs()))
-                .setReadTimeout(Duration.ofMillis(properties.getReadTimeoutMs()))
+                .connectTimeout(Duration.ofMillis(properties.getConnectTimeoutMs()))
+                .readTimeout(Duration.ofMillis(properties.getReadTimeoutMs()))
                 .build();
     }
 }
