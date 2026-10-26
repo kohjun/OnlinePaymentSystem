@@ -110,8 +110,10 @@ services:
       - "8088:8080"
 
   # 상품 검색 색인. 단일 노드에 보안을 끈 로컬 전용 구성이다.
+  # 서버는 Spring Boot가 관리하는 클라이언트(8.18)보다 낮으면 안 된다. 8.16 미만 서버는
+  # cluster health 응답에 unassigned_primary_shards가 없어 헬스 체크가 DOWN이 된다.
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.18.8
     container_name: payment-elasticsearch
     environment:
       discovery.type: single-node
