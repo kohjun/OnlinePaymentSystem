@@ -11,8 +11,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.mockito.Mockito; // 3. 임포트 추가
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean; // 4. 임포트 추가
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean; // 4. 임포트 추가
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.ResponseEntity;
 
@@ -34,6 +35,7 @@ import static org.mockito.Mockito.when;
  */
 @org.junit.jupiter.api.Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
+@AutoConfigureTestRestTemplate
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class ConcurrentReservationTest extends TestcontainersIntegrationSupport {
 
@@ -47,7 +49,7 @@ class ConcurrentReservationTest extends TestcontainersIntegrationSupport {
     private ResourceReservationService redisReservationService;
 
     // [수정] 6. MockPaymentGateway를 MockBean으로 선언
-    @MockBean
+    @MockitoBean
     private MockPaymentGateway mockPaymentGateway;
 
     private static final String PRODUCT_ID = "CONCURRENCY-TEST-001";

@@ -20,7 +20,8 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -46,6 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
+@AutoConfigureTestRestTemplate
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = "payment.recovery.fixed-delay-ms=86400000")
 class CommerceLifecycleHttpIntegrationTest extends FullCommerceTestcontainersSupport {
@@ -79,7 +81,7 @@ class CommerceLifecycleHttpIntegrationTest extends FullCommerceTestcontainersSup
     @Autowired private com.example.payment.domain.repository.PaymentRecordRepository payments;
     @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
     @Autowired private org.springframework.transaction.PlatformTransactionManager transactionManager;
-    @org.springframework.boot.test.mock.mockito.SpyBean
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
     private com.example.payment.infrastructure.messaging.outbox.OutboxEventService outboxService;
     private final java.util.concurrent.atomic.AtomicBoolean failApprovalCommit = new java.util.concurrent.atomic.AtomicBoolean();
     private final java.util.concurrent.atomic.AtomicBoolean approvalCommitFailed = new java.util.concurrent.atomic.AtomicBoolean();

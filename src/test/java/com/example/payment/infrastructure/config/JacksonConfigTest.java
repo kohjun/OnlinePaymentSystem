@@ -7,7 +7,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
-import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
+import org.springframework.boot.jackson2.autoconfigure.Jackson2AutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -24,7 +24,7 @@ class JacksonConfigTest {
 
     // 운영과 같은 조합: Boot 자동 구성 + 이 설정 + RedisConfig가 등록하는 Redis 전용 매퍼.
     private final ApplicationContextRunner context = new ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(JacksonAutoConfiguration.class))
+            .withConfiguration(AutoConfigurations.of(Jackson2AutoConfiguration.class))
             .withUserConfiguration(JacksonConfig.class)
             .withBean("redisObjectMapper", ObjectMapper.class, () -> new RedisConfig().redisObjectMapper());
 

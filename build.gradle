@@ -1,7 +1,7 @@
 plugins {
     id 'java'
     id 'jacoco'
-    id 'org.springframework.boot' version '3.5.16'
+    id 'org.springframework.boot' version '4.1.2'
     id 'io.spring.dependency-management' version '1.1.7'
 }
 
@@ -16,9 +16,8 @@ configurations {
     compileOnly {
         extendsFrom annotationProcessor
     }
-    all {
-        exclude group: 'commons-logging', module: 'commons-logging'
-    }
+    // commons-logging은 제외하지 않는다. Spring 6까지는 spring-jcl이 같은 클래스를
+    // 제공했지만 Spring 7은 spring-jcl을 없애고 commons-logging 1.3을 직접 쓴다.
 }
 
 repositories {
@@ -26,21 +25,24 @@ repositories {
 }
 
 dependencies {
-    // Spring Boot 기본 의존성
-    implementation 'org.springframework.boot:spring-boot-starter-web'
+    // Spring Boot 기본 의존성. Boot 4부터 자동 구성이 기술별 모듈로 나뉘어
+    // 쓰는 기술마다 해당 스타터가 있어야 한다.
+    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-security'
-    implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
+    implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-resource-server'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-restclient'
     runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
 
     // 분산 추적. 결제 한 건이 HTTP -> Saga -> Redis -> Kafka로 흩어지므로
     // 상관관계 ID만으로는 어디서 시간이 갔는지 알 수 없다.
-    implementation 'io.micrometer:micrometer-tracing-bridge-otel'
-    implementation 'io.opentelemetry:opentelemetry-exporter-otlp'
+    implementation 'org.springframework.boot:spring-boot-starter-opentelemetry'
 
-    // JSON 처리
+    // JSON 처리. Boot 4 기본은 Jackson 3이지만, Redis 값·Outbox 페이로드처럼
+    // 이미 저장된 JSON과 형식이 같은지 확인하기 전까지 Jackson 2를 유지한다.
+    implementation 'org.springframework.boot:spring-boot-jackson2'
     implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
 
     // HTTP 클라이언트
@@ -54,24 +56,25 @@ dependencies {
 
     // Redis 관련
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    // @EnableCaching의 CacheManager 자동 구성. Boot 4부터 별도 모듈이다.
+    implementation 'org.springframework.boot:spring-boot-starter-cache'
     implementation 'io.lettuce:lettuce-core'
     implementation 'org.apache.commons:commons-pool2'
 
-    // Resilience4j (Spring Boot 3 대응)
-    implementation 'io.github.resilience4j:resilience4j-spring-boot3:2.1.0'
-    implementation 'io.github.resilience4j:resilience4j-circuitbreaker:2.1.0'
-    implementation 'io.github.resilience4j:resilience4j-timelimiter:2.1.0'
-    implementation 'io.github.resilience4j:resilience4j-ratelimiter:2.1.0'
-
+    // Resilience4j (Spring Boot 4 대응)
+    implementation 'io.github.resilience4j:resilience4j-spring-boot4:2.4.0'
+    implementation 'io.github.resilience4j:resilience4j-circuitbreaker:2.4.0'
+    implementation 'io.github.resilience4j:resilience4j-timelimiter:2.4.0'
+    implementation 'io.github.resilience4j:resilience4j-ratelimiter:2.4.0'
 
     // Kafka
-    implementation 'org.springframework.kafka:spring-kafka'
+    implementation 'org.springframework.boot:spring-boot-starter-kafka'
 
     // 상품 검색 색인. 키워드 질의만 담당하고 상세는 DB가 채운다.
     implementation 'org.springframework.boot:spring-boot-starter-data-elasticsearch'
 
     // Database and migrations
-    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.springframework.boot:spring-boot-starter-flyway'
     // Flyway 10부터 PostgreSQL 지원이 별도 모듈로 분리되었다.
     runtimeOnly 'org.flywaydb:flyway-database-postgresql'
     runtimeOnly 'org.postgresql:postgresql'
@@ -96,11 +99,13 @@ dependencies {
 
     // 테스트
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+    testImplementation 'org.springframework.boot:spring-boot-resttestclient'
     testImplementation 'org.springframework.kafka:spring-kafka-test'
     testImplementation 'io.temporal:temporal-testing:1.35.0'
-    testImplementation 'org.testcontainers:junit-jupiter'
-    testImplementation 'org.testcontainers:postgresql'
-    testImplementation 'org.testcontainers:kafka'
+    testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+    testImplementation 'org.testcontainers:testcontainers-postgresql'
+    testImplementation 'org.testcontainers:testcontainers-kafka'
 }
 
 tasks.withType(Test).configureEach {

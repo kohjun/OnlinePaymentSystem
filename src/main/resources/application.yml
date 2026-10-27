@@ -1,6 +1,11 @@
 spring:
   application:
     name: payment-service
+  http:
+    converters:
+      # Boot 4의 MVC 기본 매퍼는 Jackson 3이다. API 응답 형식(UTC 'Z', ProblemDetail의
+      # 최상위 code)을 만드는 설정이 Jackson 2 매퍼에 있으므로 이전 전까지 Jackson 2를 쓴다.
+      preferred-json-mapper: jackson2
 
   servlet:
     multipart:
@@ -114,13 +119,16 @@ logging:
 
 management:
   tracing:
-    enabled: ${TRACING_ENABLED:true}
+    export:
+      enabled: ${TRACING_ENABLED:true}
     sampling:
       # 로컬은 전량 수집한다. 한 건을 끝까지 따라가 보는 것이 목적이다.
       probability: ${TRACING_SAMPLE_RATE:1.0}
-  otlp:
+  opentelemetry:
     tracing:
-      endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+      export:
+        otlp:
+          endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
 
 payment:
   processing:

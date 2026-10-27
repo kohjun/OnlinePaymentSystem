@@ -2,7 +2,7 @@ package com.example.recoveryfixture;
 
 import com.example.payment.PaymentApplication;
 import org.springframework.boot.SpringApplication;
-import org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext;
+import org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext;
 
 import java.nio.file.Files;
 import java.nio.file.Path;

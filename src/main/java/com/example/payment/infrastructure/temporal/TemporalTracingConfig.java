@@ -27,7 +27,7 @@ import org.springframework.context.annotation.Configuration;
 // 거짓이 된다. 그러면 설정은 조용히 통째로 빠지고 워크플로 스팬만 사라진다.
 // 추적이 켜져 있으면 OpenTelemetry 빈은 반드시 존재하므로 프로퍼티로만 건다.
 @Configuration
-@ConditionalOnProperty(name = "management.tracing.enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(name = "management.tracing.export.enabled", havingValue = "true", matchIfMissing = true)
 public class TemporalTracingConfig {
 
     @Bean

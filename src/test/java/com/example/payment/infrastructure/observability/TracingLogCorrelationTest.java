@@ -23,10 +23,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
  * 다른 테스트는 추적을 끄고 돌리므로 여기서만 켠다.
  */
 @SpringBootTest(properties = {
-        "management.tracing.enabled=true",
+        "management.tracing.export.enabled=true",
         "management.tracing.sampling.probability=1.0",
         // 수집기로 실제로 내보내지 않는다. 여기서 보는 것은 MDC 전파다.
-        "management.otlp.tracing.export.enabled=false"
+        "management.tracing.export.otlp.enabled=false"
 })
 class TracingLogCorrelationTest {
 

@@ -15,9 +15,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.boot.test.mock.mockito.SpyBean;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -38,6 +39,7 @@ import static org.mockito.Mockito.*;
  */
 @org.junit.jupiter.api.Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
+@AutoConfigureTestRestTemplate
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Transactional
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
@@ -55,15 +57,15 @@ class Phase2FailureScenarioTest extends TestcontainersIntegrationSupport {
     @Autowired
     private ReservationRepository reservationRepository;
 
-    @MockBean
+    @MockitoBean
     private MockPaymentGateway mockPaymentGateway;
     @Autowired private com.example.payment.domain.repository.PaymentRecordRepository payments;
 
     // SpyBean을 사용하여 실제 메서드는 호출되지만 특정 메서드만 Mock 가능
-    @SpyBean
+    @MockitoSpyBean
     private InventoryManagementService inventoryManagementService;
 
-    @SpyBean
+    @MockitoSpyBean
     private OrderService orderService;
 
     private static final String TEST_PRODUCT_ID = "PHASE2-TEST-001";
