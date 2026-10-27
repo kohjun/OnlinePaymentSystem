@@ -32,6 +32,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpStatus;
 import com.example.payment.infrastructure.security.CommerceActor;
 
+import java.time.Duration;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -89,7 +90,7 @@ class TossPaymentIntentServiceTest {
         org.springframework.data.redis.core.SetOperations setOps = mock(org.springframework.data.redis.core.SetOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
         when(redisTemplate.opsForSet()).thenReturn(setOps);
-        when(valueOps.setIfAbsent(any(), any(), any())).thenReturn(true);
+        when(valueOps.setIfAbsent(any(), any(), any(Duration.class))).thenReturn(true);
 
         service = new TossPaymentIntentService(
                 repository,

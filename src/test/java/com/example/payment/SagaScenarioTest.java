@@ -16,8 +16,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -40,6 +41,7 @@ import static org.mockito.Mockito.when;
  */
 @org.junit.jupiter.api.Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
+@AutoConfigureTestRestTemplate
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Transactional // 테스트 후 DB 롤백 (JPA 데이터)
 class SagaScenarioTest extends TestcontainersIntegrationSupport {
@@ -54,7 +56,7 @@ class SagaScenarioTest extends TestcontainersIntegrationSupport {
     private ResourceReservationService redisReservationService;
 
     // [핵심] MockPaymentGateway를 MockBean으로 대체하여 강제로 결제 실패/성공을 제어
-    @MockBean
+    @MockitoBean
     private MockPaymentGateway mockPaymentGateway;
 
     @Autowired private com.example.payment.domain.repository.PaymentRecordRepository payments;

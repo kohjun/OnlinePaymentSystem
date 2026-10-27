@@ -11,8 +11,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -35,6 +36,7 @@ import static org.mockito.ArgumentMatchers.any;
  */
 @org.junit.jupiter.api.Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
+@AutoConfigureTestRestTemplate
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
@@ -54,18 +56,18 @@ class SimpleIntegrationTest extends TestcontainersIntegrationSupport {
     @Autowired
     private ResourceReservationService redisReservationService;
 
-    @MockBean
+    @MockitoBean
     private MockPaymentGateway mockPaymentGateway;
 
-    @MockBean
+    @MockitoBean
     private org.springframework.kafka.core.KafkaTemplate<String, Object> kafkaTemplate;
 
-    @MockBean
+    @MockitoBean
     private org.springframework.kafka.config.KafkaListenerEndpointRegistry kafkaListenerEndpointRegistry;
 
     // [수정] WAL 관련 NPE 오류를 유발하는 MockBean을 제거합니다.
     // H2 데이터베이스에 WAL 로그가 정상적으로 기록되도록 허용합니다.
-    // @MockBean
+    // @MockitoBean
     // private com.example.payment.infrastructure.persistence.jpa.WalLogJpaRepository walLogJpaRepository;
 
 

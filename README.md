@@ -520,10 +520,12 @@ Every index call swallows its own failures and reports "unavailable" rather than
 One checkout spans an HTTP request, a Temporal Saga, Redis inventory scripts, Postgres writes, and Kafka publication. The existing `X-Correlation-Id` ties log lines together but says nothing about where the time went, so the application also emits OpenTelemetry spans over OTLP.
 
 ```text
-management.tracing.enabled       TRACING_ENABLED         default true
+management.tracing.export.enabled
+                                 TRACING_ENABLED         default true
 management.tracing.sampling.probability
                                  TRACING_SAMPLE_RATE     1.0 local, 0.1 in prod
-management.otlp.tracing.endpoint OTLP_TRACES_ENDPOINT    http://localhost:4318/v1/traces
+management.opentelemetry.tracing.export.otlp.endpoint
+                                 OTLP_TRACES_ENDPOINT    http://localhost:4318/v1/traces
 ```
 
 `docker compose up -d` starts Jaeger; open `http://localhost:16686` and pick the `payment` service. Spans cover inbound HTTP, the security filter chain, scheduled jobs, outbound HTTP through both `RestTemplate` beans, Kafka publish/consume, and the Temporal Saga down to each activity.

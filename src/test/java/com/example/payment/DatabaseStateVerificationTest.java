@@ -13,8 +13,9 @@ import org.junit.jupiter.api.*;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -42,6 +43,7 @@ import static org.mockito.Mockito.when;
  */
 @org.junit.jupiter.api.Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
+@AutoConfigureTestRestTemplate
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Transactional
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
@@ -65,7 +67,7 @@ class DatabaseStateVerificationTest extends TestcontainersIntegrationSupport {
     @Autowired
     private org.springframework.data.redis.core.RedisTemplate<String, Object> redisTemplate;
 
-    @MockBean
+    @MockitoBean
     private MockPaymentGateway mockPaymentGateway;
 
     private static final String TEST_PRODUCT_ID = "DB-TEST-001";

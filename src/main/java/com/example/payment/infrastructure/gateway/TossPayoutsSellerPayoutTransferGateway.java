@@ -110,7 +110,7 @@ public class TossPayoutsSellerPayoutTransferGateway implements SellerPayoutTrans
         // 코디네이터가 null을 넘길 수 있다. 그때는 멱등키로 조회한다.
         String lookupUrl = hasText(providerTransferId)
                 ? url("/v1/payouts/" + providerTransferId)
-                : UriComponentsBuilder.fromHttpUrl(url("/v1/payouts"))
+                : UriComponentsBuilder.fromUriString(url("/v1/payouts"))
                         .queryParam("refPayoutId", idempotencyKey)
                         .toUriString();
 

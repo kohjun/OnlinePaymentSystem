@@ -118,7 +118,7 @@ class ApiExceptionHandlerTest {
 
         @GetMapping("/test/missing")
         void missing() throws NoResourceFoundException {
-            throw new NoResourceFoundException(HttpMethod.GET, "/missing");
+            throw new NoResourceFoundException(HttpMethod.GET, "/test/missing", "/missing");
         }
     }
 }
