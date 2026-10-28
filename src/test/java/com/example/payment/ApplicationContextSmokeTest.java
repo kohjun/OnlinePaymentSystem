@@ -6,7 +6,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 @SpringBootTest
-class ApplicationContextSmokeTest {
+class ApplicationContextSmokeTest extends TestcontainersIntegrationSupport {
 
     @MockitoBean
     private ResourceReservationService resourceReservationService;

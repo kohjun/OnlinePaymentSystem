@@ -1,5 +1,6 @@
 package com.example.payment.infrastructure.observability;
 
+import com.example.payment.TestcontainersIntegrationSupport;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import org.junit.jupiter.api.DisplayName;
@@ -28,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
         // 수집기로 실제로 내보내지 않는다. 여기서 보는 것은 MDC 전파다.
         "management.tracing.export.otlp.enabled=false"
 })
-class TracingLogCorrelationTest {
+class TracingLogCorrelationTest extends TestcontainersIntegrationSupport {
 
     @Autowired
     private Tracer tracer;

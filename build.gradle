@@ -86,11 +86,6 @@ dependencies {
     implementation 'io.temporal:temporal-opentracing:1.35.0'
     implementation 'io.opentelemetry:opentelemetry-opentracing-shim'
 
-    // H2 Database (테스트용 인메모리 DB). 운영 런타임은 PostgreSQL만 쓴다.
-    // H2 2.3은 V19의 WITH ... DELETE 구문을 거부한다. 이미 적용된 마이그레이션은
-    // 체크섬 때문에 고칠 수 없으므로, 이 테스트들을 PostgreSQL로 옮기기 전까지 2.2에 둔다.
-    testImplementation 'com.h2database:h2:2.2.224'
-
     // Lombok
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'

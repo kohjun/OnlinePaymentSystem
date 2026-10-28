@@ -7,11 +7,9 @@ spring:
       # 최상위 code)을 만드는 설정이 Jackson 2 매퍼에 있으므로 이전 전까지 Jackson 2를 쓴다.
       preferred-json-mapper: jackson2
 
+  # 접속 정보는 TestcontainersIntegrationSupport가 PostgreSQL 컨테이너로 채운다. 운영과 같은
+  # DB에서 마이그레이션과 원자적 INSERT를 검증하려고 H2는 쓰지 않는다.
   datasource:
-    url: jdbc:h2:mem:testdb;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
-    username: sa
-    password:
-    driver-class-name: org.h2.Driver
     hikari:
       maximum-pool-size: 20
       minimum-idle: 5
@@ -27,7 +25,6 @@ spring:
     show-sql: false
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.H2Dialect
         format_sql: true
     open-in-view: false
 
