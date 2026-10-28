@@ -360,7 +360,7 @@ class CommerceLifecycleHttpIntegrationTest extends FullCommerceTestcontainersSup
     private com.example.recoveryfixture.RecoveryApplicationProcess startChildApplication(boolean recoverRefunds, boolean recoverPayouts) throws Exception {
         Map<String, String> configuration = new java.util.LinkedHashMap<>();
         for (String key : java.util.List.of("spring.datasource.url", "spring.datasource.username", "spring.datasource.password",
-                "spring.datasource.driver-class-name", "spring.jpa.properties.hibernate.dialect", "spring.kafka.bootstrap-servers",
+                "spring.datasource.driver-class-name", "spring.kafka.bootstrap-servers",
                 "spring.data.redis.host", "spring.data.redis.port", "app.temporal.target", "app.temporal.namespace",
                 "payment.toss.base-url", "payment.toss.client-key", "payment.toss.secret-key")) {
             configuration.put(key, environment.getRequiredProperty(key));
