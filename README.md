@@ -64,7 +64,7 @@ Endpoints outside this table are health, readiness, webhook, and internal Saga h
 ## Stack
 
 - Java 17 or newer
-- Spring Boot 4.1 (Spring Framework 7; JSON stays on Jackson 2 until the Jackson 3 migration)
+- Spring Boot 4.1 (Spring Framework 7; JSON on Jackson 3 with Jackson 2-compatible defaults, so stored formats are unchanged)
 - Gradle wrapper
 - Postgres for application data
 - Redis Lua scripts for atomic inventory counters
