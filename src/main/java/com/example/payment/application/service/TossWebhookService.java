@@ -9,8 +9,8 @@ import com.example.payment.infrastructure.gateway.TossPaymentsGateway;
 import com.example.payment.infrastructure.gateway.TossPaymentsProperties;
 import com.example.payment.infrastructure.util.IdGenerator;
 import com.example.payment.presentation.dto.response.CompleteReservationResponse;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -183,8 +183,9 @@ public class TossWebhookService {
         }
         for (String field : fields) {
             JsonNode value = node.get(field);
-            if (value != null && !value.isNull() && !value.asText().isBlank()) {
-                return value.asText();
+            // Jackson 3의 asString()은 객체·배열 노드에서 예외를 던진다. 예전처럼 빈 값으로 본다.
+            if (value != null && !value.isNull() && !value.asString("").isBlank()) {
+                return value.asString("");
             }
         }
         return null;

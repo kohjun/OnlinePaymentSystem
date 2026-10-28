@@ -17,12 +17,12 @@ import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
-import org.springframework.kafka.support.serializer.JsonDeserializer;
-import org.springframework.kafka.support.serializer.JsonSerializer;
+import org.springframework.kafka.support.serializer.JacksonJsonDeserializer;
+import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
 import org.springframework.util.backoff.ExponentialBackOff;
 
 import com.example.payment.domain.event.PaymentEvent;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -116,11 +116,11 @@ public class KafkaConfig {
     }
 
     @Bean
-    public ProducerFactory<String, PaymentEvent> paymentEventProducerFactory(ObjectMapper objectMapper) {
+    public ProducerFactory<String, PaymentEvent> paymentEventProducerFactory(JsonMapper jsonMapper) {
         Map<String, Object> props = new HashMap<>();
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
-        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JacksonJsonSerializer.class);
 
         // Reliability settings
         props.put(ProducerConfig.ACKS_CONFIG, "all");
@@ -134,7 +134,7 @@ public class KafkaConfig {
         props.put(ProducerConfig.BATCH_SIZE_CONFIG, 16384);
 
         return new DefaultKafkaProducerFactory<>(props, new StringSerializer(),
-                new JsonSerializer<>(objectMapper));
+                new JacksonJsonSerializer<>(jsonMapper));
     }
 
     @Bean
@@ -175,7 +175,7 @@ public class KafkaConfig {
     }
 
     @Bean
-    public ConsumerFactory<String, PaymentEvent> paymentEventConsumerFactory(ObjectMapper objectMapper) {
+    public ConsumerFactory<String, PaymentEvent> paymentEventConsumerFactory(JsonMapper jsonMapper) {
         Map<String, Object> props = new HashMap<>();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         // [수정] 4. 하드코딩된 "payment-events-group" 대신 주입받은 값 사용
@@ -186,11 +186,11 @@ public class KafkaConfig {
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
         props.put(ErrorHandlingDeserializer.KEY_DESERIALIZER_CLASS, StringDeserializer.class);
-        props.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, JsonDeserializer.class);
+        props.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, JacksonJsonDeserializer.class);
 
         // Trust packages for deserialization
-        props.put(JsonDeserializer.TRUSTED_PACKAGES, "com.example.payment.event,com.example.payment.dto");
-        props.put(JsonDeserializer.TYPE_MAPPINGS, "payment:com.example.payment.domain.event.PaymentEvent");
+        props.put(JacksonJsonDeserializer.TRUSTED_PACKAGES, "com.example.payment.event,com.example.payment.dto");
+        props.put(JacksonJsonDeserializer.TYPE_MAPPINGS, "payment:com.example.payment.domain.event.PaymentEvent");
 
         // Performance settings
         props.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, 1024);
@@ -201,7 +201,7 @@ public class KafkaConfig {
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
 
         return new DefaultKafkaConsumerFactory<>(props, new StringDeserializer(),
-                new JsonDeserializer<>(PaymentEvent.class, objectMapper, false));
+                new JacksonJsonDeserializer<>(PaymentEvent.class, jsonMapper, false));
     }
 
     /**

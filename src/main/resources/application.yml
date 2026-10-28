@@ -1,11 +1,18 @@
 spring:
   application:
     name: payment-service
-  http:
-    converters:
-      # Boot 4의 MVC 기본 매퍼는 Jackson 3이다. API 응답 형식(UTC 'Z', ProblemDetail의
-      # 최상위 code)을 만드는 설정이 Jackson 2 매퍼에 있으므로 이전 전까지 Jackson 2를 쓴다.
-      preferred-json-mapper: jackson2
+  jackson:
+    # Jackson 3의 기본값(속성 알파벳 정렬, 원시 타입 null 거부, final 필드 미사용 등)은
+    # Jackson 2와 다르다. 이미 저장된 멱등 응답·Outbox·Redis 값과 요청 지문 해시가 같은
+    # 형식을 유지하도록 Boot 3 시절 기본값으로 둔다. src/test/resources/wire-format 참고.
+    use-jackson2-defaults: true
+    # 아래 둘은 use-jackson2-defaults가 되돌리지 않는 차이다. 기본 생성자가 없는 DTO
+    # (입찰·응모 응답 등)를 Boot 3처럼 package-private 생성자와 매개변수 이름으로 읽는다.
+    mapper:
+      detect-parameter-names: true
+    visibility:
+      setter: any
+      creator: any
 
   servlet:
     multipart:
@@ -77,14 +84,14 @@ spring:
     bootstrap-servers: localhost:9092
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
       acks: all
       retries: 3
     consumer:
       group-id: payment-events-group
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JacksonJsonDeserializer
       properties:
         spring.json.trusted.packages: com.example.payment.event,com.example.payment.dto,com.example.payment.domain.event,com.example.payment.presentation.dto.response
       enable-auto-commit: false

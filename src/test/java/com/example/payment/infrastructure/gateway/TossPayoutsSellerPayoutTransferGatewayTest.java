@@ -3,7 +3,7 @@ package com.example.payment.infrastructure.gateway;
 import com.example.payment.application.service.SellerPayoutTransferGateway.TransferRequest;
 import com.example.payment.application.service.SellerPayoutTransferGateway.TransferResult;
 import com.example.payment.domain.model.marketplace.PayoutTransferStatus;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

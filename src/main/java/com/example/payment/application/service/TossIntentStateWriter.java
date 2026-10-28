@@ -4,7 +4,7 @@ import com.example.payment.domain.entity.TossPaymentIntent;
 import com.example.payment.domain.repository.*;
 import com.example.payment.presentation.dto.request.TossPaymentConfirmRequest;
 import com.example.payment.presentation.dto.response.CompleteReservationResponse;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

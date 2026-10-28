@@ -1,0 +1,1 @@
+{"eventId":"EVENT-1","eventType":"ORDER_PAID","schemaVersion":1,"aggregateType":"ORDER","aggregateId":"ORD-1","occurredAt":"2026-10-25T01:30:15","payload":{"orderId":"ORD-1","amount":150000.00,"quantity":2,"sequence":9007199254740993,"refundable":true,"paidAt":"2026-10-25T01:30:15Z","status":"PAID","items":[{"productId":"PROD-1","quantity":2}],"reason":null}}

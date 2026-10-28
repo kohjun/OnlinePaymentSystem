@@ -6,9 +6,9 @@ import org.springframework.kafka.listener.CommonErrorHandler;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.util.backoff.FixedBackOff;
 
-import com.fasterxml.jackson.core.JsonParseException;
+import tools.jackson.core.exc.StreamReadException;
 // PaymentRequest 제거 - 필요없음
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,7 +32,7 @@ public class KafkaErrorConfig {
 
         errorHandler.addNotRetryableExceptions(
                 IllegalArgumentException.class,
-                JsonParseException.class
+                StreamReadException.class
         );
 
         errorHandler.setRetryListeners(

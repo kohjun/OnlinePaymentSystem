@@ -2,10 +2,10 @@ package com.example.payment.infrastructure.persistence.redis.config;
 
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.PropertyAccessor;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.cfg.DateTimeFeature;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -20,7 +20,7 @@ import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.data.redis.listener.ChannelTopic;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
-import org.springframework.data.redis.serializer.Jackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.JacksonJsonRedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 import java.time.Duration;
@@ -53,14 +53,18 @@ public class RedisConfig {
      * Redis 값·캐시·Pub/Sub 전용 매퍼. 필드 직접 접근(ANY)이 캐시된 도메인 객체의
      * 저장 형식에 맞춰져 있어 API 응답에는 쓰지 않는다. 받는 쪽은
      * {@code @Qualifier("redisObjectMapper")}로 명시하고, 기본 매퍼는 JacksonConfig가 둔다.
+     *
+     * Jackson 2 시절 저장된 캐시를 그대로 읽고 같은 형식으로 쓰도록 Jackson 2 기본값에서
+     * 시작한다. Jackson 3 기본값은 final 필드를 채우지 않고 원시 타입 null을 거부한다.
      */
     @Bean
-    public ObjectMapper redisObjectMapper() {
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.registerModule(new JavaTimeModule());
-        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        mapper.setVisibility(PropertyAccessor.ALL, JsonAutoDetect.Visibility.ANY);
+    public JsonMapper redisObjectMapper() {
+        JsonMapper mapper = JsonMapper.builder()
+                .configureForJackson2()
+                .disable(DateTimeFeature.WRITE_DATES_AS_TIMESTAMPS)
+                .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                .changeDefaultVisibility(visibility -> visibility.withVisibility(PropertyAccessor.ALL, JsonAutoDetect.Visibility.ANY))
+                .build();
 
         // [수정] 아래 코드가 Lua 스크립트의 순수 JSON 반환 값을 역직렬화할 때
         // MismatchedInputException (START_OBJECT vs START_ARRAY) 오류를 유발하므로 제거합니다.
@@ -119,7 +123,7 @@ public class RedisConfig {
         template.setHashKeySerializer(stringSerializer);
 
         // Value serialization
-        Jackson2JsonRedisSerializer<Object> jacksonSerializer = new Jackson2JsonRedisSerializer<>(redisObjectMapper, Object.class);
+        JacksonJsonRedisSerializer<Object> jacksonSerializer = new JacksonJsonRedisSerializer<>(redisObjectMapper, Object.class);
         template.setValueSerializer(jacksonSerializer);
         template.setHashValueSerializer(jacksonSerializer);
 

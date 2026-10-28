@@ -26,7 +26,7 @@ import com.example.payment.presentation.dto.request.MarketplaceCheckoutRequest;
 import com.example.payment.presentation.dto.request.TossPaymentConfirmRequest;
 import com.example.payment.presentation.dto.response.CompleteReservationResponse;
 import com.example.payment.presentation.dto.response.TossPaymentIntentResponse;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import java.time.Duration;

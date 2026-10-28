@@ -10,7 +10,7 @@ import com.example.payment.domain.repository.TossPaymentIntentRepository;
 import com.example.payment.infrastructure.config.UtcTimeZoneInitializer;
 import com.example.payment.infrastructure.util.ResourceReservationService;
 import com.example.payment.presentation.dto.request.TossPaymentConfirmRequest;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
