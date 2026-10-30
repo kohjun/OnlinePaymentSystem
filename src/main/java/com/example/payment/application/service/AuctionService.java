@@ -19,7 +19,7 @@ import com.example.payment.infrastructure.security.CommerceActor;
 import com.example.payment.presentation.dto.request.AuctionBidRequest;
 import com.example.payment.presentation.dto.response.AuctionBidResponse;
 import com.example.payment.presentation.dto.response.AuctionStatusResponse;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;

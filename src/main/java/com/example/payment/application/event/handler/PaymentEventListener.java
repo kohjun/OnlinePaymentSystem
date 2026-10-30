@@ -10,7 +10,7 @@ import com.example.payment.domain.event.PaymentEvent;
 import com.example.payment.application.service.OrderService;
 import com.example.payment.application.service.ReservationService;
 import com.example.payment.presentation.dto.response.PaymentResponse;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

@@ -104,9 +104,9 @@ class CommerceLifecycleHttpIntegrationTest extends FullCommerceTestcontainersSup
     private java.nio.file.Path processDirectory;
     @Autowired private org.springframework.core.env.Environment environment;
     @Autowired private org.springframework.context.ApplicationContext applicationContext;
-    @Autowired private com.fasterxml.jackson.databind.ObjectMapper applicationMapper;
+    @Autowired private tools.jackson.databind.ObjectMapper applicationMapper;
     @Autowired @org.springframework.beans.factory.annotation.Qualifier("redisObjectMapper")
-    private com.fasterxml.jackson.databind.ObjectMapper redisMapper;
+    private tools.jackson.databind.ObjectMapper redisMapper;
     @Autowired private com.example.payment.infrastructure.persistence.redis.repository.CacheService cacheService;
     @Autowired private com.example.payment.application.service.TossPaymentIntentService tossIntentService;
 
@@ -1336,7 +1336,7 @@ class CommerceLifecycleHttpIntegrationTest extends FullCommerceTestcontainersSup
                                              Map<String, Object> body) throws Exception {
         var request = java.net.http.HttpRequest.newBuilder(java.net.URI.create("http://127.0.0.1:" + serverPort + path))
                 .timeout(java.time.Duration.ofSeconds(45)).header("Content-Type", "application/json")
-                .method(method, java.net.http.HttpRequest.BodyPublishers.ofString(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(body)));
+                .method(method, java.net.http.HttpRequest.BodyPublishers.ofString(new tools.jackson.databind.ObjectMapper().writeValueAsString(body)));
         headers.forEach((name, values) -> values.forEach(value -> request.header(name, value)));
         var response = java.net.http.HttpClient.newHttpClient().send(request.build(), java.net.http.HttpResponse.BodyHandlers.ofString());
         return ResponseEntity.status(response.statusCode()).body(response.body());

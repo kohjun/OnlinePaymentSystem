@@ -7,7 +7,7 @@ import com.example.payment.domain.repository.TossWebhookEventRepository;
 import com.example.payment.infrastructure.gateway.TossPaymentsGateway;
 import com.example.payment.infrastructure.gateway.TossPaymentsProperties;
 import com.example.payment.presentation.dto.response.CompleteReservationResponse;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

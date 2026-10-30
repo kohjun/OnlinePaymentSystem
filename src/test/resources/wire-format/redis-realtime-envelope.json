@@ -1,0 +1,1 @@
+{"originInstanceId":"instance-a","streamType":"SALE_EVENT","eventId":"EVENT-1","eventName":"auction.bid","payload":{"bidId":"BID-1","saleEventId":"EVT-1","customerId":"CUST-1","bidAmount":150000.00,"status":"ACCEPTED","createdAt":"2026-10-25T01:30:15Z"},"occurredAt":"2026-10-25T01:30:15Z"}

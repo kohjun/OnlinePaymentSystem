@@ -1,13 +1,10 @@
 package com.example.payment.infrastructure.config;
 
-import com.example.payment.infrastructure.persistence.redis.config.RedisConfig;
 import com.example.payment.presentation.dto.response.CompleteReservationResponse;
 import com.example.payment.presentation.dto.response.MarketplaceEventResponse;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.autoconfigure.AutoConfigurations;
-import org.springframework.boot.jackson2.autoconfigure.Jackson2AutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -22,11 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 
 class JacksonConfigTest {
 
-    // 운영과 같은 조합: Boot 자동 구성 + 이 설정 + RedisConfig가 등록하는 Redis 전용 매퍼.
-    private final ApplicationContextRunner context = new ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(Jackson2AutoConfiguration.class))
-            .withUserConfiguration(JacksonConfig.class)
-            .withBean("redisObjectMapper", ObjectMapper.class, () -> new RedisConfig().redisObjectMapper());
+    private final ApplicationContextRunner context = ApplicationJsonMappers.contextRunner();
 
     @Test
     void primaryMapperIsBootBuiltAndSeparateFromRedisMapper() {
@@ -41,7 +34,7 @@ class JacksonConfigTest {
 
             JsonNode json = mappers.application().valueToTree(problem);
 
-            assertEquals("MARKETPLACE_REQUEST_REJECTED", json.path("code").asText());
+            assertEquals("MARKETPLACE_REQUEST_REJECTED", json.path("code").asString());
             assertFalse(json.has("properties"));
         });
     }
@@ -59,7 +52,7 @@ class JacksonConfigTest {
                     .endsAt(LocalDateTime.of(2026, 10, 25, 1, 30, 15, 900_000_000))
                     .build();
 
-            assertEquals("2026-10-25T01:30:15Z", mappers.application().valueToTree(event).get("endsAt").asText());
+            assertEquals("2026-10-25T01:30:15Z", mappers.application().valueToTree(event).get("endsAt").asString());
         });
     }
 

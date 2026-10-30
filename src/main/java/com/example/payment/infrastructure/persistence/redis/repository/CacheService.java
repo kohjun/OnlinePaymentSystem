@@ -1,7 +1,7 @@
 package com.example.payment.infrastructure.persistence.redis.repository;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Qualifier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -95,7 +95,7 @@ public class CacheService {
             String jsonData = objectMapper.writeValueAsString(data);
             redisTemplate.opsForValue().set(key, jsonData, ttl);
             log.debug("Object cached: key={}", key);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.error("Failed to serialize object for key: {}", key, e);
         } catch (Exception e) {
             // [수정] 로컬 캐시 대신 에러 로깅

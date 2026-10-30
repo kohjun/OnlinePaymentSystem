@@ -1,12 +1,12 @@
 package com.example.payment.infrastructure.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.ser.LocalDateTimeSerializer;
-import org.springframework.boot.jackson2.autoconfigure.Jackson2ObjectMapperBuilderCustomizer;
+import org.springframework.boot.jackson.autoconfigure.JsonMapperBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
-import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
+import tools.jackson.databind.ext.javatime.ser.LocalDateTimeSerializer;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.module.SimpleModule;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -30,8 +30,9 @@ public class JacksonConfig {
             .toFormatter();
 
     @Bean
-    Jackson2ObjectMapperBuilderCustomizer utcLocalDateTimeSerializer() {
-        return builder -> builder.serializerByType(LocalDateTime.class, new LocalDateTimeSerializer(UTC_LOCAL_DATE_TIME));
+    JsonMapperBuilderCustomizer utcLocalDateTimeSerializer() {
+        return builder -> builder.addModule(new SimpleModule("utc-local-date-time")
+                .addSerializer(LocalDateTime.class, new LocalDateTimeSerializer(UTC_LOCAL_DATE_TIME)));
     }
 
     /**
@@ -45,7 +46,7 @@ public class JacksonConfig {
      */
     @Bean
     @Primary
-    ObjectMapper objectMapper(Jackson2ObjectMapperBuilder builder) {
-        return builder.createXmlMapper(false).build();
+    JsonMapper jsonMapper(JsonMapper.Builder builder) {
+        return builder.build();
     }
 }

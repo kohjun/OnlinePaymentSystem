@@ -24,7 +24,7 @@ import com.example.payment.presentation.dto.request.MarketplaceCheckoutRequest;
 import com.example.payment.presentation.dto.request.TossPaymentConfirmRequest;
 import com.example.payment.presentation.dto.response.CompleteReservationResponse;
 import com.example.payment.presentation.dto.response.TossPaymentIntentResponse;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;

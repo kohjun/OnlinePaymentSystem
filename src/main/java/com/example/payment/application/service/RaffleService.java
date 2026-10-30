@@ -21,7 +21,7 @@ import com.example.payment.presentation.dto.request.RaffleDrawRequest;
 import com.example.payment.presentation.dto.request.RaffleEntryRequest;
 import com.example.payment.presentation.dto.response.RaffleEntryResponse;
 import com.example.payment.presentation.dto.response.RaffleStatusResponse;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;

@@ -1,0 +1,1 @@
+{"createdAt":"2026-10-25T01:30:15","updatedAt":"2026-10-25T01:40:15","createdBy":"system","updatedBy":null,"orderId":"ORD-1","customerId":"CUST-1","productId":"PROD-1","quantity":2,"amount":{"amount":150000.00,"currency":"KRW","zero":false,"positive":true},"reservationId":"RES-1","paymentId":"PAY-1","currency":"KRW","status":"PAID","paid":true}

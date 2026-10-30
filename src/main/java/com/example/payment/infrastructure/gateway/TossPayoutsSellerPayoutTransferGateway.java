@@ -2,8 +2,8 @@ package com.example.payment.infrastructure.gateway;
 
 import com.example.payment.application.service.SellerPayoutTransferGateway;
 import com.example.payment.domain.model.marketplace.PayoutTransferStatus;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpEntity;
@@ -142,7 +142,7 @@ public class TossPayoutsSellerPayoutTransferGateway implements SellerPayoutTrans
     private TransferResult readTransferResult(String body, String fallbackTransferId, String referenceKey) {
         JsonNode node;
         try {
-            node = objectMapper.reader().with(com.fasterxml.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+            node = objectMapper.reader().with(tools.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
                     .readTree(body == null ? "{}" : body);
         } catch (Exception e) {
             return unknown(fallbackTransferId, "PAYOUT_RESPONSE_UNPARSEABLE");
@@ -257,7 +257,7 @@ public class TossPayoutsSellerPayoutTransferGateway implements SellerPayoutTrans
 
     private String text(JsonNode node, String field) {
         JsonNode value = node.get(field);
-        return value == null || value.isNull() ? null : value.asText();
+        return value == null || value.isNull() ? null : value.asString("");
     }
 
     private String defaultText(String value, String fallback) {

@@ -2,8 +2,8 @@ package com.example.payment.infrastructure.messaging.realtime;
 
 import com.example.payment.application.service.MarketplaceRealtimeEnvelope;
 import com.example.payment.application.service.MarketplaceRealtimeService;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.example.payment.infrastructure.persistence.redis.config.RedisConfig;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.connection.DefaultMessage;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -32,7 +32,7 @@ class RedisMarketplaceRealtimeBridgeTest {
     @Test
     void listenerDeserializesEnvelopeAndForwardsToRealtimeService() throws Exception {
         MarketplaceRealtimeService realtimeService = mock(MarketplaceRealtimeService.class);
-        ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        ObjectMapper objectMapper = new RedisConfig().redisObjectMapper();
         RedisMarketplaceRealtimeListener listener = new RedisMarketplaceRealtimeListener(realtimeService, objectMapper);
         MarketplaceRealtimeEnvelope envelope = envelope();
         byte[] body = objectMapper.writeValueAsBytes(envelope);

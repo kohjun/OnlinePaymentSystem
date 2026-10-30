@@ -5,8 +5,8 @@ import com.example.payment.domain.repository.PaymentIdempotencyRepository;
 import com.example.payment.infrastructure.tenancy.TenantContext;
 import com.example.payment.presentation.dto.request.CompleteReservationRequest;
 import com.example.payment.presentation.dto.response.CompleteReservationResponse;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import lombok.Builder;
 import lombok.RequiredArgsConstructor;
 import lombok.Value;
@@ -95,7 +95,7 @@ public class CompleteReservationIdempotencyService {
                     record.setStatus(response.getStatus());
                     try {
                         record.setResponseBody(response.isTerminal() ? objectMapper.writeValueAsString(response) : null);
-                    } catch (JsonProcessingException e) {
+                    } catch (JacksonException e) {
                         record.setResponseBody(null);
                     }
                     repository.save(record);

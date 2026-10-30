@@ -3,7 +3,7 @@ package com.example.payment.infrastructure.gateway;
 import com.example.payment.application.dto.PaymentGatewayRequest;
 import com.example.payment.application.dto.PaymentGatewayResult;
 import com.example.payment.domain.exception.PaymentGatewayResultUnknownException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;

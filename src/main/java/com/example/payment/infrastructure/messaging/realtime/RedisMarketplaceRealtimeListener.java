@@ -2,7 +2,7 @@ package com.example.payment.infrastructure.messaging.realtime;
 
 import com.example.payment.application.service.MarketplaceRealtimeEnvelope;
 import com.example.payment.application.service.MarketplaceRealtimeService;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;

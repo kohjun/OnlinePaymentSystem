@@ -26,7 +26,7 @@ import com.example.payment.presentation.dto.response.RaffleEntryResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.RedisTemplate;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.test.util.ReflectionTestUtils;
 import com.example.payment.infrastructure.security.CommerceActor;
 

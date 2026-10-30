@@ -2,7 +2,7 @@ package com.example.payment.infrastructure.messaging.outbox;
 
 import com.example.payment.domain.entity.OutboxEvent;
 import com.example.payment.domain.repository.OutboxEventRepository;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
