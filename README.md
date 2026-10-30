@@ -526,7 +526,11 @@ management.tracing.sampling.probability
                                  TRACING_SAMPLE_RATE     1.0 local, 0.1 in prod
 management.opentelemetry.tracing.export.otlp.endpoint
                                  OTLP_TRACES_ENDPOINT    http://localhost:4318/v1/traces
+management.otlp.metrics.export.enabled
+                                 OTLP_METRICS_ENABLED    default false
 ```
+
+Metrics are not pushed over OTLP. Prometheus scrapes `/actuator/prometheus`, while the OpenTelemetry starter would otherwise push metrics to `localhost:4318` every minute and log a failure whenever no collector accepts them. Enable `OTLP_METRICS_ENABLED` only together with `management.otlp.metrics.export.url` pointing at a collector that takes metrics; Jaeger takes traces only.
 
 `docker compose up -d` starts Jaeger; open `http://localhost:16686` and pick the `payment` service. Spans cover inbound HTTP, the security filter chain, scheduled jobs, outbound HTTP through both `RestTemplate` beans, Kafka publish/consume, and the Temporal Saga down to each activity.
 
