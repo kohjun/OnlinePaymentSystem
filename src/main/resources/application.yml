@@ -39,7 +39,6 @@ spring:
     show-sql: false
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
     open-in-view: false
 
@@ -136,6 +135,13 @@ management:
       export:
         otlp:
           endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+  otlp:
+    metrics:
+      export:
+        # 지표는 Prometheus가 /actuator/prometheus에서 가져간다. OpenTelemetry 스타터는
+        # OTLP 지표 푸시도 기본으로 켜서, 받는 수집기가 없으면 1분마다 localhost:4318로
+        # 보내다 실패한다. 지표를 받는 OTLP 수집기가 있을 때만 켜고 url을 함께 지정한다.
+        enabled: ${OTLP_METRICS_ENABLED:false}
 
 payment:
   processing:

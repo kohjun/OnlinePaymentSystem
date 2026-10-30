@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 @SpringBootTest
 @Transactional
-class MarketplaceNotificationPersistenceTest {
+class MarketplaceNotificationPersistenceTest extends TestcontainersIntegrationSupport {
 
     @Autowired
     private MarketplaceNotificationService notificationService;

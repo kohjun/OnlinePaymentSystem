@@ -44,7 +44,7 @@ import static org.mockito.ArgumentMatchers.any;
                 "spring.wal.enabled=false"
         }
 )
-@Transactional // 테스트 후 DB 롤백 (H2)
+@Transactional // 테스트 후 DB 롤백
 class SimpleIntegrationTest extends TestcontainersIntegrationSupport {
 
     @LocalServerPort
@@ -66,14 +66,14 @@ class SimpleIntegrationTest extends TestcontainersIntegrationSupport {
     private org.springframework.kafka.config.KafkaListenerEndpointRegistry kafkaListenerEndpointRegistry;
 
     // [수정] WAL 관련 NPE 오류를 유발하는 MockBean을 제거합니다.
-    // H2 데이터베이스에 WAL 로그가 정상적으로 기록되도록 허용합니다.
+    // DB에 WAL 로그가 정상적으로 기록되도록 허용합니다.
     // @MockitoBean
     // private com.example.payment.infrastructure.persistence.jpa.WalLogJpaRepository walLogJpaRepository;
 
 
     @BeforeAll
     static void init() {
-        System.out.println("\n=== SimpleIntegrationTest 시작 (Kafka Mock / H2 WAL 활성) ===\n");
+        System.out.println("\n=== SimpleIntegrationTest 시작 (Kafka Mock / WAL 활성) ===\n");
     }
 
     @BeforeEach
@@ -88,7 +88,7 @@ class SimpleIntegrationTest extends TestcontainersIntegrationSupport {
                         .build());
 
         // 2. Redis 재고 초기화 (test-data.sql과 동일하게)
-        // test-data.sql은 H2 DB만 초기화하고, 이 코드는 Redis를 초기화합니다.
+        // DB와 별개로, 이 코드는 Redis 재고를 초기화합니다.
         redisReservationService.initializeResource("inventory:PROD-001", 100, 100);
         redisReservationService.initializeResource("inventory:PROD-002", 50, 50);
     }
