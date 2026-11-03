@@ -8,11 +8,12 @@ import { AdminOperations } from './AdminOperations';
 import { AuthPanel } from './AuthPanel';
 import { CheckoutRecovery } from './CheckoutRecovery';
 import { cancellationLabel } from './cancellationStatus';
+import { SiteFooter, StoreHero, TrustBar, categories, categoryLabel } from './Storefront';
 import type { Identity, MarketplaceEvent, MarketplaceNotification, MarketplaceOrder, NotificationInbox, Page, SaleType, ShippingAddress, WishlistItem } from './types';
 
 const filters: Array<{ value: '' | SaleType; label: string }> = [
   { value: '', label: '전체' }, { value: 'FIXED_PRICE', label: '일반 판매' }, { value: 'DROP', label: '한정 수량' },
-  { value: 'RAFFLE', label: '래플' }, { value: 'AUCTION', label: '실시간 경매' }
+  { value: 'RAFFLE', label: '래플' }, { value: 'AUCTION', label: '경매' }
 ];
 
 export function App() {
@@ -21,6 +22,7 @@ export function App() {
   const [events, setEvents] = useState<Page<MarketplaceEvent>>();
   const [selected, setSelected] = useState<MarketplaceEvent>();
   const [saleType, setSaleType] = useState<'' | SaleType>('');
+  const [category, setCategory] = useState('');
   const [keyword, setKeyword] = useState('');
   const [searchValue, setSearchValue] = useState('');
   const [sort, setSort] = useState('startsAt');
@@ -98,13 +100,39 @@ export function App() {
     setLoading(true);
     const params = new URLSearchParams({ sort, page: String(page), size: '24' });
     if (saleType) params.set('saleType', saleType);
+    if (category) params.set('category', category);
     if (keyword) params.set('keyword', keyword);
     void api.events(params).then(setEvents).catch(error => notify(error.message, 'error')).finally(() => setLoading(false));
-  }, [keyword, page, saleType, sort, notify]);
+  }, [category, keyword, page, saleType, sort, notify]);
+
+  // 상품이나 다른 화면을 열 때 목록 아래쪽 스크롤 위치가 남지 않게 한다.
+  useEffect(() => {
+    if (typeof window.scrollTo === 'function') window.scrollTo({ top: 0 });
+  }, [selected, orders, addressBookOpen, sellerCenterOpen, adminOpen, wishlistOpen, notificationsOpen, authOpen]);
 
   const displayName = identity?.buyerProfile?.displayName ?? identity?.user?.displayName ?? identity?.customerId ?? '고객';
-  const liveCount = useMemo(() => events?.content.filter(event => event.status === 'LIVE').length ?? 0, [events]);
   const wishlistedIds = useMemo(() => new Set((wishlist ?? []).map(item => item.saleEventId)), [wishlist]);
+  const browsingHome = !category && !keyword && !saleType && page === 0;
+  const listingTitle = keyword ? `‘${keyword}’ 검색 결과` : category ? categoryLabel(category) : '새로 들어온 상품';
+
+  function showMarket() {
+    setSelected(undefined);
+    setOrders(undefined);
+    setAddressBookOpen(false);
+    setSellerCenterOpen(false);
+    setAdminOpen(false);
+    setWishlistOpen(false);
+    setNotificationsOpen(false);
+    setAuthOpen(false);
+  }
+
+  function browse(next: { category?: string; saleType?: '' | SaleType }) {
+    showMarket();
+    if (next.category !== undefined) setCategory(next.category);
+    if (next.saleType !== undefined) setSaleType(next.saleType);
+    setPage(0);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
 
   async function openOrders() {
     if (!identity) return requireAuthentication();
@@ -250,25 +278,41 @@ export function App() {
         <button className="electron-close" type="button" onClick={() => window.electronAPI?.closeWindow()} title="닫기"><X /></button>
       </div>
     </div>}
-    <header className="topbar">
-      <button className="brand" type="button" onClick={() => { setSelected(undefined); setOrders(undefined); setAddressBookOpen(false); setSellerCenterOpen(false); setAdminOpen(false); setWishlistOpen(false); setNotificationsOpen(false); setAuthOpen(false); }}><span>EVERYSALE</span><strong>에브리세일</strong></button>
-      <form className="search-box" onSubmit={event => { event.preventDefault(); setPage(0); setKeyword(searchValue.trim()); }} role="search">
-        <Search size={18} /><input value={searchValue} onChange={event => setSearchValue(event.target.value)} placeholder="상품, 브랜드, 판매자 검색" aria-label="마켓 검색" />
-        {searchValue && <button type="button" onClick={() => { setSearchValue(''); setKeyword(''); }} title="검색어 지우기"><X size={16} /></button>}
-      </form>
-      <nav aria-label="사용자 메뉴">
-        {identity?.roles.includes('ADMIN') && <button type="button" title="운영 관리" onClick={openAdmin}><ShieldCheck />운영 관리</button>}
-        <button type="button" title="상품 판매" onClick={openSellerCenter}><Store />상품 판매</button>
-        <button type="button" title="배송지" onClick={openAddressBook}><MapPin />배송지</button>
-        <button type="button" title="찜 목록" onClick={openWishlist}><Heart />찜 목록</button>
-        <button type="button" title="구매 내역" onClick={() => void openOrders()}><ShoppingBag />구매 내역</button>
-        <button className="notification-trigger" type="button" onClick={openNotifications} title="거래 알림" aria-label={`거래 알림 ${notificationInbox?.unreadCount ?? 0}개`}>
-          <Bell />{Boolean(notificationInbox?.unreadCount) && <span>{Math.min(notificationInbox!.unreadCount, 99)}</span>}
-        </button>
-        <span className="account-chip"><UserRound />{identity ? displayName : '방문자'}</span>
-        {signedIn
-          ? <button type="button" title="로그아웃" onClick={signOut}><LogOut />로그아웃</button>
-          : <button type="button" title="로그인" onClick={openAuth}><LogIn />로그인</button>}
+    <div className="utility-bar">
+      <div className="utility-bar__inner">
+        <span>검수를 거친 상품만 거래되는 C2C 마켓, 에브리세일</span>
+        <nav aria-label="바로 가기">
+          <button type="button" onClick={openSellerCenter}>판매자 센터</button>
+          <button type="button" onClick={openNotifications}>거래 알림</button>
+          <span>고객센터 평일 10:00 – 18:00</span>
+        </nav>
+      </div>
+    </div>
+    <header className="site-header">
+      <div className="site-header__main">
+        <button className="brand" type="button" onClick={() => browse({ category: '', saleType: '' })}><span>EVERYSALE</span><strong>에브리세일</strong></button>
+        <form className="search-box" onSubmit={event => { event.preventDefault(); showMarket(); setPage(0); setKeyword(searchValue.trim()); }} role="search">
+          <Search size={18} /><input value={searchValue} onChange={event => setSearchValue(event.target.value)} placeholder="찾는 상품이나 판매자를 검색해 보세요" aria-label="마켓 검색" />
+          {searchValue && <button type="button" onClick={() => { setSearchValue(''); setKeyword(''); }} title="검색어 지우기"><X size={16} /></button>}
+        </form>
+        <nav className="header-actions" aria-label="사용자 메뉴">
+          {identity?.roles.includes('ADMIN') && <button className="header-actions__admin" type="button" title="운영 관리" onClick={openAdmin}><ShieldCheck /><span>운영 관리</span></button>}
+          <button type="button" title="상품 판매" onClick={openSellerCenter}><Store /><span>상품 판매</span></button>
+          <button type="button" title="찜 목록" onClick={openWishlist}><Heart /><span>찜</span></button>
+          <button type="button" onClick={openNotifications} title="거래 알림" aria-label={`거래 알림 ${notificationInbox?.unreadCount ?? 0}개`}>
+            <Bell /><span>알림</span>{Boolean(notificationInbox?.unreadCount) && <span className="badge-count">{Math.min(notificationInbox!.unreadCount, 99)}</span>}
+          </button>
+          <button type="button" title="구매 내역" onClick={() => void openOrders()}><ShoppingBag /><span>구매 내역</span></button>
+          <button type="button" title="배송지" onClick={openAddressBook}><MapPin /><span>배송지</span></button>
+          {signedIn
+            ? <button type="button" title="로그아웃" onClick={signOut}><LogOut /><span>로그아웃</span></button>
+            : <button type="button" title="로그인" onClick={openAuth}><LogIn /><span>로그인</span></button>}
+          <span className="account-chip"><UserRound />{identity ? displayName : '방문자'}</span>
+        </nav>
+      </div>
+      <nav className="category-nav" aria-label="카테고리">
+        {categories.map(item => <button key={item.value || 'ALL'} type="button" aria-current={category === item.value}
+          onClick={() => browse({ category: item.value })}>{item.label}</button>)}
       </nav>
     </header>
 
@@ -287,17 +331,22 @@ export function App() {
               onRemove={saleEventId => toggleWishlist(saleEventId, true)} />
         : orders ? <Orders orders={orders} close={() => setOrders(undefined)} notify={notify} refresh={openOrders} />
           : <>
-            <section className="market-toolbar">
-              <div><h1>마켓플레이스</h1><p><span className="live-dot" />지금 거래 가능한 상품 {liveCount}개</p></div>
-              <select value={sort} onChange={event => { setSort(event.target.value); setPage(0); }} aria-label="상품 정렬">
-                <option value="startsAt">새로 시작한 순</option><option value="endingSoon">마감 임박 순</option>
-                <option value="priceAsc">낮은 가격 순</option><option value="priceDesc">높은 가격 순</option>
-              </select>
+            <h1 className="sr-only">마켓플레이스</h1>
+            {browsingHome && <StoreHero onCategory={value => browse({ category: value })} onSaleType={value => browse({ saleType: value })} />}
+            {browsingHome && <TrustBar />}
+            <section className="listing-head">
+              <div><h2>{listingTitle}</h2><p>지금 거래 가능한 상품 {(events?.totalElements ?? 0).toLocaleString('ko-KR')}개</p></div>
+              <div className="listing-tools">
+                <div className="chip-group" role="group" aria-label="판매 방식">
+                  {filters.map(filter => <button key={filter.value || 'ALL'} type="button" aria-pressed={saleType === filter.value}
+                    onClick={() => { setSaleType(filter.value); setPage(0); }}>{filter.label}</button>)}
+                </div>
+                <select value={sort} onChange={event => { setSort(event.target.value); setPage(0); }} aria-label="상품 정렬">
+                  <option value="startsAt">신상품순</option><option value="endingSoon">마감 임박순</option>
+                  <option value="priceAsc">낮은 가격순</option><option value="priceDesc">높은 가격순</option>
+                </select>
+              </div>
             </section>
-            <div className="segment-control" role="tablist" aria-label="판매 방식">
-              {filters.map(filter => <button key={filter.value || 'ALL'} role="tab" aria-selected={saleType === filter.value}
-                onClick={() => { setSaleType(filter.value); setPage(0); }}>{filter.label}</button>)}
-            </div>
             {loading ? <div className="content-state"><Loader2 className="spin" />상품을 불러오는 중입니다</div>
               : events?.content.length ? <section className="event-grid" aria-live="polite">{events.content.map(event => <EventCard key={event.saleEventId} event={event}
                   onOpen={() => setSelected(event)}
@@ -311,6 +360,8 @@ export function App() {
             </nav>}
           </>}
     </main>
+
+    <SiteFooter onSell={openSellerCenter} />
 
     {notice && <div className={`toast toast--${notice.tone}`} role={notice.tone === 'error' ? 'alert' : 'status'}>
       {notice.tone === 'error' ? <AlertCircle /> : <PackageCheck />}<span>{notice.message}</span><button onClick={() => setNotice(undefined)} title="알림 닫기"><X /></button>
