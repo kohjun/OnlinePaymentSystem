@@ -99,7 +99,7 @@ class MarketplaceQueryServiceTest {
                 .reservedQuantity(3)
                 .build()));
 
-        when(saleEventRepository.searchPublicEvents(any(), any(), any(), any()))
+        when(saleEventRepository.searchPublicEvents(any(), any(), any(), any(), any()))
                 .thenReturn(new PageImpl<>(List.of(event)));
         when(listingRepository.findAllById(any())).thenReturn(List.of(MarketplaceListing.builder()
                 .listingId("LIST-DRAW-NIKE")

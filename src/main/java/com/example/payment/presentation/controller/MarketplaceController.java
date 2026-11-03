@@ -172,12 +172,13 @@ public class MarketplaceController {
     public ResponseEntity<Page<MarketplaceEventResponse>> getEventsPage(
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String saleType,
+            @RequestParam(required = false) String category,
             @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "startsAt") String sort,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "24") int size) {
         return ResponseEntity.ok(marketplaceQueryService.getEventsPage(
-                status, saleType, keyword, sort, page, size));
+                status, saleType, category, keyword, sort, page, size));
     }
 
     @GetMapping("/events/{eventId}/raffle/stream")

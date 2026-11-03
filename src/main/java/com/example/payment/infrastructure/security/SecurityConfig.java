@@ -160,7 +160,7 @@ public class SecurityConfig {
         http.csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/", "/index.html", "/shared.html", "/seller.html", "/app", "/app/**", "/*.css", "/*.js", "/*.png", "/*.ico", "/error").permitAll()
+                        .requestMatchers("/", "/index.html", "/shared.html", "/seller.html", "/app", "/app/**", "/*.css", "/*.js", "/*.png", "/*.ico", "/catalog/**", "/error").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/system/health", "/api/system/health/**", "/api/system/readiness", "/api/payments/health").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/media/product-images/**", "/api/media/listings/*/images").permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()

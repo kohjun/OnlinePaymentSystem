@@ -96,6 +96,8 @@ class MarketplaceConcurrencyIntegrationTest extends TestcontainersIntegrationSup
         auction.setEndsAt(LocalDateTime.now(ZoneOffset.UTC).plusMinutes(30));
         auction.setPrice(new BigDecimal("8500000.00"));
         auction.setMinBidIncrement(new BigDecimal("100000.00"));
+        // 최저 낙찰가는 시작가 이상이어야 한다(chk_sale_event_auction_rules). 데모 시드 값에 기대지 않는다.
+        auction.setReservePrice(new BigDecimal("8500000.00"));
         saleEventRepository.save(auction);
 
         var raffle = saleEventRepository.findById(RAFFLE_EVENT_ID).orElseThrow();
