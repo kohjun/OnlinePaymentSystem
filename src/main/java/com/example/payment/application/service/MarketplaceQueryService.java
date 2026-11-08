@@ -63,6 +63,7 @@ public class MarketplaceQueryService {
      */
     private Page<SaleEvent> searchEvents(List<SaleEventStatus> statuses,
                                          SaleType saleTypeFilter,
+                                         String category,
                                          String keyword,
                                          PageRequest pageRequest) {
         SaleEventSearchIndex searchIndex = searchIndexProvider.getIfAvailable();
@@ -73,18 +74,32 @@ public class MarketplaceQueryService {
                     return Page.empty(pageRequest);
                 }
                 return saleEventRepository.findPublicEventsByIds(
-                        statuses, saleTypeFilter, candidateIds, pageRequest);
+                        statuses, saleTypeFilter, category, candidateIds, pageRequest);
             }
         }
 
         String keywordFilter = notBlank(keyword)
                 ? "%" + keyword.trim().toLowerCase(Locale.ROOT) + "%"
                 : null;
-        return saleEventRepository.searchPublicEvents(statuses, saleTypeFilter, keywordFilter, pageRequest);
+        return saleEventRepository.searchPublicEvents(statuses, saleTypeFilter, category, keywordFilter, pageRequest);
     }
 
     public Page<MarketplaceEventResponse> getEventsPage(String status,
                                                         String saleType,
+                                                        String keyword,
+                                                        String sort,
+                                                        int page,
+                                                        int size) {
+        return getEventsPage(status, saleType, null, keyword, sort, page, size);
+    }
+
+    /**
+     * 카테고리는 상품 등록 화면이 쓰는 코드(FASHION, ELECTRONICS 등)로 거른다.
+     * 대소문자만 맞추고 목록에 없는 값은 그대로 넘겨, 결과가 비어 있게 둔다.
+     */
+    public Page<MarketplaceEventResponse> getEventsPage(String status,
+                                                        String saleType,
+                                                        String category,
                                                         String keyword,
                                                         String sort,
                                                         int page,
@@ -98,8 +113,9 @@ public class MarketplaceQueryService {
 
         int safePage = Math.max(0, page);
         int safeSize = Math.max(1, Math.min(size, 100));
+        String categoryFilter = notBlank(category) ? category.trim().toUpperCase(Locale.ROOT) : null;
         Page<SaleEvent> events = searchEvents(
-                statuses, saleTypeFilter, keyword, PageRequest.of(safePage, safeSize, eventSort(sort)));
+                statuses, saleTypeFilter, categoryFilter, keyword, PageRequest.of(safePage, safeSize, eventSort(sort)));
 
         Map<String, MarketplaceListing> listings = marketplaceListingRepository
                 .findAllById(events.stream().map(SaleEvent::getListingId).distinct().toList())

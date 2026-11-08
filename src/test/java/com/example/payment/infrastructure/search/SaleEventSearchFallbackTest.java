@@ -52,9 +52,9 @@ class SaleEventSearchFallbackTest {
             productRepository, inventoryRepository, searchIndexProvider);
 
     private void stubEmptyDatabaseResults() {
-        when(saleEventRepository.searchPublicEvents(any(), any(), any(), any()))
+        when(saleEventRepository.searchPublicEvents(any(), any(), any(), any(), any()))
                 .thenReturn(new PageImpl<>(List.of(), Pageable.ofSize(24), 0));
-        when(saleEventRepository.findPublicEventsByIds(any(), any(), any(), any()))
+        when(saleEventRepository.findPublicEventsByIds(any(), any(), any(), any(), any()))
                 .thenReturn(new PageImpl<>(List.of(), Pageable.ofSize(24), 0));
         when(listingRepository.findAllById(any())).thenReturn(List.of());
         when(productRepository.findAllById(any())).thenReturn(List.of());
@@ -70,8 +70,8 @@ class SaleEventSearchFallbackTest {
 
         service.getEventsPage(null, null, "스니커즈", "startsAt", 0, 24);
 
-        verify(saleEventRepository).searchPublicEvents(any(), any(), anyString(), any());
-        verify(saleEventRepository, never()).findPublicEventsByIds(any(), any(), any(), any());
+        verify(saleEventRepository).searchPublicEvents(any(), any(), any(), anyString(), any());
+        verify(saleEventRepository, never()).findPublicEventsByIds(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -84,8 +84,8 @@ class SaleEventSearchFallbackTest {
         service.getEventsPage(null, null, "스니커즈", "startsAt", 0, 24);
 
         // 색인이 뒤처져 이미 내려간 상품을 줘도 DB 조건에서 걸러진다.
-        verify(saleEventRepository).findPublicEventsByIds(any(), any(), eq(List.of("EVT-1", "EVT-2")), any());
-        verify(saleEventRepository, never()).searchPublicEvents(any(), any(), anyString(), any());
+        verify(saleEventRepository).findPublicEventsByIds(any(), any(), any(), eq(List.of("EVT-1", "EVT-2")), any());
+        verify(saleEventRepository, never()).searchPublicEvents(any(), any(), any(), anyString(), any());
     }
 
     @Test
@@ -98,7 +98,7 @@ class SaleEventSearchFallbackTest {
 
         service.getEventsPage(null, null, "스니커즈", "startsAt", 0, 24);
 
-        verify(saleEventRepository).searchPublicEvents(any(), any(), anyString(), any());
+        verify(saleEventRepository).searchPublicEvents(any(), any(), any(), anyString(), any());
     }
 
     @Test
@@ -111,8 +111,8 @@ class SaleEventSearchFallbackTest {
 
         service.getEventsPage(null, null, "없는상품", "startsAt", 0, 24);
 
-        verify(saleEventRepository, never()).searchPublicEvents(any(), any(), anyString(), any());
-        verify(saleEventRepository, never()).findPublicEventsByIds(any(), any(), any(), any());
+        verify(saleEventRepository, never()).searchPublicEvents(any(), any(), any(), anyString(), any());
+        verify(saleEventRepository, never()).findPublicEventsByIds(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -124,6 +124,20 @@ class SaleEventSearchFallbackTest {
         service.getEventsPage(null, null, null, "startsAt", 0, 24);
 
         verify(searchIndex, never()).findEventIds(any());
-        verify(saleEventRepository).searchPublicEvents(any(), any(), eq(null), any());
+        verify(saleEventRepository).searchPublicEvents(any(), any(), any(), eq(null), any());
+    }
+
+    @Test
+    @DisplayName("카테고리는 상품 등록 코드로 맞춰 색인 경로와 DB 경로 모두에 넘긴다")
+    void categoryIsNormalizedForBothSearchPaths() {
+        when(searchIndexProvider.getIfAvailable()).thenReturn(searchIndex);
+        when(searchIndex.findEventIds("니트")).thenReturn(Optional.of(List.of("EVT-1")));
+        stubEmptyDatabaseResults();
+
+        service.getEventsPage(null, null, " fashion ", null, "startsAt", 0, 24);
+        service.getEventsPage(null, null, "fashion", "니트", "startsAt", 0, 24);
+
+        verify(saleEventRepository).searchPublicEvents(any(), any(), eq("FASHION"), eq(null), any());
+        verify(saleEventRepository).findPublicEventsByIds(any(), any(), eq("FASHION"), eq(List.of("EVT-1")), any());
     }
 }

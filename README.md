@@ -297,7 +297,8 @@ GET /api/payments/health
 EverySale marketplace read APIs expose public sale events backed by sellers, listings, products, and inventory:
 
 ```text
-GET /api/marketplace/events?status=LIVE&saleType=RAFFLE&keyword=조던&sort=startsAt
+GET /api/marketplace/events?status=LIVE&saleType=RAFFLE&keyword=프린트&sort=startsAt
+GET /api/marketplace/events/page?category=FASHION&saleType=DROP&keyword=가방&sort=startsAt&page=0&size=24
 GET /api/marketplace/events/{eventId}
 POST /api/marketplace/events/{eventId}/checkout/toss/intents
 ```
@@ -309,7 +310,9 @@ Supported sale types:
 - `RAFFLE`
 - `AUCTION`
 
-The current seed data publishes limited-goods events for raffle, auction, and drop flows so the consumer marketplace can render real catalog data without using `/api/simulation/*`.
+`category` takes the listing codes the seller center uses: `FASHION`, `ELECTRONICS`, `HOME_LIVING`, `COLLECTIBLE`, `BEAUTY`, `CONCERT`.
+
+In the default `DEMO` distribution mode the seed publishes a curated catalog of 26 listings from six demo sellers across those categories, alongside the original raffle, auction and seated ticket events. Product photos are free Unsplash photos stored under `src/main/resources/static/catalog/`; [docs/catalog-photo-credits.md](docs/catalog-photo-credits.md) lists each source. Demo brands and sellers are fictional. Expired fixed-price and drop events reopen on startup; raffles and auctions reopen only when nobody entered or bid, so a finished draw or settlement is never rewritten.
 Public marketplace checkout creates a Toss intent first, opens the Toss payment window, then calls `POST /api/payments/toss/confirm`; confirm records the marketplace order ledger and seller payout for successful Saga responses.
 Non-Toss marketplace checkout endpoints have been removed; all public checkout variants create a Toss intent first.
 

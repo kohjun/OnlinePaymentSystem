@@ -77,6 +77,7 @@ public interface SaleEventRepository extends JpaRepository<SaleEvent, String> {
             where event.status in :statuses
               and listing.status = com.example.payment.domain.model.marketplace.ListingStatus.ACTIVE
               and (:saleType is null or event.saleType = :saleType)
+              and (:category is null or product.category = :category)
               and (:keyword is null
                    or lower(listing.title) like :keyword
                    or lower(listing.description) like :keyword
@@ -94,6 +95,7 @@ public interface SaleEventRepository extends JpaRepository<SaleEvent, String> {
             where event.status in :statuses
               and listing.status = com.example.payment.domain.model.marketplace.ListingStatus.ACTIVE
               and (:saleType is null or event.saleType = :saleType)
+              and (:category is null or product.category = :category)
               and (:keyword is null
                    or lower(listing.title) like :keyword
                    or lower(listing.description) like :keyword
@@ -104,13 +106,14 @@ public interface SaleEventRepository extends JpaRepository<SaleEvent, String> {
             """)
     Page<SaleEvent> searchPublicEvents(@Param("statuses") Collection<SaleEventStatus> statuses,
                                        @Param("saleType") SaleType saleType,
+                                       @Param("category") String category,
                                        @Param("keyword") String keyword,
                                        Pageable pageable);
 
     /**
      * 검색 색인이 고른 후보 중에서 공개 조건을 만족하는 것만 돌려준다.
      *
-     * 공개 여부·판매 방식 조건은 키워드 질의와 똑같이 적용한다. 색인이
+     * 공개 여부·판매 방식·카테고리 조건은 키워드 질의와 똑같이 적용한다. 색인이
      * 뒤처져 이미 내려간 상품을 후보로 주더라도 여기서 걸러지므로,
      * 검색 결과에 판매가 끝난 상품이 섞이지 않는다.
      */
@@ -121,6 +124,9 @@ public interface SaleEventRepository extends JpaRepository<SaleEvent, String> {
             where event.status in :statuses
               and listing.status = com.example.payment.domain.model.marketplace.ListingStatus.ACTIVE
               and (:saleType is null or event.saleType = :saleType)
+              and (:category is null or exists (
+                   select product.id from Product product
+                   where product.id = event.productId and product.category = :category))
               and event.saleEventId in :saleEventIds
             """,
             countQuery = """
@@ -130,10 +136,14 @@ public interface SaleEventRepository extends JpaRepository<SaleEvent, String> {
             where event.status in :statuses
               and listing.status = com.example.payment.domain.model.marketplace.ListingStatus.ACTIVE
               and (:saleType is null or event.saleType = :saleType)
+              and (:category is null or exists (
+                   select product.id from Product product
+                   where product.id = event.productId and product.category = :category))
               and event.saleEventId in :saleEventIds
             """)
     Page<SaleEvent> findPublicEventsByIds(@Param("statuses") Collection<SaleEventStatus> statuses,
                                           @Param("saleType") SaleType saleType,
+                                          @Param("category") String category,
                                           @Param("saleEventIds") Collection<String> saleEventIds,
                                           Pageable pageable);
 }
